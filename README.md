@@ -7,3 +7,4 @@ A learning path app that turns a broad topic into a clear, manageable study plan
 - Links:
   - [Team contract](./docs/team_contract.md)
   - [Meeting notes](./docs/meeting_notes/)
+  - [P2 - Weekly Updates](./docs/weekly_updates)
