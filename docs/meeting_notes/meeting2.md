@@ -67,3 +67,5 @@ Next Steps
       - Create a project roadmap with deadlines.
   - Leo:
       - Draft use case scenarios for the proposal demo.
+
+### Duration: 60 min
