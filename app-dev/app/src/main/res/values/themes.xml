@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Grasp" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+      Launch/window theme applied before Compose takes over. Keep it minimal: just set the
+      window background to Grasp's background color and let the bars be transparent for edge-to-edge.
+      The actual UI styling is all in Compose (ui/theme/Theme.kt).
+    -->
+    <style name="Theme.Grasp" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/grasp_background</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
 </resources>
