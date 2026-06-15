@@ -4,48 +4,24 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import com.example.grasp.ui.navigation.GraspApp
 import com.example.grasp.ui.theme.GraspTheme
 
+/**
+ * The single Activity that hosts the entire Compose UI (single-activity architecture).
+ *
+ * Responsibilities are intentionally tiny: apply the theme and launch the navigation graph.
+ * All screens, logic and data live under `ui/`, `core/` and `data/` following the MVP layering. 
+ * Start exploring from [com.example.grasp.ui.navigation.GraspNavHost].
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             GraspTheme {
-                HelloWorldApp()
+                GraspApp()
             }
         }
-    }
-}
-
-@Composable
-fun HelloWorldApp() {
-    Surface(
-        modifier = Modifier.fillMaxSize(),
-        color = MaterialTheme.colorScheme.background
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(text = "Hello, World!")
-        }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-fun HelloWorldPreview() {
-    GraspTheme {
-        HelloWorldApp()
     }
 }
