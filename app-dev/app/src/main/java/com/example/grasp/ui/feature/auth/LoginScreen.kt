@@ -61,6 +61,7 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var errorText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
+    var isSignUpMode by remember { mutableStateOf(false) } // Added mode toggle
 
     // (2) Presenter
     val presenter = remember { presenterFactory() }
@@ -96,7 +97,7 @@ fun LoginScreen(
             color = MaterialTheme.colorScheme.primary,
         )
         Text(
-            text = "Turn any topic into a clear path.",
+            text = if (isSignUpMode) "Create your account" else "Turn any topic into a clear path.",
             style = MaterialTheme.typography.bodyLarge,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
@@ -139,7 +140,13 @@ fun LoginScreen(
         Spacer(Modifier.height(24.dp))
 
         Button(
-            onClick = { presenter.onSubmit(email, password) },
+            onClick = {
+                if (isSignUpMode) {
+                    presenter.onSignUp(email, password)
+                } else {
+                    presenter.onLogin(email, password)
+                }
+            },
             enabled = !isLoading,
             modifier = Modifier
                 .fillMaxWidth()
@@ -152,13 +159,21 @@ fun LoginScreen(
                     strokeWidth = 2.dp,
                 )
             } else {
-                Text("Log in")
+                Text(if (isSignUpMode) "Sign Up" else "Log in")
             }
         }
 
-        // Account creation is a placeholder for the skeleton (see LoginPresenter TODO).
-        TextButton(onClick = { presenter.onSubmit(email, password) }) {
-            Text("New here? Create an account")
+        TextButton(
+            onClick = {
+                isSignUpMode = !isSignUpMode
+                errorText = null // Clear errors when switching modes
+            },
+            enabled = !isLoading
+        ) {
+            Text(
+                if (isSignUpMode) "Already have an account? Log in"
+                else "New here? Create an account"
+            )
         }
     }
 }

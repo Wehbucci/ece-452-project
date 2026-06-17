@@ -1,19 +1,26 @@
 package com.example.grasp.ui.feature.profile
 
 import com.example.grasp.core.mvp.BasePresenter
+import com.google.firebase.auth.FirebaseAuth
 
 /**
- * Logic for the Profile screen. Shows a hardcoded demo user for the skeleton; real version
- * reads the signed-in account and calls the auth backend to sign out.
+ * Logic for the Profile screen. Shows the signed-in Firebase user; calls the auth
+ * backend to sign out.
  */
 class ProfilePresenter : BasePresenter<ProfileContract.View>(), ProfileContract.Presenter {
 
+    private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+
     override fun onViewAttached() {
-        view?.showProfile(name = "Jordan", email = "jordan@uwaterloo.ca")
+        val user = auth.currentUser
+        view?.showProfile(
+            name = user?.displayName ?: "User",
+            email = user?.email ?: "guest@example.com"
+        )
     }
 
     override fun onLogout() {
-        // TODO(auth): clear the session/token, then navigate to login.
+        auth.signOut()
         view?.onLoggedOut()
     }
 }

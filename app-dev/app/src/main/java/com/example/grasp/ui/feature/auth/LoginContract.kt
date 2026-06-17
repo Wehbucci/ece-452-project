@@ -25,7 +25,10 @@ interface LoginContract {
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** User tapped "Log in" / "Sign up". */
-        fun onSubmit(email: String, password: String)
+        /** User tapped "Log in". */
+        fun onLogin(email: String, password: String)
+
+        /** User tapped "Sign Up". */
+        fun onSignUp(email: String, password: String)
     }
 }

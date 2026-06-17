@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "109715468468",
+    "project_id": "grasp-nullpointers",
+    "storage_bucket": "grasp-nullpointers.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:109715468468:android:64824315ea3d51377ce7e1",
+        "android_client_info": {
+          "package_name": "com.example.grasp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDU6aGBsrj-fugjPPARBQbG3O4l-H1UeLA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
