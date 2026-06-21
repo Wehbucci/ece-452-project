@@ -7,12 +7,10 @@ interface ProfileContract {
 
     interface View : MvpView {
         fun showProfile(name: String, email: String)
-        fun showSkillLevel(level: String)
         fun onLoggedOut()
     }
 
     interface Presenter : MvpPresenter<View> {
         fun onLogout()
-        fun onSkillLevelSelected(level: String)
     }
 }

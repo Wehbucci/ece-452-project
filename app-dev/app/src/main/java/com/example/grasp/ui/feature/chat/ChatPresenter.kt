@@ -6,10 +6,8 @@ import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
-import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
-import com.example.grasp.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -23,10 +21,7 @@ class ChatPresenter(
     private val blockIndex: Int = -1,
     private val repo: PathRepository = FakePathRepository,
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
-    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
-
-    private var skillLevel: String = "beginner"
 
     private val chatId: String = when {
         pathId.isNotEmpty() && nodeId.isNotEmpty() && blockIndex >= 0 -> "${pathId}__${nodeId}__${blockIndex}"
@@ -42,9 +37,6 @@ class ChatPresenter(
 
     override fun onViewAttached() {
         view?.showMessages(messages.toList())
-        scope.launch {
-            skillLevel = userRepo.getSkillLevel()
-        }
         scope.launch {
             val saved = chatRepo.loadMessages(chatId)
             if (saved.isNotEmpty()) {
@@ -118,21 +110,6 @@ class ChatPresenter(
         appendLine("You are a helpful AI tutor in the Grasp learning app.")
         appendLine("Be concise, clear, and encouraging.")
         appendLine("If the user shares an image, describe what you see and relate it to the topic.")
-        appendLine()
-        when (skillLevel) {
-            "intermediate" -> {
-                appendLine("The reader has INTERMEDIATE knowledge of this subject.")
-                appendLine("Use standard terminology, but briefly explain any nuanced or advanced concepts.")
-            }
-            "advanced" -> {
-                appendLine("The reader is ADVANCED in this subject.")
-                appendLine("Use technical language freely, go deep, and skip basic definitions.")
-            }
-            else -> {
-                appendLine("The reader is a BEGINNER in this subject.")
-                appendLine("Explain concepts from scratch, avoid jargon, and use simple real-world analogies.")
-            }
-        }
         appendLine()
 
         val subtopic = if (pathId.isNotEmpty() && nodeId.isNotEmpty()) {

@@ -16,8 +16,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -38,14 +36,6 @@ import androidx.compose.ui.unit.dp
 import com.example.grasp.ui.components.GraspBottomBar
 import com.example.grasp.ui.navigation.TopLevelDestination
 
-/**
- * Profile / account screen (View). Top-level destination, so it hosts the bottom nav bar.
- *
- * The settings rows are placeholders that map to planned features.
- *
- * @param navigateToLogin called after logout (named differently from the View's `onLoggedOut`
- *        to avoid shadowing — see the LoginScreen note).
- */
 @Composable
 fun ProfileScreen(
     onSelectTab: (TopLevelDestination) -> Unit,
@@ -54,13 +44,11 @@ fun ProfileScreen(
 ) {
     var userName by remember { mutableStateOf("") }
     var userEmail by remember { mutableStateOf("") }
-    var skillLevel by remember { mutableStateOf("beginner") }
 
     val presenter = remember { presenterFactory() }
     val view = remember(navigateToLogin) {
         object : ProfileContract.View {
             override fun showProfile(name: String, email: String) { userName = name; userEmail = email }
-            override fun showSkillLevel(level: String) { skillLevel = level }
             override fun onLoggedOut() = navigateToLogin()
         }
     }
@@ -80,7 +68,6 @@ fun ProfileScreen(
                 .padding(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Avatar (initials) + identity.
             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = CircleShape) {
                 Box(modifier = Modifier.size(84.dp), contentAlignment = Alignment.Center) {
                     Text(
@@ -96,12 +83,7 @@ fun ProfileScreen(
 
             Spacer(Modifier.size(28.dp))
 
-            // Skill level picker.
-            SkillLevelSection(
-                current = skillLevel,
-                onSelect = presenter::onSkillLevelSelected,
-            )
-            HorizontalDivider()
+            SettingRow("Learning preferences") { /* TODO: difficulty / length / format */ }
             SettingRow("Offline content") { /* TODO: manage cached paths */ }
             SettingRow("Notifications") { /* TODO */ }
             SettingRow("About Grasp") { /* TODO */ }
@@ -115,30 +97,6 @@ fun ProfileScreen(
                 Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = null)
                 Spacer(Modifier.size(8.dp))
                 Text("Log out")
-            }
-        }
-    }
-}
-
-private val SKILL_LEVELS = listOf("beginner", "intermediate", "advanced")
-
-@Composable
-private fun SkillLevelSection(current: String, onSelect: (String) -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
-        Text("Knowledge level", style = MaterialTheme.typography.titleMedium)
-        Text(
-            "The AI tutor adapts its explanations to your level",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(top = 2.dp, bottom = 10.dp),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SKILL_LEVELS.forEach { level ->
-                FilterChip(
-                    selected = current == level,
-                    onClick = { onSelect(level) },
-                    label = { Text(level.replaceFirstChar { it.uppercase() }) },
-                )
             }
         }
     }
