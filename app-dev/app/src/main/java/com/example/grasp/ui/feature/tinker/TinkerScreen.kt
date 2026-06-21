@@ -48,18 +48,20 @@ import com.example.grasp.ui.components.LabeledLinearProgress
 fun TinkerScreen(
     guideId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String) -> Unit,
+    onOpenChat: (context: String, pathId: String) -> Unit,
     presenterFactory: (String) -> TinkerContract.Presenter = { TinkerPresenter(it) },
 ) {
     var currentGuide by remember { mutableStateOf<TinkerGuide?>(null) }
     var notFound by remember { mutableStateOf(false) }
+    var hasChatHistory by remember { mutableStateOf(false) }
 
     val presenter = remember(guideId) { presenterFactory(guideId) }
     val view = remember(onOpenChat) {
         object : TinkerContract.View {
             override fun showGuide(guide: TinkerGuide) { currentGuide = guide; notFound = false }
             override fun showNotFound() { notFound = true }
-            override fun openChat(context: String) = onOpenChat(context)
+            override fun openChat(context: String, pathId: String) = onOpenChat(context, pathId)
+            override fun showChatIndicator(hasHistory: Boolean) { hasChatHistory = hasHistory }
         }
     }
     DisposableEffect(presenter, view) {
@@ -81,7 +83,7 @@ fun TinkerScreen(
         floatingActionButton = {
             if (currentGuide != null) {
                 ExtendedFloatingActionButton(
-                    text = { Text("Ask AI") },
+                    text = { Text(if (hasChatHistory) "Continue chat" else "Ask AI") },
                     icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
                     onClick = presenter::onAskAi,
                 )

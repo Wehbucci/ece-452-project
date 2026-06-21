@@ -26,6 +26,7 @@ object GraspDestinations {
     const val ARG_PATH_ID = "pathId"
     const val ARG_NODE_ID = "nodeId"
     const val ARG_CONTEXT = "context"
+    const val ARG_BLOCK_INDEX = "blockIndex"
 
     // ---- Learner: roadmap (list + tree views live behind one route) ----
     const val PATH = "path/{$ARG_PATH_ID}"
@@ -39,9 +40,14 @@ object GraspDestinations {
     const val SUBTOPIC = "subtopic/{$ARG_PATH_ID}/{$ARG_NODE_ID}"
     fun subtopic(pathId: String, nodeId: String) = "subtopic/$pathId/$nodeId"
 
-    // ---- Multi-modal AI chat. `context` describes what we're chatting about. ----
-    const val CHAT = "chat?$ARG_CONTEXT={$ARG_CONTEXT}"
-    fun chat(context: String = "your material") = "chat?$ARG_CONTEXT=$context"
+    // ---- Multi-modal AI chat. `context` is the display title; pathId/nodeId/blockIndex identify the chat. ----
+    const val CHAT = "chat?$ARG_CONTEXT={$ARG_CONTEXT}&$ARG_PATH_ID={$ARG_PATH_ID}&$ARG_NODE_ID={$ARG_NODE_ID}&$ARG_BLOCK_INDEX={$ARG_BLOCK_INDEX}"
+    fun chat(
+        context: String = "your material",
+        pathId: String = "",
+        nodeId: String = "",
+        blockIndex: Int = -1,
+    ) = "chat?$ARG_CONTEXT=$context&$ARG_PATH_ID=$pathId&$ARG_NODE_ID=$nodeId&$ARG_BLOCK_INDEX=$blockIndex"
 }
 
 /**

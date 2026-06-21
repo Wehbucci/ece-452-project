@@ -5,42 +5,24 @@ import com.example.grasp.core.mvp.MvpView
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
 
-/**
- * MVP contract for the Subtopic detail screen.
- *
- * Shows the resolved content for one node (summary, why it matters, body blocks, resources)
- * and lets the user mark it complete or open the AI chat about it.
- */
 interface SubtopicContract {
 
     interface View : MvpView {
-        /** Render the loaded content. */
         fun showSubtopic(subtopic: Subtopic)
-
-        /** Couldn't resolve the content (graceful error). */
         fun showNotFound()
-
-        /** Reflect the latest completion state on the "Mark complete" control. */
         fun showCompleted(completed: Boolean)
-
-        /** Open the multi-modal AI chat scoped to [context] (e.g. the subtopic or a block). */
-        fun openChat(context: String)
-
-        /** Open an external resource link. */
+        /** Open the AI chat. [blockIndex] is -1 for the subtopic-level FAB chat. */
+        fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int = -1)
         fun openResource(url: String)
+        /** Drive the history indicators: FAB badge and per-block indicators. */
+        fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIndices: Set<Int>)
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** Toggle the subtopic's completion. */
         fun onToggleComplete()
-
-        /** Ask the AI about the whole subtopic. */
         fun onAskAi()
-
-        /** Ask the AI about a specific content block the user tapped. */
-        fun onBlockClicked(blockText: String)
-
-        /** Open a "Dive deeper" resource. */
+        /** [blockIndex] is the position of the tapped block in the body list. */
+        fun onBlockClicked(blockText: String, blockIndex: Int)
         fun onResourceClicked(link: ResourceLink)
     }
 }

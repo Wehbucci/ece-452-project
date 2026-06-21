@@ -3,22 +3,24 @@ package com.example.grasp.ui.feature.tinker
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
+import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.PathRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-/**
- * Logic for the Tinkerer guide screen. Holds the working copy of the guide so step toggles
- * recompute progress, then re-emits it to the View.
- *
- * SKELETON behavior: toggles live in memory only (not persisted). Offline checklist updates
- * are explicitly allowed, so this is the right seam to later persist locally.
- */
 class TinkerPresenter(
     private val guideId: String,
     private val repo: PathRepository = FakePathRepository,
+    private val chatRepo: ChatRepository = FirebaseChatRepository(),
 ) : BasePresenter<TinkerContract.View>(), TinkerContract.Presenter {
 
     private var guide: TinkerGuide? = null
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onViewAttached() {
         val loaded = repo.tinkerGuide(guideId)
@@ -26,6 +28,15 @@ class TinkerPresenter(
             guide = loaded
             view?.showGuide(loaded)
         }
+        scope.launch {
+            val hasHistory = chatRepo.existingChatIds("tinker__$guideId").isNotEmpty()
+            view?.showChatIndicator(hasHistory)
+        }
+    }
+
+    override fun detach() {
+        scope.cancel()
+        super.detach()
     }
 
     override fun onToggleStep(step: TinkerStep) {
@@ -38,6 +49,6 @@ class TinkerPresenter(
     }
 
     override fun onAskAi() {
-        view?.openChat(guide?.title ?: "your task")
+        view?.openChat(guide?.title ?: "your task", guideId)
     }
 }

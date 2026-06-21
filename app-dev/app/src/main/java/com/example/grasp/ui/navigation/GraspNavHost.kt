@@ -103,7 +103,9 @@ fun GraspNavHost(
             TinkerScreen(
                 guideId = guideId,
                 onBack = navController::popBackStack,
-                onOpenChat = { navController.navigate(GraspDestinations.chat(it)) },
+                onOpenChat = { ctx, pathId ->
+                    navController.navigate(GraspDestinations.chat(ctx, pathId))
+                },
             )
         }
 
@@ -119,7 +121,9 @@ fun GraspNavHost(
                 pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
                 nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
                 onBack = navController::popBackStack,
-                onOpenChat = { navController.navigate(GraspDestinations.chat(it)) },
+                onOpenChat = { ctx, pathId, nodeId, blockIndex ->
+                    navController.navigate(GraspDestinations.chat(ctx, pathId, nodeId, blockIndex))
+                },
             )
         }
 
@@ -131,10 +135,25 @@ fun GraspNavHost(
                     type = NavType.StringType
                     defaultValue = "your material"
                 },
+                navArgument(GraspDestinations.ARG_PATH_ID) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(GraspDestinations.ARG_NODE_ID) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(GraspDestinations.ARG_BLOCK_INDEX) {
+                    type = NavType.IntType
+                    defaultValue = -1
+                },
             ),
         ) { entry ->
             ChatScreen(
                 chatContext = entry.arguments?.getString(GraspDestinations.ARG_CONTEXT) ?: "your material",
+                pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
+                nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
+                blockIndex = entry.arguments?.getInt(GraspDestinations.ARG_BLOCK_INDEX) ?: -1,
                 onBack = navController::popBackStack,
             )
         }

@@ -1,53 +1,169 @@
 package com.example.grasp.ui.feature.chat
 
+import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebaseChatRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
+import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
-/**
- * Logic for the AI chat screen. Seeds the conversation with sample history and echoes a
- * canned assistant reply when the user sends a message.
- *
- * @param context what we're chatting about (subtopic title or a highlighted block); shown in
- *        the header and would be sent to the AI as grounding context.
- */
 class ChatPresenter(
     private val context: String,
+    private val pathId: String = "",
+    private val nodeId: String = "",
+    private val blockIndex: Int = -1,
     private val repo: PathRepository = FakePathRepository,
+    private val chatRepo: ChatRepository = FirebaseChatRepository(),
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
-    // Mutable working copy of the conversation.
+    private var skillLevel: String = "beginner"
+
+    private val chatId: String = when {
+        pathId.isNotEmpty() && nodeId.isNotEmpty() && blockIndex >= 0 -> "${pathId}__${nodeId}__${blockIndex}"
+        pathId.isNotEmpty() && nodeId.isNotEmpty() -> "${pathId}__${nodeId}"
+        pathId.isNotEmpty() -> "tinker__${pathId}"
+        else -> "general"
+    }
+
     private val messages = mutableListOf<ChatMessage>()
     private var nextId = 0
+    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val gemini by lazy { GeminiChatSession(buildSystemInstruction()) }
 
     override fun onViewAttached() {
-        messages.clear()
-        messages.addAll(repo.sampleChat())
-        nextId = messages.size
         view?.showMessages(messages.toList())
+        scope.launch {
+            skillLevel = userRepo.getSkillLevel()
+        }
+        scope.launch {
+            val saved = chatRepo.loadMessages(chatId)
+            if (saved.isNotEmpty()) {
+                messages.clear()
+                messages.addAll(saved)
+                nextId = messages.size
+                view?.showMessages(messages.toList())
+            }
+        }
+    }
+
+    override fun detach() {
+        scope.cancel()
+        super.detach()
     }
 
     override fun onSend(text: String) {
         if (text.isBlank()) return
-        messages += ChatMessage("local-${nextId++}", ChatMessage.Author.USER, text.trim())
-        // TODO(ai): replace the canned reply with a coroutine call to the AI proxy.
-        messages += ChatMessage(
-            id = "local-${nextId++}",
-            author = ChatMessage.Author.ASSISTANT,
-            text = "(Demo) Here's where the AI's answer about \"$context\" will appear.",
-        )
+
+        val userMessage = ChatMessage("msg-${nextId++}", ChatMessage.Author.USER, text.trim())
+        messages += userMessage
+
+        val pendingId = "msg-${nextId++}"
+        messages += ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, "", pending = true)
         view?.showMessages(messages.toList())
+
+        scope.launch {
+            chatRepo.saveMessage(chatId, context, userMessage)
+        }
+
+        scope.launch {
+            var accumulated = ""
+            try {
+                gemini.sendMessageStream(text.trim()).collect { chunk ->
+                    accumulated += chunk
+                    updatePending(pendingId, accumulated, stillPending = true)
+                }
+                updatePending(pendingId, accumulated, stillPending = false)
+                val assistantMessage = ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, accumulated)
+                chatRepo.saveMessage(chatId, context, assistantMessage)
+            } catch (e: Exception) {
+                Log.e("ChatPresenter", "Gemini call failed", e)
+                updatePending(
+                    pendingId,
+                    text = "Error: ${e.javaClass.simpleName}: ${e.message}",
+                    stillPending = false,
+                )
+            }
+        }
     }
 
     override fun onAttachImage() {
-        // Placeholder: in the real app this opens the photo picker and attaches the image.
         messages += ChatMessage(
-            id = "local-${nextId++}",
+            id = "msg-${nextId++}",
             author = ChatMessage.Author.USER,
             text = "",
             imageUri = "sample://attached-photo",
         )
         view?.showMessages(messages.toList())
+    }
+
+    private fun updatePending(id: String, text: String, stillPending: Boolean) {
+        val idx = messages.indexOfFirst { it.id == id }
+        if (idx >= 0) {
+            messages[idx] = messages[idx].copy(text = text, pending = stillPending)
+            view?.showMessages(messages.toList())
+        }
+    }
+
+    private fun buildSystemInstruction(): String = buildString {
+        appendLine("You are a helpful AI tutor in the Grasp learning app.")
+        appendLine("Be concise, clear, and encouraging.")
+        appendLine("If the user shares an image, describe what you see and relate it to the topic.")
+        appendLine()
+        when (skillLevel) {
+            "intermediate" -> {
+                appendLine("The reader has INTERMEDIATE knowledge of this subject.")
+                appendLine("Use standard terminology, but briefly explain any nuanced or advanced concepts.")
+            }
+            "advanced" -> {
+                appendLine("The reader is ADVANCED in this subject.")
+                appendLine("Use technical language freely, go deep, and skip basic definitions.")
+            }
+            else -> {
+                appendLine("The reader is a BEGINNER in this subject.")
+                appendLine("Explain concepts from scratch, avoid jargon, and use simple real-world analogies.")
+            }
+        }
+        appendLine()
+
+        val subtopic = if (pathId.isNotEmpty() && nodeId.isNotEmpty()) {
+            repo.subtopic(pathId, nodeId)
+        } else null
+
+        if (subtopic != null) {
+            appendLine("The user is studying: \"${subtopic.title}\"")
+            appendLine()
+            appendLine("Summary: ${subtopic.summary}")
+            appendLine()
+            appendLine("Why it matters: ${subtopic.whyItMatters}")
+            appendLine()
+            appendLine("Content:")
+            subtopic.body.forEach { paragraph -> appendLine(paragraph) }
+        } else if (pathId.isNotEmpty()) {
+            val guide = repo.tinkerGuide(pathId)
+            if (guide != null) {
+                appendLine("The user is working on the task: \"${guide.title}\"")
+                appendLine()
+                appendLine("Steps:")
+                guide.steps.forEach { step ->
+                    append("${step.order}. ${step.instruction}")
+                    if (step.detail.isNotBlank()) append(" (${step.detail})")
+                    appendLine()
+                }
+            } else {
+                appendLine("The user is studying: $context")
+            }
+        } else {
+            appendLine("The user is studying: $context")
+        }
     }
 }

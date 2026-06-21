@@ -2,6 +2,12 @@
 
 package com.example.grasp.ui.feature.chat
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -39,8 +45,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.ui.components.MarkdownText
 
 /**
  * Multi-modal AI chat screen (View). MVP wiring matches
@@ -52,13 +60,16 @@ import com.example.grasp.data.model.ChatMessage
 @Composable
 fun ChatScreen(
     chatContext: String,
+    pathId: String = "",
+    nodeId: String = "",
+    blockIndex: Int = -1,
     onBack: () -> Unit,
-    presenterFactory: (String) -> ChatContract.Presenter = { ChatPresenter(it) },
+    presenterFactory: (String, String, String, Int) -> ChatContract.Presenter = { ctx, p, n, b -> ChatPresenter(ctx, p, n, b) },
 ) {
     var history by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
 
-    val presenter = remember(chatContext) { presenterFactory(chatContext) }
+    val presenter = remember(chatContext, pathId, nodeId, blockIndex) { presenterFactory(chatContext, pathId, nodeId, blockIndex) }
     val view = remember {
         object : ChatContract.View {
             override fun showMessages(messages: List<ChatMessage>) { history = messages }
@@ -70,8 +81,8 @@ fun ChatScreen(
     }
 
     val listState = rememberLazyListState()
-    // Keep the newest message in view as the conversation grows.
-    LaunchedEffect(history.size) {
+    // Stay pinned to the bottom as new messages arrive and as streaming text grows.
+    LaunchedEffect(history.size, history.lastOrNull()?.text) {
         if (history.isNotEmpty()) listState.animateScrollToItem(history.lastIndex)
     }
 
@@ -142,7 +153,6 @@ private fun MessageBubble(message: ChatMessage) {
         ) {
             Column(modifier = Modifier.padding(12.dp)) {
                 if (message.imageUri != null) {
-                    // Placeholder for an attached photo (no real image loading in the skeleton).
                     Box(
                         modifier = Modifier
                             .size(width = 180.dp, height = 120.dp)
@@ -158,10 +168,33 @@ private fun MessageBubble(message: ChatMessage) {
                         }
                     }
                 }
-                if (message.text.isNotBlank()) {
-                    Text(message.text, style = MaterialTheme.typography.bodyLarge)
+                when {
+                    message.pending && message.text.isEmpty() -> TypingIndicator()
+                    message.text.isNotBlank() -> MarkdownText(
+                        message.text,
+                        style = MaterialTheme.typography.bodyLarge,
+                    )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TypingIndicator() {
+    val transition = rememberInfiniteTransition(label = "typing")
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(3) { i ->
+            val alpha by transition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(durationMillis = 400, delayMillis = i * 133, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                ),
+                label = "dot$i",
+            )
+            Text("●", modifier = Modifier.alpha(alpha), style = MaterialTheme.typography.bodyLarge)
         }
     }
 }

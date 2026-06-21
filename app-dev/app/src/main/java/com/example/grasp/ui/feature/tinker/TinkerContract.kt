@@ -18,8 +18,10 @@ interface TinkerContract {
         /** Couldn't resolve the guide (graceful error). */
         fun showNotFound()
 
-        /** Open the multi-modal AI chat scoped to [context]. */
-        fun openChat(context: String)
+        /** Open the multi-modal AI chat scoped to [context], with guide content identified by [pathId]. */
+        fun openChat(context: String, pathId: String)
+        /** Show or hide the history badge on the Ask AI FAB. */
+        fun showChatIndicator(hasHistory: Boolean)
     }
 
     interface Presenter : MvpPresenter<View> {

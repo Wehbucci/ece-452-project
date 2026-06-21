@@ -57,12 +57,14 @@ fun SubtopicScreen(
     pathId: String,
     nodeId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String) -> Unit,
+    onOpenChat: (context: String, pathId: String, nodeId: String, blockIndex: Int) -> Unit,
     presenterFactory: (String, String) -> SubtopicContract.Presenter = { p, n -> SubtopicPresenter(p, n) },
 ) {
     var content by remember { mutableStateOf<Subtopic?>(null) }
     var isComplete by remember { mutableStateOf(false) }
     var notFound by remember { mutableStateOf(false) }
+    var fabHasHistory by remember { mutableStateOf(false) }
+    var blocksWithHistory by remember { mutableStateOf(emptySet<Int>()) }
 
     val uriHandler = LocalUriHandler.current
     val presenter = remember(pathId, nodeId) { presenterFactory(pathId, nodeId) }
@@ -71,7 +73,12 @@ fun SubtopicScreen(
             override fun showSubtopic(subtopic: Subtopic) { content = subtopic; notFound = false }
             override fun showNotFound() { notFound = true }
             override fun showCompleted(completed: Boolean) { isComplete = completed }
-            override fun openChat(context: String) = onOpenChat(context)
+            override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) =
+                onOpenChat(context, pathId, nodeId, blockIndex)
+            override fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIndices: Set<Int>) {
+                fabHasHistory = hasFabHistory
+                blocksWithHistory = blockHistoryIndices
+            }
             override fun openResource(url: String) = uriHandler.openUri(url)
         }
     }
@@ -100,7 +107,7 @@ fun SubtopicScreen(
         floatingActionButton = {
             if (content != null) {
                 ExtendedFloatingActionButton(
-                    text = { Text("Ask AI") },
+                    text = { Text(if (fabHasHistory) "Continue chat" else "Ask AI") },
                     icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) },
                     onClick = presenter::onAskAi,
                 )
@@ -149,8 +156,12 @@ fun SubtopicScreen(
 
                 SectionHeader("Learn")
                 // Each block is tappable to ask the AI about it.
-                current.body.forEach { block ->
-                    ContentBlock(text = block, onClick = { presenter.onBlockClicked(block) })
+                current.body.forEachIndexed { index, block ->
+                    ContentBlock(
+                        text = block,
+                        hasHistory = index in blocksWithHistory,
+                        onClick = { presenter.onBlockClicked(block, index) },
+                    )
                 }
 
                 SectionHeader("Dive deeper")
@@ -180,12 +191,12 @@ fun SubtopicScreen(
 }
 
 @Composable
-private fun ContentBlock(text: String, onClick: () -> Unit) {
+private fun ContentBlock(text: String, hasHistory: Boolean, onClick: () -> Unit) {
     Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
             Text(text, style = MaterialTheme.typography.bodyLarge)
             Text(
-                "Tap to ask AI about this",
+                if (hasHistory) "Continue chat about this ›" else "Tap to ask AI about this",
                 style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.padding(top = 6.dp),
