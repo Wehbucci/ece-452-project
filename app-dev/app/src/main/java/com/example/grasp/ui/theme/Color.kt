@@ -83,3 +83,80 @@ val NodeBranchOut = Color(0xFFB07A00)
 
 /** Streak / highlight accent for attention-keeping nudges. Use sparingly. */
 val StreakAccent = Color(0xFFF2A03D)
+
+// ---------------------------------------------------------------------------
+// Gamified learning-path palette (Duolingo journey + RPG skill-tree)
+// ---------------------------------------------------------------------------
+// Semantic tokens for the vertically-scrolling roadmap and its subtopic bottom sheet
+// (see `design_handoff_gamified_path/README.md`). These are the "game" surface: chunky
+// bevelled node buttons, an XP bar, region pills and celebratory motion. They intentionally
+// live NEXT TO the calm `Node*` tokens above rather than replacing them — the journey screen
+// is a deliberately louder, more playful surface than the rest of the app.
+//
+// Node-state → token mapping (state is DERIVED in PathPresenter; the Composable only reads):
+//   done    -> fill PathNodeDone,    bevel PathNodeDoneBevel    (+ soft green glow)
+//   current -> fill PathNodeCurrent, bevel PathNodeCurrentBevel (+ soft indigo glow + pulse ring)
+//   open    -> fill PathCard, 3.dp border PathNodeCurrent, bevel PathNodeOpenBevel
+//   locked  -> fill PathNodeLockedFill, ink PathNodeLockedInk, bevel PathNodeLockedBevel
+//   branch  -> fill PathCard, 3.dp dashed border PathNodeBranch, bevel PathNodeBranchBevel
+//
+// "Game bevel" = a hard (0-blur) solid drop shadow directly below the circle in the *Bevel
+// token; do NOT use Modifier.shadow (its blur ruins the flat, stacked-plastic look).
+
+// ---- Text / ink ----
+/** Primary text and dark pills on the journey surface. */
+val PathInk = Color(0xFF211D3B)
+
+/** Secondary text (subtitles, muted labels). */
+val PathMuted = Color(0xFF7B778F)
+
+/** Tertiary text — estimates, and the "ink" of a locked node's label. */
+val PathFaint = Color(0xFFA8A5BC)
+
+// ---- Surfaces ----
+/** Journey screen background — a soft lilac-tinted off-white. */
+val PathScreenBg = Color(0xFFF3F2FB)
+
+/** HUD header card + bottom-sheet card. */
+val PathCard = Color(0xFFFFFFFF)
+
+/** Unfilled XP-bar track. */
+val PathXpTrack = Color(0xFFEDEBF7)
+
+/** Unfilled connector path between nodes. */
+val PathConnector = Color(0xFFE6E4F0)
+
+/** Region-label pill background ("FOUNDATIONS", "MASTERY", …). */
+val PathRegionPill = Color(0xFFEAE8F5)
+
+/** Neutral state-chip background in the subtopic sheet (upcoming/other states). */
+val PathChipNeutralBg = Color(0xFFF3F2FB)
+
+// ---- Node: DONE (green) ----
+val PathNodeDone = Color(0xFF1FB980)
+val PathNodeDoneBevel = Color(0xFF159A69) // hard bevel + filled connector color
+val PathNodeDoneTint = Color(0xFFE2F7EF)  // "done" state-chip background
+
+// ---- Node: CURRENT / OPEN (indigo, the one accent that says "go here next") ----
+val PathNodeCurrent = Color(0xFF6C5CE7)
+val PathNodeCurrentBevel = Color(0xFF5346D6)
+val PathNodeCurrentTint = Color(0xFFEDEAFE) // "current" state-chip background
+val PathNodeOpenBevel = Color(0xFFE4E1F0)   // soft bevel under an available (open) node
+
+// ---- Node: BRANCH + XP (amber "grow your path") ----
+val PathNodeBranch = Color(0xFFF5A524)
+val PathNodeBranchBevel = Color(0xFFEBDFC7)
+val PathXpFillStart = Color(0xFFF5A524) // XP-bar gradient start
+val PathXpFillEnd = Color(0xFFFFC65C)   // XP-bar gradient end
+
+// ---- Node: LOCKED ----
+val PathNodeLockedFill = Color(0xFFE1DFEC)
+val PathNodeLockedBevel = Color(0xFFCAC7D8)
+val PathNodeLockedInk = Color(0xFFA8A5BC)
+
+// ---- Accents ----
+/** Streak flame + count in the HUD. */
+val PathStreak = Color(0xFFFF6B57)
+
+/** "Why it matters" callout background in the subtopic sheet. */
+val PathWhyItMattersBg = Color(0xFFF7F0FF)
