@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -64,6 +65,7 @@ import com.example.grasp.ui.theme.PathNodeLockedBevel
 import com.example.grasp.ui.theme.PathNodeLockedFill
 import com.example.grasp.ui.theme.PathNodeLockedInk
 import com.example.grasp.ui.theme.PathNodeOpenBevel
+import com.example.grasp.ui.theme.PathScreenBg
 
 /**
  * Fixed geometry shared by the node layer ([PathNode]), the connector layer (TreeCanvas) and
@@ -78,11 +80,18 @@ object PathLayout {
     /** Design canvas is 340 wide; lanes are expressed in this same coordinate space. */
     val CanvasWidth: Dp = 340.dp
 
-    /** Y of the first row's node center (leaves room for the top region pill). */
+    /** Y of the first row's node center, before any [RegionGap] a row-0 region adds. */
     val TopPadding: Dp = 78.dp
 
     /** Vertical distance between consecutive rows' node centers. */
-    val RowSpacing: Dp = 132.dp
+    val RowSpacing: Dp = 148.dp
+
+    /**
+     * Extra vertical band inserted ABOVE every row that starts a region, reserved for its pill —
+     * so the pill never sits behind the row's circle, its "YOU'RE HERE" tag, or the previous
+     * row's label.
+     */
+    val RegionGap: Dp = 56.dp
 
     /** Slack below the last row so its label and any trailing branch node aren't clipped. */
     val BottomPadding: Dp = 110.dp
@@ -102,12 +111,16 @@ object PathLayout {
     /** Node center X for a given lane (lanes are already in the 340-wide space). */
     fun centerX(lane: Int): Dp = lane.dp
 
-    /** Node center Y for a given row (graph depth). */
-    fun centerY(row: Int): Dp = TopPadding + RowSpacing * row
+    /**
+     * Node center Y for a given row (graph depth). [regionRows] is the set of rows that start a
+     * region — each one at or above [row] pushes this row down by one [RegionGap].
+     */
+    fun centerY(row: Int, regionRows: Set<Int>): Dp =
+        TopPadding + RowSpacing * row + RegionGap * regionRows.count { it <= row }
 
     /** Total height of the scroll canvas for [rowCount] rows. */
-    fun canvasHeight(rowCount: Int): Dp =
-        TopPadding + RowSpacing * (rowCount - 1).coerceAtLeast(0) + BottomPadding
+    fun canvasHeight(rowCount: Int, regionRows: Set<Int>): Dp =
+        centerY((rowCount - 1).coerceAtLeast(0), regionRows) + BottomPadding
 
     /** Circle diameter for each visual state (the "chunky game button" sizes). */
     fun circleSize(state: PathNodeState): Dp = when (state) {
@@ -198,31 +211,39 @@ fun PathNode(
         }
 
         Spacer(Modifier.height(6.dp))
-        Text(
-            text = node.title,
-            fontFamily = NunitoFamily,
-            fontWeight = FontWeight.ExtraBold,
-            fontSize = 13.sp,
-            textAlign = TextAlign.Center,
-            color = when (node.state) {
-                PathNodeState.LOCKED -> PathFaint
-                PathNodeState.BRANCH -> PathMuted
-                else -> PathInk
-            },
-        )
-        val sub = when {
-            node.state == PathNodeState.BRANCH -> "grow the tree"
-            node.estMinutes > 0 -> "${node.estMinutes} min"
-            else -> null
-        }
-        if (sub != null) {
+        // Screen-bg backing so connector wires passing under the slot never run through the text.
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier
+                .background(PathScreenBg, RoundedCornerShape(8.dp))
+                .padding(horizontal = 6.dp, vertical = 2.dp),
+        ) {
             Text(
-                text = sub,
+                text = node.title,
                 fontFamily = NunitoFamily,
-                fontWeight = FontWeight.Bold,
-                fontSize = 11.sp,
-                color = PathFaint,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                color = when (node.state) {
+                    PathNodeState.LOCKED -> PathFaint
+                    PathNodeState.BRANCH -> PathMuted
+                    else -> PathInk
+                },
             )
+            val sub = when {
+                node.state == PathNodeState.BRANCH -> "grow the tree"
+                node.estMinutes > 0 -> "${node.estMinutes} min"
+                else -> null
+            }
+            if (sub != null) {
+                Text(
+                    text = sub,
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 11.sp,
+                    color = PathFaint,
+                )
+            }
         }
     }
 }

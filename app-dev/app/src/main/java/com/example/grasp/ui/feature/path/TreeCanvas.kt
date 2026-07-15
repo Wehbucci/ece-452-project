@@ -38,6 +38,7 @@ import com.example.grasp.ui.theme.PathNodeDone
 @Composable
 fun TreeCanvas(
     nodes: List<PathNodeUi>,
+    regionRows: Set<Int>,
     fillIntoId: String?,
     modifier: Modifier = Modifier,
 ) {
@@ -55,7 +56,7 @@ fun TreeCanvas(
     Canvas(modifier.fillMaxSize()) {
         fun centerOf(n: PathNodeUi) = Offset(
             x = PathLayout.centerX(n.lane).toPx(),
-            y = PathLayout.centerY(n.row).toPx(),
+            y = PathLayout.centerY(n.row, regionRows).toPx(),
         )
 
         // Pass 1: grey base for every edge, so colored fills reveal on top of a visible track.

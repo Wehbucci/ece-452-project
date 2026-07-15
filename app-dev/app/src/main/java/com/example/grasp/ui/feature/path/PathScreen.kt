@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -208,7 +209,8 @@ private fun JourneyBoard(
     enterNonce: Int,
     onNodeTapped: (String) -> Unit,
 ) {
-    val canvasHeight = PathLayout.canvasHeight(state.rowCount)
+    val regionRows = remember(state.regions) { state.regions.map { it.row }.toSet() }
+    val canvasHeight = PathLayout.canvasHeight(state.rowCount, regionRows)
     Box(
         Modifier
             .fillMaxSize()
@@ -217,6 +219,8 @@ private fun JourneyBoard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
+                // Keep the last node's label clear of the system navigation bar / home bar.
+                .navigationBarsPadding()
                 .height(canvasHeight),
             contentAlignment = Alignment.TopCenter,
         ) {
@@ -224,16 +228,17 @@ private fun JourneyBoard(
                 // 1) Connectors behind everything.
                 TreeCanvas(
                     nodes = state.nodes,
+                    regionRows = regionRows,
                     fillIntoId = fillIntoId,
                     modifier = Modifier.fillMaxSize(),
                 )
 
-                // 2) Region pills, centered, anchored above their region's first row.
+                // 2) Region pills, centered in the RegionGap band above their first row.
                 state.regions.forEach { region ->
                     Box(
                         Modifier
                             .fillMaxWidth()
-                            .offset(y = PathLayout.centerY(region.row) - REGION_PILL_GAP),
+                            .offset(y = PathLayout.centerY(region.row, regionRows) - REGION_PILL_GAP),
                         contentAlignment = Alignment.TopCenter,
                     ) {
                         RegionLabel(region.label)
@@ -249,7 +254,7 @@ private fun JourneyBoard(
                         enterKey = if (node.id == enterId) enterNonce else 0,
                         modifier = Modifier.offset(
                             x = PathLayout.centerX(node.lane) - PathLayout.circleCenterXInSlot,
-                            y = PathLayout.centerY(node.row) - PathLayout.circleCenterYInSlot,
+                            y = PathLayout.centerY(node.row, regionRows) - PathLayout.circleCenterYInSlot,
                         ),
                     )
                 }
@@ -258,7 +263,11 @@ private fun JourneyBoard(
     }
 }
 
-private val REGION_PILL_GAP = 54.dp
+/**
+ * Pill-top distance above its row's node center: past the circle band (42) and tag zone (26)
+ * into the RegionGap, leaving ~4dp above the "YOU'RE HERE" tag.
+ */
+private val REGION_PILL_GAP = 100.dp
 
 // ── Preview ────────────────────────────────────────────────────────────────────────────────
 // A hand-built [PathUiState] so the static preview shows the real journey (the MVP path loads

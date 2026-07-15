@@ -219,9 +219,14 @@ class PathPresenter(
                 parentIds = parents[n.id].orEmpty(),
             )
         }
+        // One pill per tier, anchored at the tier's first (shallowest) row — several nodes may
+        // declare the same tier (e.g. every grown topic is "YOUR BRANCHES").
         val regions = nodes
             .filter { !it.tier.isNullOrBlank() }
             .map { RegionUi(it.tier!!, rows.getValue(it.id)) }
+            .groupBy { it.label }
+            .map { (_, group) -> group.minBy { it.row } }
+            .sortedBy { it.row }
 
         view?.showPath(
             PathUiState(
