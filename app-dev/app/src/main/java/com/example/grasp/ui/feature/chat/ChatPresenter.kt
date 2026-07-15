@@ -7,6 +7,7 @@ import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.GeminiChatSession
+import com.example.grasp.data.repository.GeneratedPathCache
 import com.example.grasp.data.repository.PathRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -113,7 +114,7 @@ class ChatPresenter(
         appendLine()
 
         val subtopic = if (pathId.isNotEmpty() && nodeId.isNotEmpty()) {
-            repo.subtopic(pathId, nodeId)
+            GeneratedPathCache.subtopics["${pathId}__${nodeId}"] ?: repo.subtopic(pathId, nodeId)
         } else null
 
         if (subtopic != null) {
@@ -123,10 +124,16 @@ class ChatPresenter(
             appendLine()
             appendLine("Why it matters: ${subtopic.whyItMatters}")
             appendLine()
-            appendLine("Content:")
+            appendLine("Full content:")
             subtopic.body.forEach { paragraph -> appendLine(paragraph) }
+
+            if (blockIndex >= 0 && blockIndex < subtopic.body.size) {
+                appendLine()
+                appendLine("The user opened this chat from a specific passage — focus your answers on it:")
+                appendLine("\"${subtopic.body[blockIndex]}\"")
+            }
         } else if (pathId.isNotEmpty()) {
-            val guide = repo.tinkerGuide(pathId)
+            val guide = GeneratedPathCache.guides[pathId] ?: repo.tinkerGuide(pathId)
             if (guide != null) {
                 appendLine("The user is working on the task: \"${guide.title}\"")
                 appendLine()
