@@ -18,6 +18,12 @@ interface HomeContract {
         /** Render the popular-topic suggestions. */
         fun showPopularTopics(topics: List<TopicSuggestion>)
 
+        /** AI generation started — show a loading indicator and disable input. */
+        fun showGenerating()
+
+        /** Generation failed — show [message] to the user and re-enable input. */
+        fun showGenerateError(message: String)
+
         /** Navigate to a Learner roadmap for [pathId]. */
         fun openLearner(pathId: String)
 

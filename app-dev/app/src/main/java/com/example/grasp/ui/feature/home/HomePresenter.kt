@@ -3,33 +3,59 @@ package com.example.grasp.ui.feature.home
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TopicSuggestion
+import com.example.grasp.data.repository.AiTreeGenerator
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.GeneratedPathCache
 import com.example.grasp.data.repository.PathRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
- * Logic for the Home screen. Loads popular topics on attach and routes topic submissions to
- * the right mode.
+ * Logic for the Home screen. Loads popular topics on attach and routes topic submissions through
+ * the AI generator before opening the appropriate screen.
  *
- * SKELETON behavior: a free-text query is turned into a slug id and handed to the path/guide
- * screens, which currently fall back to sample data for unknown ids. Real generation (the AI
- * call) will replace [onSubmitTopic]'s routing with a "generate then open" flow.
- *
- * @param repo data source it defaults to the in-memory fake; injectable for tests/previews.
+ * @param repo data source for popular topics (defaults to the in-memory fake)
+ * @param generator AI tree/guide generator (injectable for tests)
  */
 class HomePresenter(
     private val repo: PathRepository = FakePathRepository,
+    private val generator: AiTreeGenerator = AiTreeGenerator,
 ) : BasePresenter<HomeContract.View>(), HomeContract.Presenter {
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onViewAttached() {
         view?.showPopularTopics(repo.popularTopics())
     }
 
+    override fun detach() {
+        scope.cancel()
+        super.detach()
+    }
+
     override fun onSubmitTopic(query: String, mode: Mode) {
         if (query.isBlank()) return
-        val id = query.trim().lowercase().replace(Regex("\\s+"), "-")
-        when (mode) {
-            Mode.LEARNER -> view?.openLearner(id)
-            Mode.TINKERER -> view?.openTinker(id)
+        view?.showGenerating()
+        scope.launch {
+            try {
+                when (mode) {
+                    Mode.LEARNER -> {
+                        val path = generator.generateLearningPath(query.trim())
+                        GeneratedPathCache.paths[path.id] = path
+                        view?.openLearner(path.id)
+                    }
+                    Mode.TINKERER -> {
+                        val guide = generator.generateTinkerGuide(query.trim())
+                        GeneratedPathCache.guides[guide.id] = guide
+                        view?.openTinker(guide.id)
+                    }
+                }
+            } catch (e: Exception) {
+                view?.showGenerateError("${e.javaClass.simpleName}: ${e.message?.take(120)}")
+            }
         }
     }
 

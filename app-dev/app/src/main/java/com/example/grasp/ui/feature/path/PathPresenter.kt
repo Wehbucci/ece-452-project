@@ -3,6 +3,7 @@ package com.example.grasp.ui.feature.path
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.GeneratedPathCache
 import com.example.grasp.data.repository.PathRepository
 
 /**
@@ -20,7 +21,7 @@ class PathPresenter(
 ) : BasePresenter<PathContract.View>(), PathContract.Presenter {
 
     override fun onViewAttached() {
-        val path = repo.learningPath(pathId)
+        val path = GeneratedPathCache.paths[pathId] ?: repo.learningPath(pathId)
         if (path == null) view?.showNotFound() else view?.showPath(path)
     }
 

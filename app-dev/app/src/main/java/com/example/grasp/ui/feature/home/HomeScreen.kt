@@ -3,11 +3,13 @@
 package com.example.grasp.ui.feature.home
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -15,15 +17,19 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,10 +52,6 @@ import com.example.grasp.ui.theme.StreakAccent
 /**
  * Home / topic-entry screen (View). Top-level destination, so it hosts the bottom nav bar.
  *
- * Follows the MVP wiring documented in
- * [com.example.grasp.ui.feature.auth.LoginScreen] — UI state + presenter + anonymous View
- * + DisposableEffect attach/detach.
- *
  * @param onSelectTab switch bottom-nav tabs (handled by the nav layer)
  * @param onOpenLearner open a Learner roadmap by id
  * @param onOpenTinker open a Tinkerer guide by id
@@ -64,13 +66,18 @@ fun HomeScreen(
     var popularTopics by remember { mutableStateOf<List<TopicSuggestion>>(emptyList()) }
     var mode by remember { mutableStateOf(Mode.LEARNER) }
     var query by remember { mutableStateOf("") }
+    var isGenerating by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     val presenter = remember { presenterFactory() }
     val view = remember(onOpenLearner, onOpenTinker) {
         object : HomeContract.View {
             override fun showPopularTopics(topics: List<TopicSuggestion>) { popularTopics = topics }
-            override fun openLearner(pathId: String) = onOpenLearner(pathId)
-            override fun openTinker(pathId: String) = onOpenTinker(pathId)
+            override fun showGenerating() { isGenerating = true }
+            override fun showGenerateError(message: String) { isGenerating = false; errorMessage = message }
+            override fun openLearner(pathId: String) { isGenerating = false; onOpenLearner(pathId) }
+            override fun openTinker(pathId: String) { isGenerating = false; onOpenTinker(pathId) }
         }
     }
     DisposableEffect(presenter, view) {
@@ -78,10 +85,17 @@ fun HomeScreen(
         onDispose { presenter.detach() }
     }
 
+    LaunchedEffect(errorMessage) {
+        val msg = errorMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(msg)
+        errorMessage = null
+    }
+
     Scaffold(
         bottomBar = {
             GraspBottomBar(selected = TopLevelDestination.HOME, onSelect = onSelectTab)
         },
+        snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
         LazyColumn(
             modifier = Modifier
@@ -106,7 +120,7 @@ fun HomeScreen(
                     Mode.entries.forEach { m ->
                         FilterChip(
                             selected = mode == m,
-                            onClick = { mode = m },
+                            onClick = { if (!isGenerating) mode = m },
                             label = { Text(m.label) },
                         )
                     }
@@ -122,23 +136,43 @@ fun HomeScreen(
             // Free-text topic/task entry.
             item {
                 val submit = {
-                    presenter.onSubmitTopic(query, mode)
-                    query = ""
+                    if (!isGenerating) {
+                        presenter.onSubmitTopic(query, mode)
+                        query = ""
+                    }
                 }
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = { if (!isGenerating) query = it },
                     label = { Text("Type a topic or task") },
                     singleLine = true,
+                    enabled = !isGenerating,
                     trailingIcon = {
-                        IconButton(onClick = submit) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Generate")
+                        if (isGenerating) {
+                            CircularProgressIndicator(
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .size(24.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            IconButton(onClick = submit) {
+                                Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Generate")
+                            }
                         }
                     },
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
                     keyboardActions = KeyboardActions(onGo = { submit() }),
                     modifier = Modifier.fillMaxWidth(),
                 )
+                if (isGenerating) {
+                    Text(
+                        text = "Building your ${if (mode == Mode.LEARNER) "roadmap" else "guide"}…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
 
             item { SectionHeader("Popular topics") }

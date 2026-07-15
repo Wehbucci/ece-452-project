@@ -6,6 +6,7 @@ import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
+import com.example.grasp.data.repository.GeneratedPathCache
 import com.example.grasp.data.repository.PathRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,7 +24,7 @@ class TinkerPresenter(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onViewAttached() {
-        val loaded = repo.tinkerGuide(guideId)
+        val loaded = GeneratedPathCache.guides[guideId] ?: repo.tinkerGuide(guideId)
         if (loaded == null) view?.showNotFound() else {
             guide = loaded
             view?.showGuide(loaded)
