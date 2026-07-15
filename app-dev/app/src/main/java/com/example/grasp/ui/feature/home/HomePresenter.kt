@@ -3,7 +3,7 @@ package com.example.grasp.ui.feature.home
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TopicSuggestion
-import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
 
 /**
@@ -17,7 +17,7 @@ import com.example.grasp.data.repository.PathRepository
  * @param repo data source it defaults to the in-memory fake; injectable for tests/previews.
  */
 class HomePresenter(
-    private val repo: PathRepository = FakePathRepository,
+    private val repo: PathRepository = FirebasePathRepository(),
 ) : BasePresenter<HomeContract.View>(), HomeContract.Presenter {
 
     override fun onViewAttached() {
@@ -26,7 +26,8 @@ class HomePresenter(
 
     override fun onSubmitTopic(query: String, mode: Mode) {
         if (query.isBlank()) return
-        val id = query.trim().lowercase().replace(Regex("\\s+"), "-")
+        val createdPath = repo.createTopic(query, mode)
+        val id = createdPath?.id ?: query.trim().lowercase().replace(Regex("\\s+"), "-")
         when (mode) {
             Mode.LEARNER -> view?.openLearner(id)
             Mode.TINKERER -> view?.openTinker(id)

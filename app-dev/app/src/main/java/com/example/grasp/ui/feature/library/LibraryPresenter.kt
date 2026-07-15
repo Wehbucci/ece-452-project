@@ -4,7 +4,7 @@ import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.TinkerGuide
-import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
 
 /**
@@ -14,7 +14,7 @@ import com.example.grasp.data.repository.PathRepository
  * SKELETON behavior: deletion just drops the item from the in-memory list for this session.
  */
 class LibraryPresenter(
-    private val repo: PathRepository = FakePathRepository,
+    private val repo: PathRepository = FirebasePathRepository(),
 ) : BasePresenter<LibraryContract.View>(), LibraryContract.Presenter {
 
     private val items = mutableListOf<SavedItem>()
