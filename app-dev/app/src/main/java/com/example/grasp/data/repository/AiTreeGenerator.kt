@@ -1,6 +1,9 @@
 package com.example.grasp.data.repository
 
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.ResourceKind
+import com.example.grasp.data.model.ResourceLink
+import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.model.TreeNode
@@ -120,6 +123,70 @@ object AiTreeGenerator {
             id = task.trim().lowercase().replace(Regex("\\s+"), "-"),
             title = title,
             steps = steps,
+        )
+    }
+
+    suspend fun generateSubtopic(
+        pathTitle: String,
+        nodeTitle: String,
+        stepLabel: String,
+        estMinutes: Int,
+    ): Subtopic = withContext(Dispatchers.IO) {
+        val prompt = """
+            Generate educational content for a subtopic in a learning roadmap.
+
+            Topic/Path: "$pathTitle"
+            Subtopic: "$nodeTitle"
+            Position: $stepLabel
+            Estimated time: $estMinutes minutes
+
+            Return ONLY a valid JSON object, no markdown fences, no extra text:
+            {
+              "summary": "2-3 sentence intro to this subtopic",
+              "whyItMatters": "1-2 sentences on why this matters",
+              "body": [
+                "First paragraph of content...",
+                "Second paragraph...",
+                "Third paragraph..."
+              ]
+            }
+
+            Rules:
+            - summary: concise intro, 2-3 sentences
+            - whyItMatters: practical relevance, 1-2 sentences
+            - body: 3-5 paragraphs, educational and clear, matching the $estMinutes-minute depth
+            - Return ONLY the JSON object, nothing else
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val raw = response.text?.trim() ?: error("Empty AI response")
+        parseSubtopic(nodeTitle, stepLabel, estMinutes, raw)
+    }
+
+    private fun parseSubtopic(
+        nodeTitle: String,
+        stepLabel: String,
+        estMinutes: Int,
+        raw: String,
+    ): Subtopic {
+        val json = JSONObject(stripFences(raw))
+        val body = buildList {
+            val arr = json.getJSONArray("body")
+            repeat(arr.length()) { add(arr.getString(it)) }
+        }
+        return Subtopic(
+            nodeId = nodeTitle.lowercase().replace(Regex("\\s+"), "-"),
+            title = nodeTitle,
+            stepLabel = stepLabel,
+            summary = json.getString("summary"),
+            whyItMatters = json.getString("whyItMatters"),
+            body = body,
+            resources = listOf(
+                ResourceLink("Wikipedia: $nodeTitle", "https://en.wikipedia.org", ResourceKind.ARTICLE),
+                ResourceLink("Beginner's Guide to $nodeTitle", "https://example.com/guide", ResourceKind.GUIDE),
+                ResourceLink("Recommended book", "https://example.com/book", ResourceKind.BOOK),
+            ),
+            estMinutes = estMinutes,
         )
     }
 
