@@ -23,14 +23,17 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -71,13 +74,17 @@ fun PathScreen(
     var roadmap by remember { mutableStateOf<LearningPath?>(null) }
     var notFound by remember { mutableStateOf(false) }
     var treeView by remember { mutableStateOf(false) }
+    var showBranchDialog by remember { mutableStateOf(false) }
+    var branchQuery by remember { mutableStateOf("") }
+    var isAddingBranch by remember { mutableStateOf(false) }
 
     val presenter = remember(pathId) { presenterFactory(pathId) }
     val view = remember(onOpenSubtopic) {
         object : PathContract.View {
-            override fun showPath(path: LearningPath) { roadmap = path; notFound = false }
+            override fun showPath(path: LearningPath) { roadmap = path; notFound = false; isAddingBranch = false }
             override fun showNotFound() { notFound = true }
             override fun openSubtopic(pathId: String, nodeId: String) = onOpenSubtopic(pathId, nodeId)
+            override fun showAddBranchDialog() { branchQuery = ""; showBranchDialog = true }
         }
     }
     DisposableEffect(presenter, view) {
@@ -86,6 +93,41 @@ fun PathScreen(
     }
 
     val states = remember(roadmap) { roadmap?.let { deriveNodeStates(it.nodes) } ?: emptyMap() }
+
+    if (showBranchDialog) {
+        AlertDialog(
+            onDismissRequest = { if (!isAddingBranch) showBranchDialog = false },
+            title = { Text("Add a branch") },
+            text = {
+                OutlinedTextField(
+                    value = branchQuery,
+                    onValueChange = { branchQuery = it },
+                    label = { Text("What do you want to explore?") },
+                    singleLine = true,
+                    enabled = !isAddingBranch,
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        isAddingBranch = true
+                        showBranchDialog = false
+                        presenter.onAddBranch(branchQuery)
+                    },
+                    enabled = branchQuery.isNotBlank() && !isAddingBranch,
+                ) {
+                    if (isAddingBranch) CircularProgressIndicator(strokeWidth = 2.dp,
+                        modifier = Modifier.then(Modifier.padding(4.dp)))
+                    else Text("Add")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showBranchDialog = false }, enabled = !isAddingBranch) {
+                    Text("Cancel")
+                }
+            },
+        )
+    }
 
     Scaffold(
         topBar = {

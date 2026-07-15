@@ -23,10 +23,16 @@ interface PathContract {
 
         /** Navigate to a node's detail/content. */
         fun openSubtopic(pathId: String, nodeId: String)
+
+        /** Show the "add a branch" input dialog. */
+        fun showAddBranchDialog()
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** User tapped a node — open it (branch-out nodes are handled in the View as a hint). */
+        /** User tapped a node — open it or trigger the branch dialog for branch-out nodes. */
         fun onNodeClicked(node: TreeNode)
+
+        /** User submitted a branch request from the dialog. */
+        fun onAddBranch(query: String)
     }
 }

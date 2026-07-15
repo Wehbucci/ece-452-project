@@ -190,6 +190,37 @@ object AiTreeGenerator {
         )
     }
 
+    suspend fun generateBranchNode(
+        pathTitle: String,
+        existingTitles: List<String>,
+        branchRequest: String,
+    ): TreeNode = withContext(Dispatchers.IO) {
+        val prompt = """
+            A user studying "$pathTitle" wants to add a new branch to their learning roadmap.
+
+            Topics already in the roadmap: ${existingTitles.joinToString(", ")}
+            User's request for the new branch: "$branchRequest"
+
+            Return ONLY a JSON object for the new node, no markdown fences, no extra text:
+            {"id": "unique-slug", "title": "Node Title", "estMinutes": 12}
+
+            Rules:
+            - id: unique lowercase-with-dashes, must not match any existing topic slug
+            - title: concise subtopic name that fits the request
+            - estMinutes: 5–25
+            - Return ONLY the JSON object
+        """.trimIndent()
+
+        val response = model.generateContent(prompt)
+        val raw = response.text?.trim() ?: error("Empty AI response")
+        val json = JSONObject(stripFences(raw))
+        TreeNode(
+            id = json.getString("id"),
+            title = json.getString("title"),
+            estMinutes = json.optInt("estMinutes", 10),
+        )
+    }
+
     // Strip markdown code fences in case Gemini adds them despite the instruction.
     private fun stripFences(raw: String) = raw
         .removePrefix("```json").removePrefix("```")
