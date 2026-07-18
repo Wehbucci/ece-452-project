@@ -1,15 +1,15 @@
 package com.example.grasp.data.repository
 
 import android.util.Log
+import com.example.grasp.data.model.Mode
+import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
-import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
-import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.TopicSuggestion
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -56,8 +56,14 @@ class FirebasePathRepository : PathRepository {
                 val topicDoc = topicsRef(uid).document(id).get().await()
                 val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
                 val nodesSnap = nodesRef(uid, id).get().await()
-                val nodes = nodesSnap.documents.mapNotNull { it.toTreeNode() }
-                    .sortedBy { it.id.lowercase() }
+                val nodes = nodesSnap.documents
+                    .mapNotNull { doc ->
+                        val node = doc.toTreeNode() ?: return@mapNotNull null
+                        val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
+                        Pair(order, node)
+                    }
+                    .sortedBy { it.first }
+                    .map { it.second }
                 LearningPath(id = id, title = topicTitle, nodes = nodes)
             }
         } catch (e: Exception) {
@@ -123,6 +129,14 @@ class FirebasePathRepository : PathRepository {
                     SetOptions.merge(),
                 ).await()
 
+                val parentByNodeId = linkedMapOf<String, String?>()
+                nodes.forEach { parentByNodeId[it.id] = null }
+                nodes.forEach { node ->
+                    node.children.forEach { childId ->
+                        parentByNodeId[childId] = node.id
+                    }
+                }
+
                 nodes.forEachIndexed { index, node ->
                     val nodeDoc = nodesRef(uid, normalizedId).document(node.id)
                     nodeDoc.set(
@@ -133,7 +147,7 @@ class FirebasePathRepository : PathRepository {
                             "order" to index,
                             "completed" to node.completed,
                             "estMinutes" to node.estMinutes,
-                            "parentId" to null,
+                            "parentId" to parentByNodeId[node.id],
                             "children" to node.children,
                             "contentRef" to node.contentRef,
                             "state" to if (node.isBranchOut) "branch-out" else if (node.completed) "completed" else "active",
@@ -162,41 +176,36 @@ class FirebasePathRepository : PathRepository {
             Log.e("FirebasePathRepo", "updateNodeCompletion failed for $pathId/$nodeId", e)
         }
     }
+    
+    override fun deleteTopic(pathId: String) {
+        val uid = uid ?: return
+
+        try {
+            runBlocking {
+                val nodeCollection = nodesRef(uid, pathId)
+
+                // Delete all nodes inside the topic
+                val nodesSnapshot = nodeCollection.get().await()
+
+                for (document in nodesSnapshot.documents) {
+                    document.reference.delete().await()
+                }
+
+                // Delete the topic document itself
+                topicsRef(uid)
+                    .document(pathId)
+                    .delete()
+                    .await()
+
+                Log.d("FirebasePathRepo", "Deleted topic: $pathId")
+            }
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "deleteTopic failed for $pathId", e)
+        }
+    }
 
     private fun buildGeneratedNodes(pathId: String, title: String, mode: Mode): List<TreeNode> {
-        val root = TreeNode(
-            id = "overview",
-            title = "Overview of $title",
-            completed = false,
-            estMinutes = 8,
-            children = listOf("core-concepts", "practice", "next-steps"),
-            contentRef = "content/$pathId/overview.md",
-        )
-        val concepts = TreeNode(
-            id = "core-concepts",
-            title = if (mode == Mode.TINKERER) "Gather materials" else "Core concepts",
-            completed = false,
-            estMinutes = 10,
-            children = emptyList(),
-            contentRef = "content/$pathId/core-concepts.md",
-        )
-        val practice = TreeNode(
-            id = "practice",
-            title = if (mode == Mode.TINKERER) "Try the first step" else "Practice",
-            completed = false,
-            estMinutes = 10,
-            children = emptyList(),
-            contentRef = "content/$pathId/practice.md",
-        )
-        val nextSteps = TreeNode(
-            id = "next-steps",
-            title = if (mode == Mode.TINKERER) "Wrap up" else "Next steps",
-            completed = false,
-            estMinutes = 6,
-            children = emptyList(),
-            contentRef = "content/$pathId/next-steps.md",
-        )
-        return listOf(root, concepts, practice, nextSteps)
+        return buildGeneratedNodesForTopic(pathId, title, mode)
     }
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toTreeNode(): TreeNode? {
@@ -209,6 +218,7 @@ class FirebasePathRepository : PathRepository {
             completed = getBoolean("completed") ?: false,
             estMinutes = getLong("estMinutes")?.toInt() ?: 0,
             children = children,
+            parentId = getString("parentId"),
             contentRef = getString("contentRef"),
             isBranchOut = (getString("state") ?: "").equals("branch-out", ignoreCase = true),
         )

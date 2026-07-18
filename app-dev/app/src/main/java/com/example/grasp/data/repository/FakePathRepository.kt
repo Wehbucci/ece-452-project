@@ -150,4 +150,7 @@ object FakePathRepository : PathRepository {
     override fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         // Demo implementation: no-op.
     }
+
+    override fun deleteTopic(pathId: String) {
+    }
 }

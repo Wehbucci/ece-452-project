@@ -11,7 +11,6 @@ import com.example.grasp.data.repository.PathRepository
  * Logic for the Library screen. Loads saved items on attach and routes a tapped item to the
  * right screen based on its mode.
  *
- * SKELETON behavior: deletion just drops the item from the in-memory list for this session.
  */
 class LibraryPresenter(
     private val repo: PathRepository = FirebasePathRepository(),
@@ -33,7 +32,10 @@ class LibraryPresenter(
     }
 
     override fun onDeleteClicked(item: SavedItem) {
-        items.removeAll { it.id == item.id && it.mode == item.mode }
-        view?.showSaved(items.toList())
+        when (item) {
+            is LearningPath -> repo.deleteTopic(item.id)
+            is TinkerGuide -> {}
+        }
+        onViewAttached()
     }
 }

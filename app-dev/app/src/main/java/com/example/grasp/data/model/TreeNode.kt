@@ -13,6 +13,7 @@ package com.example.grasp.data.model
  * @property completed whether the user has marked this subtopic complete
  * @property estMinutes estimated time to complete (overview.md FR4.3)
  * @property children ids of the nodes that branch off this one (drives tree edges)
+ * @property parentId id of the immediate parent node, if one exists in the roadmap tree
  * @property contentRef path/URL to the separate content file (resolved lazily); null if
  *           content has not been generated yet
  * @property isBranchOut true if this node is a "branch out" affordance — a spot where the
@@ -24,6 +25,7 @@ data class TreeNode(
     val completed: Boolean = false,
     val estMinutes: Int = 0,
     val children: List<String> = emptyList(),
+    val parentId: String? = null,
     val contentRef: String? = null,
     val isBranchOut: Boolean = false,
 )

@@ -156,8 +156,13 @@ private class TreeLayout(val placements: List<NodePlacement>, val rowCount: Int)
 private fun computeTreeLayout(nodes: List<TreeNode>): TreeLayout {
     // Build the parent lists so we can compute depth from incoming edges.
     val parents = HashMap<String, MutableList<String>>()
-    nodes.forEach { n ->
-        n.children.forEach { c -> parents.getOrPut(c) { mutableListOf() }.add(n.id) }
+    nodes.forEach { node ->
+        if (node.parentId != null) {
+            parents.getOrPut(node.id) { mutableListOf() }.add(node.parentId)
+        }
+        node.children.forEach { childId ->
+            parents.getOrPut(childId) { mutableListOf() }.add(node.id)
+        }
     }
 
     val depthCache = HashMap<String, Int>()
