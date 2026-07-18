@@ -1,14 +1,14 @@
 package com.example.grasp
 
 import com.example.grasp.data.model.Mode
-import com.example.grasp.data.repository.buildGeneratedNodesForTopic
+import com.example.grasp.data.repository.buildLearnerTree
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FirebasePathRepositoryTest {
     @Test
     fun machineLearningTopicBuildsRelevantBranchingNodes() {
-        val nodes = buildGeneratedNodesForTopic(
+        val nodes = buildLearnerTree(
             pathId = "machine-learning",
             title = "Machine Learning",
             mode = Mode.LEARNER,

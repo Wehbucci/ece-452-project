@@ -109,8 +109,11 @@ class FirebasePathRepository : PathRepository {
         val uid = uid ?: return FakePathRepository.createTopic(query, mode)
         val normalizedId = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "topic" }
         val title = query.trim().replaceFirstChar { it.uppercase() }
-        val nodes = buildGeneratedNodes(normalizedId, title, mode)
-        return try {
+        val nodes = when(mode) {
+            Mode.LEARNER -> generateLearnerTree(normalizedId, title)
+            Mode.TINKERER -> generateTinkerTree(normalizedId, title)
+        }
+                return try {
             runBlocking {
                 val topicRef = topicsRef(uid).document(normalizedId)
                 topicRef.set(
@@ -204,8 +207,12 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    private fun buildGeneratedNodes(pathId: String, title: String, mode: Mode): List<TreeNode> {
-        return buildGeneratedNodesForTopic(pathId, title, mode)
+    private fun generateLearnerTree(pathId: String, title: String): List<TreeNode> {
+        return buildLearnerTree(pathId, title)
+    }
+
+    private fun generateTinkerTree(pathId: String, title: String): List<TreeNode> {
+        return buildTinkerTree(pathId, title)
     }
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toTreeNode(): TreeNode? {

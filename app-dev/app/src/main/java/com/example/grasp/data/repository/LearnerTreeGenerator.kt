@@ -17,10 +17,9 @@ private data class GeneratedNode(
 )
 
 
-fun buildGeneratedNodesForTopic(
+fun buildLearnerTree(
     pathId: String,
     title: String,
-    mode: Mode
 ): List<TreeNode> {
 
     return try {
@@ -29,8 +28,7 @@ fun buildGeneratedNodesForTopic(
         Generate a learning roadmap as a JSON tree for the topic below.
 
         Topic: $title
-        Learning mode: $mode
-
+        
         Shape you are building:
         This is a guided path through the topic, not a wide taxonomy of
         independent categories. Most of the roadmap should read as a single
