@@ -36,6 +36,7 @@ fun RegionLabel(
             fontWeight = FontWeight.Black,
             fontSize = 11.sp,
             letterSpacing = 1.5.sp,
+            maxLines = 1,
             modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
         )
     }

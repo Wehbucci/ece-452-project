@@ -44,6 +44,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -223,24 +224,31 @@ fun PathNode(
                 fontFamily = NunitoFamily,
                 fontWeight = FontWeight.ExtraBold,
                 fontSize = 13.sp,
+                // Tight line height + a hair of negative tracking keeps two-line titles reading as
+                // one compact block instead of two floating words. Loosely-set wraps stacking down
+                // into the next row were the board's biggest source of "cramped" text; capping at
+                // two lines guarantees a long generated branch title can never blow up the rhythm.
+                lineHeight = 15.sp,
+                letterSpacing = (-0.1).sp,
                 textAlign = TextAlign.Center,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 color = when (node.state) {
                     PathNodeState.LOCKED -> PathFaint
                     PathNodeState.BRANCH -> PathMuted
                     else -> PathInk
                 },
             )
-            val sub = when {
-                node.state == PathNodeState.BRANCH -> "grow the tree"
-                node.estMinutes > 0 -> "${node.estMinutes} min"
-                else -> null
-            }
-            if (sub != null) {
+            // Only the "grow the tree" branch CTA keeps a caption. Per-node time estimates were
+            // pulled off the board (they still show in the detail sheet on tap) so every node is a
+            // single tight title — that removed line is what lets the vertical rhythm breathe.
+            if (node.state == PathNodeState.BRANCH) {
                 Text(
-                    text = sub,
+                    text = "grow the tree",
                     fontFamily = NunitoFamily,
                     fontWeight = FontWeight.Bold,
                     fontSize = 11.sp,
+                    lineHeight = 13.sp,
                     color = PathFaint,
                 )
             }
