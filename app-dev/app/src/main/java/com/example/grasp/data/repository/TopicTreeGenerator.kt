@@ -13,7 +13,6 @@ private data class GeneratedTree(
 private data class GeneratedNode(
     val id: String,
     val title: String,
-    val estMinutes: Int,
     val children: List<String>
 )
 
@@ -27,54 +26,71 @@ fun buildGeneratedNodesForTopic(
     return try {
 
         val prompt = """
-            Generate a learning roadmap as a JSON tree.
+        Generate a learning roadmap as a JSON tree for the topic below.
 
-            Topic: $title
+        Topic: $title
+        Learning mode: $mode
 
-            Learning mode: $mode
+        Shape you are building:
+        This is a guided path through the topic, not a wide taxonomy of
+        independent categories. Most of the roadmap should read as a single
+        line of concepts, each building on the last, from foundational to
+        advanced (or chronological order, for historical/narrative topics).
+        At one or two points where the topic genuinely contains a short,
+        self-contained detour — something worth knowing but not essential to
+        the main line of progression — the path can branch off into a short
+        side node. That side branch stays short (usually just 1 node) and
+        ends there. It does NOT reconnect to the main path or to any other
+        branch later. Every node has exactly one parent.
 
-            Requirements:
-            - Generate a high-level roadmap containing only the most important concepts.
-            - The number of top-level nodes should depend on the complexity of the topic.
-            - Prefer approximately:
-                - 5-8 nodes for focused topics
-                - 8-12 nodes for broad topics
-                - Up to 15 nodes for very broad domains when necessary
-            - Each node should represent a distinct learning milestone or concept.
-            - Organize concepts from foundational knowledge toward more advanced concepts.
-            - Group related concepts together and place specialized topics after their prerequisites.
-            - Use branching when the topic contains distinct areas, skills, or applications.
-            - Do not force a balanced tree or fixed structure. The depth and number of children should depend on the topic.
-            - Avoid creating a simple linear chain unless the topic naturally requires it.
-            - Avoid including overly specific advanced topics too early.
-            - Leave room for the learner to expand the roadmap with additional branches later.
+        Step 1 — Think before structuring (do not output this step):
+        Lay out the topic as a rough sequence from first-principles to advanced,
+        or chronologically for historical topics. Identify at most 1-2 points
+        where a short, self-contained detour makes sense as a side node.
+        Everywhere else, keep it a single path forward.
 
-            The roadmap should:
-            - Begin with an introductory/foundational concept.
-            - Group related concepts together.
-            - Place specialized topics and applications after their prerequisites.
+        Step 2 — Build the tree from that reasoning:
+        - Create exactly one root node: the entry point / introduction to the
+        topic. It must be the first node in the output.
+        - Most nodes should have exactly one child, continuing the roadmap
+        forward as a single path.
+        - At a detour point, a node's "children" list may contain 2 ids: one
+        continues the main path, the other starts a short side branch that
+        ends on its own (empty "children" list) within 1-2 nodes.
+        - Do not use more than 2 detour points in the entire roadmap. Most
+        topics should have 0 or 1.
+        - Never split the root itself into more than 2 immediate children.
+        - Every node id must appear in exactly one other node's "children"
+        list (except the root, which appears in none). Never list the same
+        node id as a child of two different nodes.
+        - Order everything along the main path from foundational to advanced,
+        or chronologically for historical topics.
 
-            Each node must contain:
-            - id: lowercase hyphen-separated string
-            - title: concise lesson title
-            - estMinutes: estimated learning time
-            - children: list of child node ids
+        Size guidance (soft, not a target to hit exactly):
+        - Total nodes, including root: roughly 6-12 depending on topic breadth.
+        A focused topic might be 6-8 nodes in a near-straight line. A
+        broader topic might be 9-12 with one short detour.
 
-            Return ONLY valid JSON.
+        Each node must contain:
+        - id: lowercase hyphen-separated string
+        - title: concise lesson title
+        - children: list of child node ids (usually exactly one id; 2 ids only
+        at a deliberate detour point; empty list only for the final node in
+        the main path, or the end of a side branch)
 
-            Format:
+        Return ONLY valid JSON, no commentary, no markdown fences.
+
+        Format:
+        {
+        "nodes": [
             {
-              "nodes": [
-                {
-                  "id": "example-node",
-                  "title": "Example Node",
-                  "estMinutes": 10,
-                  "children": []
-                }
-              ]
+            "id": "example-node",
+            "title": "Example Node",
+            "children": ["next-node"]
             }
-        """.trimIndent()
-
+        ]
+        }
+    """.trimIndent()
 
         val response = runBlocking {
 
@@ -121,23 +137,25 @@ fun buildGeneratedNodesForTopic(
                 GeneratedNode(
                     id = node.getString("id"),
                     title = node.getString("title"),
-                    estMinutes = node.getInt("estMinutes"),
                     children = children
                 )
             )
         }
 
+        if (generatedNodes.isEmpty()) {
+            throw Exception("Generated tree has no nodes")
+        }
 
-        val generated = GeneratedTree(generatedNodes)
+        generatedNodes[0] = generatedNodes[0].copy(id = pathId)
 
 
-        generated.nodes.map { node ->
+        generatedNodes.map { node ->
 
             TreeNode(
                 id = node.id,
                 title = node.title,
                 completed = false,
-                estMinutes = node.estMinutes,
+                estMinutes = 0,
                 children = node.children,
                 contentRef = "content/$pathId/${node.id}.md"
             )
@@ -149,10 +167,10 @@ fun buildGeneratedNodesForTopic(
         // fallback if Gemini generation fails
         listOf(
             TreeNode(
-                id = "overview-$pathId",
+                id = pathId,
                 title = "Introduction to $title",
                 completed = false,
-                estMinutes = 10,
+                estMinutes = 0,
                 children = emptyList(),
                 contentRef = "content/$pathId/overview.md"
             )
