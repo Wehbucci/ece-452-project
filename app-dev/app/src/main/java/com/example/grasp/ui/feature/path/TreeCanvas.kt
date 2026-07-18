@@ -1,186 +1,119 @@
 package com.example.grasp.ui.feature.path
 
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.TextMeasurer
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.drawText
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.rememberTextMeasurer
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.example.grasp.data.model.NodeState
-import com.example.grasp.data.model.TreeNode
-import com.example.grasp.ui.theme.NodeActive
-import com.example.grasp.ui.theme.NodeBranchOut
-import com.example.grasp.ui.theme.NodeCompleted
-import com.example.grasp.ui.theme.NodeUnexplored
+import com.example.grasp.ui.components.PathLayout
+import com.example.grasp.ui.theme.PathConnector
+import com.example.grasp.ui.theme.PathNodeBranch
+import com.example.grasp.ui.theme.PathNodeCurrent
+import com.example.grasp.ui.theme.PathNodeDone
 
 /**
- * The visual learning-tree renderer. 
- * Draws the roadmap as a top-down layered graph and reports node taps.
+ * The connector layer that sits BEHIND the node buttons — the "wires" of the skill tree.
  *
- * Layout: nodes are placed in rows by their DEPTH (longest path from a root); nodes sharing
- * a depth are spread evenly across that row. Positions are stored as fractions of the canvas
- * size so the same math drives both drawing and tap hit-testing.
+ * For every parent→child edge it draws a vertical cubic Bézier `M ax,ay C ax,my bx,my bx,by`
+ * (with `my = (ay+by)/2`), which gives the smooth S-curve that reads as a Duolingo path when a
+ * child sits in a different lane, and a clean fork/merge at the splits and converges. It shares
+ * [PathLayout] with the node layer so a wire always meets a node's exact center.
  *
- * This is a deliberately simple layout good enough for the skeleton; a future version can add
- * smarter spacing, panning/zoom, and curved edges.
+ * Edges are colored by the two endpoints' states (README §"Node states"):
+ *  - both DONE → green · parent DONE → indigo · edge into a BRANCH node → amber dotted · else grey.
  *
- * @param nodes the roadmap nodes
- * @param states pre-computed visual state per node id (see `deriveNodeStates`)
- * @param onNodeClick invoked with the tapped node
+ * When a completion unlocks the next node, [fillIntoId] names that newly-current node and the
+ * edges arriving into it animate their colored stroke in over the grey base — the "connector
+ * fills" moment.
  */
 @Composable
 fun TreeCanvas(
-    nodes: List<TreeNode>,
-    states: Map<String, NodeState>,
-    onNodeClick: (TreeNode) -> Unit,
+    nodes: List<PathNodeUi>,
+    regionRows: Set<Int>,
+    fillIntoId: String?,
     modifier: Modifier = Modifier,
 ) {
-    if (nodes.isEmpty()) return
+    val byId = remember(nodes) { nodes.associateBy { it.id } }
 
-    // Compute the layered layout once per node-list change.
-    val layout = remember(nodes) { computeTreeLayout(nodes) }
-    val measurer = rememberTextMeasurer()
-
-    Canvas(
-        modifier = modifier
-            .fillMaxWidth()
-            // One row of vertical space per depth level so deep trees stay readable.
-            .height((layout.rowCount * ROW_HEIGHT_DP).dp)
-            .pointerInput(layout) {
-                detectTapGestures { tap ->
-                    val radius = NODE_RADIUS_DP.dp.toPx()
-                    layout.placements
-                        .firstOrNull { p ->
-                            val center = Offset(p.fx * size.width, p.fy * size.height)
-                            (tap - center).getDistance() <= radius * 1.25f
-                        }
-                        ?.let { onNodeClick(it.node) }
-                }
-            },
-    ) {
-        val radius = NODE_RADIUS_DP.dp.toPx()
-        val centers = layout.placements.associate { p ->
-            p.node.id to Offset(p.fx * size.width, p.fy * size.height)
+    // 0→1 reveal for the edges arriving into the newly-unlocked node.
+    val fillProgress = remember { Animatable(1f) }
+    LaunchedEffect(fillIntoId) {
+        if (fillIntoId != null) {
+            fillProgress.snapTo(0f)
+            fillProgress.animateTo(1f, tween(durationMillis = 750))
         }
+    }
 
-        // 1) Edges first so nodes sit on top.
-        layout.placements.forEach { p ->
-            val from = centers.getValue(p.node.id)
-            p.node.children.forEach { childId ->
-                val to = centers[childId] ?: return@forEach
-                val leadsToBranchOut = states[childId] == NodeState.BRANCH_OUT
-                drawLine(
-                    color = NodeUnexplored.copy(alpha = 0.6f),
-                    start = from,
-                    end = to,
-                    strokeWidth = 3f,
-                    pathEffect = if (leadsToBranchOut) {
-                        PathEffect.dashPathEffect(floatArrayOf(14f, 12f))
-                    } else null,
-                )
+    Canvas(modifier.fillMaxSize()) {
+        fun centerOf(n: PathNodeUi) = Offset(
+            x = PathLayout.centerX(n.lane).toPx(),
+            y = PathLayout.centerY(n.row, regionRows).toPx(),
+        )
+
+        // Pass 1: grey base for every edge, so colored fills reveal on top of a visible track.
+        nodes.forEach { child ->
+            val childCenter = centerOf(child)
+            child.parentIds.forEach { pid ->
+                val parent = byId[pid] ?: return@forEach
+                drawConnector(centerOf(parent), childCenter, PathConnector, 5f, dotted = false)
             }
         }
 
-        // 2) Nodes + labels.
-        layout.placements.forEach { p ->
-            val center = centers.getValue(p.node.id)
-            when (states[p.node.id]) {
-                NodeState.COMPLETED -> drawCircle(NodeCompleted, radius, center)
-                NodeState.ACTIVE -> {
-                    drawCircle(NodeActive, radius, center)
-                    // A halo to draw the eye to where the user is right now.
-                    drawCircle(NodeActive.copy(alpha = 0.25f), radius * 1.5f, center)
-                }
-                NodeState.BRANCH_OUT -> drawCircle(
-                    color = NodeBranchOut,
-                    radius = radius,
-                    center = center,
-                    style = Stroke(width = 4f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 10f))),
-                )
-                else -> drawCircle(NodeUnexplored, radius, center)
-            }
+        // Pass 2: colored/branch edges on top.
+        nodes.forEach { child ->
+            val childCenter = centerOf(child)
+            child.parentIds.forEach { pid ->
+                val parent = byId[pid] ?: return@forEach
+                val parentCenter = centerOf(parent)
 
-            // Label under the node.
-            val labelColor = if (states[p.node.id] == NodeState.BRANCH_OUT) NodeBranchOut else Color.Black
-            val measured = measurer.measure(
-                text = p.node.title,
-                style = TextStyle(
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = labelColor,
-                    textAlign = TextAlign.Center,
-                ),
-                overflow = TextOverflow.Ellipsis,
-                maxLines = 2,
-                constraints = Constraints(maxWidth = (radius * 3.4f).toInt().coerceAtLeast(1)),
-            )
-            drawText(
-                textLayoutResult = measured,
-                topLeft = Offset(
-                    x = center.x - measured.size.width / 2f,
-                    y = center.y + radius + 6.dp.toPx(),
-                ),
-            )
+                if (child.state == PathNodeState.BRANCH) {
+                    drawConnector(parentCenter, childCenter, PathNodeBranch, 4f, dotted = true)
+                    return@forEach
+                }
+                val color = when {
+                    parent.state == PathNodeState.DONE && child.state == PathNodeState.DONE -> PathNodeDone
+                    parent.state == PathNodeState.DONE -> PathNodeCurrent
+                    else -> null // stays grey (already drawn in pass 1)
+                } ?: return@forEach
+
+                val alpha = if (child.id == fillIntoId) fillProgress.value else 1f
+                drawConnector(parentCenter, childCenter, color, 6f, dotted = false, alpha = alpha)
+            }
         }
     }
 }
 
-private const val ROW_HEIGHT_DP = 130
-private const val NODE_RADIUS_DP = 28
-
-/** A node's normalized position: [fx]/[fy] are 0f..1f fractions of the canvas size. */
-private data class NodePlacement(val node: TreeNode, val fx: Float, val fy: Float)
-
-private class TreeLayout(val placements: List<NodePlacement>, val rowCount: Int)
-
-/**
- * Assigns every node a row (by depth) and a horizontal slot within that row. Depth is the
- * longest path from a root, so a node always sits below all of its parents.
- */
-private fun computeTreeLayout(nodes: List<TreeNode>): TreeLayout {
-    // Build the parent lists so we can compute depth from incoming edges.
-    val parents = HashMap<String, MutableList<String>>()
-    nodes.forEach { n ->
-        n.children.forEach { c -> parents.getOrPut(c) { mutableListOf() }.add(n.id) }
+/** Draws one vertical cubic-Bézier wire between two node centers. */
+private fun DrawScope.drawConnector(
+    from: Offset,
+    to: Offset,
+    color: androidx.compose.ui.graphics.Color,
+    widthDp: Float,
+    dotted: Boolean,
+    alpha: Float = 1f,
+) {
+    val midY = (from.y + to.y) / 2f
+    val path = Path().apply {
+        moveTo(from.x, from.y)
+        cubicTo(from.x, midY, to.x, midY, to.x, to.y)
     }
-
-    val depthCache = HashMap<String, Int>()
-    fun depthOf(id: String): Int {
-        depthCache[id]?.let { return it }
-        val ps = parents[id]
-        val d = if (ps.isNullOrEmpty()) 0 else ps.maxOf { depthOf(it) } + 1
-        depthCache[id] = d
-        return d
-    }
-
-    val byDepth = nodes.groupBy { depthOf(it.id) }
-    val maxDepth = byDepth.keys.maxOrNull() ?: 0
-    val rowCount = maxDepth + 1
-
-    val placements = byDepth.flatMap { (depth, rowNodes) ->
-        rowNodes.mapIndexed { index, node ->
-            NodePlacement(
-                node = node,
-                fx = (index + 0.5f) / rowNodes.size,
-                fy = (depth + 0.5f) / rowCount,
-            )
-        }
-    }
-    return TreeLayout(placements, rowCount)
+    drawPath(
+        path = path,
+        color = color,
+        alpha = alpha,
+        style = Stroke(
+            width = widthDp * density,
+            cap = StrokeCap.Round,
+            pathEffect = if (dotted) PathEffect.dashPathEffect(floatArrayOf(2f, 14f)) else null,
+        ),
+    )
 }

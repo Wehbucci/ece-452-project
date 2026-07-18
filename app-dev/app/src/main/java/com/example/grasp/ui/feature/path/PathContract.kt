@@ -2,31 +2,75 @@ package com.example.grasp.ui.feature.path
 
 import com.example.grasp.core.mvp.MvpPresenter
 import com.example.grasp.core.mvp.MvpView
-import com.example.grasp.data.model.LearningPath
-import com.example.grasp.data.model.TreeNode
+import com.example.grasp.data.model.Subtopic
 
 /**
- * MVP contract for the Learner roadmap screen.
+ * MVP contract for the gamified Learner roadmap (the vertical "journey").
  *
- * The same screen shows the roadmap as either a LIST or a visual TREE, that toggle is pure
- * view state and stays in the Composable. The Presenter only loads the path and handles
- * node taps.
+ * The split is strict so the Presenter stays unit-testable:
+ *  - The [Presenter] owns ALL logic — current-node derivation, per-node state, XP/level,
+ *    marking complete, and branch insertion — and pushes a fully-resolved [PathUiState] to the
+ *    View. Transient, one-shot effects (unlock, confetti, level-up, toast, shake) are separate
+ *    View calls so the Composable can fire an animation exactly once.
+ *  - The [View] only renders state and plays those effects; it holds no business logic.
  */
 interface PathContract {
 
     interface View : MvpView {
-        /** Render the loaded roadmap. */
-        fun showPath(path: LearningPath)
+        /** Render (or re-render) the whole journey: HUD numbers + laid-out nodes + regions. */
+        fun showPath(state: PathUiState)
 
-        /** The id didn't resolve to a path (show an error state, never crash). */
+        /** The path id didn't resolve (show an empty/error state, never crash). */
         fun showNotFound()
 
-        /** Navigate to a node's detail/content. */
-        fun openSubtopic(pathId: String, nodeId: String)
+        /** Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA. */
+        fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean)
+
+        /** Open the "grow your path" branch-out bottom sheet. */
+        fun showBranchSheet()
+
+        /** Close whichever bottom sheet is open. */
+        fun dismissSheet()
+
+        /** A node just became reachable — play its unlock/bounce animation. */
+        fun playUnlock(nodeId: String)
+
+        /** A brand-new topic node was inserted — play its pop-in animation. */
+        fun playPopIn(nodeId: String)
+
+        /** Celebrate a completion (radial confetti burst). */
+        fun showConfetti()
+
+        /** A 200-XP multiple was crossed — cross a "LEVEL UP" ribbon for [level]. */
+        fun showLevelUp(level: Int)
+
+        /** Non-blocking transient message (locked tap, branch added, …). */
+        fun showToast(message: String)
+
+        /** Nudge a node left-right to signal "can't do that yet" (locked tap). */
+        fun shakeNode(nodeId: String)
+
+        /** Route to the existing AI chat feature for this subtopic. */
+        fun openChat(context: String, pathId: String, nodeId: String)
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** User tapped a node — open it (branch-out nodes are handled in the View as a hint). */
-        fun onNodeClicked(node: TreeNode)
+        /** A node was tapped: opens its sheet, or shakes+toasts if locked, or opens branch. */
+        fun onNodeTapped(nodeId: String)
+
+        /** Explicit "grow your path" request (e.g. from the branch node). */
+        fun onBranchRequested()
+
+        /** Mark [nodeId] complete: +XP, unlock the next node, celebrate, maybe level up. */
+        fun onMarkComplete(nodeId: String)
+
+        /** Confirm a new branch named [name]; inserts a topic node + a fresh branch node. */
+        fun onGenerateBranch(name: String)
+
+        /** "Ask AI" for [nodeId] — routes to chat. */
+        fun onAskAi(nodeId: String)
+
+        /** The open sheet was dismissed by the user. */
+        fun onSheetDismissed()
     }
 }
