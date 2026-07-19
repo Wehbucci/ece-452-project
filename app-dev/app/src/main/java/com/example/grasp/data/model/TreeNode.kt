@@ -33,6 +33,7 @@ data class TreeNode(
     val completed: Boolean = false,
     val estMinutes: Int = 0,
     val children: List<String> = emptyList(),
+    val parentId: String? = null,
     val contentRef: String? = null,
     val isBranchOut: Boolean = false,
     val lane: Int = LANE_CENTER,

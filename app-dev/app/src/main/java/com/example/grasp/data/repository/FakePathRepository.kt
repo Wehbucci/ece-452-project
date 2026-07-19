@@ -166,4 +166,16 @@ object FakePathRepository : PathRepository {
             "Good question — curl your fingertips under (the 'claw' grip) so the flat of the blade " +
                 "rests against your knuckles. That keeps fingertips clear of the edge."),
     )
+
+    override fun createTopic(query: String, mode: Mode): LearningPath? {
+        val id = query.trim().lowercase().replace(Regex("\\s+"), "-")
+        return learningPath(id)
+    }
+
+    override fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
+        // Demo implementation: no-op.
+    }
+
+    override fun deleteTopic(pathId: String) {
+    }
 }

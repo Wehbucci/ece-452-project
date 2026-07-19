@@ -2,6 +2,7 @@ package com.example.grasp.data.repository
 
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
@@ -38,4 +39,12 @@ interface PathRepository {
 
     /** A sample conversation for the chat skeleton (FR5.5 history). */
     fun sampleChat(): List<ChatMessage>
+
+    /** Create or hydrate a topic path from a user prompt. */
+    fun createTopic(query: String, mode: Mode): LearningPath?
+
+    /** Persist completion state for a node in Firestore or the backend. */
+    fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)
+
+    fun deleteTopic(pathId: String)
 }

@@ -2,7 +2,7 @@ package com.example.grasp.ui.feature.path
 
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
-import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
 
 /**
@@ -22,7 +22,7 @@ import com.example.grasp.data.repository.PathRepository
  */
 class PathPresenter(
     private val pathId: String,
-    private val repo: PathRepository = FakePathRepository,
+    private val repo: PathRepository = FirebasePathRepository(),
 ) : BasePresenter<PathContract.View>(), PathContract.Presenter {
 
     /** Path display title, set once the path loads. */
