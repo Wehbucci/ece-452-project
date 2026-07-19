@@ -1,6 +1,5 @@
 package com.example.grasp.data.repository
 
-import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TreeNode
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
@@ -24,11 +23,11 @@ fun buildLearnerTree(
 
     return try {
 
-        val prompt = """
+    val prompt = """
         Generate a learning roadmap as a JSON tree for the topic below.
 
         Topic: $title
-        
+
         Shape you are building:
         This is a guided path through the topic, not a wide taxonomy of
         independent categories. Most of the roadmap should read as a single
@@ -47,6 +46,17 @@ fun buildLearnerTree(
         where a short, self-contained detour makes sense as a side node.
         Everywhere else, keep it a single path forward.
 
+        A detour must be specifically motivated by the node it branches from —
+        not just any independent topic that happens to fit somewhere in that
+        general era or category. Ask: "is this detour a defining, characteristic
+        feature of THIS SPECIFIC node's content, not just something loosely
+        adjacent to it?" For example, off a node about a particular cultural
+        golden age, a detour into that era's defining art form is well-motivated.
+        A detour into something merely from the same rough time period, without
+        a direct thematic tie to what that specific node is actually about, is
+        NOT well-motivated — pick a different, more specifically-tied detour
+        instead, or skip the detour for that point entirely if none fits.
+
         Step 2 — Build the tree from that reasoning:
         - Create exactly one root node: the entry point / introduction to the
         topic. It must be the first node in the output.
@@ -54,7 +64,9 @@ fun buildLearnerTree(
         forward as a single path.
         - At a detour point, a node's "children" list may contain 2 ids: one
         continues the main path, the other starts a short side branch that
-        ends on its own (empty "children" list) within 1-2 nodes.
+        ends on its own (empty "children" list) within 1-2 nodes. Title that
+        side node starting with "Explore: " followed by its specific topic
+        (e.g. "Explore: The Panhellenic Games").
         - Do not use more than 2 detour points in the entire roadmap. Most
         topics should have 0 or 1.
         - Never split the root itself into more than 2 immediate children.
@@ -146,6 +158,34 @@ fun buildLearnerTree(
 
         generatedNodes[0] = generatedNodes[0].copy(id = pathId)
 
+        // --- Lane assignment ---
+        // Lanes are dp values on PathLayout's 340dp-wide canvas (centerX(lane) = lane.dp).
+        // Each node's on-screen footprint is PathLayout.SlotWidth (112dp), so siblings need
+        // to be at least ~112dp apart center-to-center to avoid overlapping circles/labels.
+        // Keep `slotWidth` in sync with PathLayout.SlotWidth if that constant ever changes.
+        val nodeById = generatedNodes.associateBy { it.id }
+        val laneById = mutableMapOf<String, Int>()
+        val slotWidth = 112
+
+        fun assignLanes(nodeId: String, lane: Int, siblingGap: Int) {
+            if (laneById.containsKey(nodeId)) return
+            laneById[nodeId] = lane
+            val node = nodeById[nodeId] ?: return
+            val kids = node.children
+            if (kids.isEmpty()) return
+            if (kids.size == 1) {
+                assignLanes(kids[0], TreeNode.LANE_CENTER, siblingGap)
+                return
+            }
+            val totalWidth = siblingGap * (kids.size - 1)
+            val start = lane - totalWidth / 2
+            val nextGap = (siblingGap * 0.7).toInt().coerceAtLeast(slotWidth)
+            kids.forEachIndexed { i, childId ->
+                assignLanes(childId, start + i * siblingGap, nextGap)
+            }
+        }
+
+        assignLanes(pathId, TreeNode.LANE_CENTER, siblingGap = slotWidth + 20)
 
         generatedNodes.map { node ->
 
@@ -155,7 +195,8 @@ fun buildLearnerTree(
                 completed = false,
                 estMinutes = 0,
                 children = node.children,
-                contentRef = "content/$pathId/${node.id}.md"
+                contentRef = "content/$pathId/${node.id}.md",
+                lane = laneById[node.id] ?: TreeNode.LANE_CENTER,
             )
         }
 

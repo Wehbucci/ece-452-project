@@ -12,12 +12,20 @@ package com.example.grasp.data.model
  * @property title short subtopic name shown on the node / list row
  * @property completed whether the user has marked this subtopic complete
  * @property estMinutes estimated time to complete (overview.md FR4.3)
- * @property children ids of the nodes that branch off this one (drives tree edges)
- * @property parentId id of the immediate parent node, if one exists in the roadmap tree
+ * @property children ids of the nodes that branch off this one (drives tree edges). Parents
+ *           are the inverse of this relation and are derived where needed, so a converge
+ *           (two parents → one child) is expressed by two nodes listing the same child.
  * @property contentRef path/URL to the separate content file (resolved lazily); null if
  *           content has not been generated yet
  * @property isBranchOut true if this node is a "branch out" affordance — a spot where the
- *           user can expand a brand-new branch (rendered with a dashed outline)
+ *           user can expand a brand-new branch (rendered with a dashed amber outline)
+ * @property lane OPTIONAL layout hint: the node's horizontal position (in the design's
+ *           340-wide journey canvas) so the gamified roadmap can render deliberate splits and
+ *           converges. Defaults to [LANE_CENTER] so paths that don't specify lanes simply
+ *           render as a straight, centered column. Vertical position is NOT stored — it is
+ *           derived from graph depth by the presenter.
+ * @property tier OPTIONAL region grouping ("FOUNDATIONS", "CORE ML · PICK A TRACK", "MASTERY",
+ *           …) used to draw the small centered region pills on the journey. Null = no pill.
  */
 data class TreeNode(
     val id: String,
@@ -28,46 +36,11 @@ data class TreeNode(
     val parentId: String? = null,
     val contentRef: String? = null,
     val isBranchOut: Boolean = false,
-)
-
-/**
- * Visual state of a node in the tree view (overview.md §8). This is DERIVED for rendering,
- * not stored in the JSON — compute it from completion + the user's current position via
- * [deriveNodeStates].
- */
-enum class NodeState {
-    /** Finished — drawn green. */
-    COMPLETED,
-
-    /** The current / next recommended node — drawn in the indigo accent. */
-    ACTIVE,
-
-    /** Generated but not started — drawn grey. */
-    UNEXPLORED,
-
-    /** A "add a new branch here" affordance — drawn with a dashed outline. */
-    BRANCH_OUT,
-}
-
-/**
- * Computes a [NodeState] for every node so the tree/list can color them consistently.
- *
- * Heuristic for the skeleton: completed nodes are COMPLETED; explicit branch-out nodes are
- * BRANCH_OUT; the first not-yet-completed node (in list order) is ACTIVE; everything else is
- * UNEXPLORED. Real logic will later use the user's actual current node.
- */
-fun deriveNodeStates(nodes: List<TreeNode>): Map<String, NodeState> {
-    var activeAssigned = false
-    return nodes.associate { node ->
-        val state = when {
-            node.isBranchOut -> NodeState.BRANCH_OUT
-            node.completed -> NodeState.COMPLETED
-            !activeAssigned -> {
-                activeAssigned = true
-                NodeState.ACTIVE
-            }
-            else -> NodeState.UNEXPLORED
-        }
-        node.id to state
+    val lane: Int = LANE_CENTER,
+    val tier: String? = null,
+) {
+    companion object {
+        /** Center lane of the design's 340-wide journey canvas. */
+        const val LANE_CENTER = 170
     }
 }

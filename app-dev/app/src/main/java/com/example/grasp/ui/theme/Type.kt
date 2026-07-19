@@ -7,6 +7,22 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
+ * Font families for the gamified learning-path surface.
+ *
+ * The design calls for **Fredoka** (rounded, friendly — used for titles, big numerals and
+ * CTAs) and **Nunito** (humanist body — used for labels and reading text). To avoid shipping
+ * font assets right now we map BOTH to the system family (the "closest existing family"), which
+ * keeps the geometry playful-neutral. When we bundle the real fonts, swap the two lines below
+ * (e.g. `FontFamily(Font(R.font.fredoka_semibold, FontWeight.SemiBold))`) and the whole journey
+ * screen re-skins with no other change — that is the entire point of centralizing them here.
+ *
+ * Composables reach for these via `fontFamily = FredokaFamily` on a `MaterialTheme.typography`
+ * style, so we never hard-code a family inside a screen.
+ */
+val FredokaFamily: FontFamily = FontFamily.Default
+val NunitoFamily: FontFamily = FontFamily.Default
+
+/**
  * Grasp typographic scale.
  *
  * Goals: a clear, calm hierarchy that keeps screens uncluttered and

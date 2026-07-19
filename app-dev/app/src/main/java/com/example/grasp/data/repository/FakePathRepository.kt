@@ -50,33 +50,58 @@ object FakePathRepository : PathRepository {
         title = "Cooking for beginners",
         nodes = listOf(
             TreeNode("kitchen-basics", "Kitchen Basics", completed = true, estMinutes = 8,
-                children = listOf("knife-skills"), contentRef = "content/cooking-101/kitchen-basics.md"),
+                children = listOf("knife-skills"), contentRef = "content/cooking-101/kitchen-basics.md",
+                lane = 170, tier = "FOUNDATIONS"),
             TreeNode("knife-skills", "Knife Skills", completed = true, estMinutes = 12,
                 children = listOf("simple-techniques", "reading-recipe"),
-                contentRef = "content/cooking-101/knife-skills.md"),
+                contentRef = "content/cooking-101/knife-skills.md", lane = 170),
             TreeNode("simple-techniques", "Simple Techniques", estMinutes = 15,
-                children = listOf("building-flavor"), contentRef = "content/cooking-101/simple-techniques.md"),
+                children = listOf("building-flavor"), contentRef = "content/cooking-101/simple-techniques.md",
+                lane = 100, tier = "TECHNIQUE · PICK A TRACK"),
             TreeNode("reading-recipe", "Reading a Recipe", estMinutes = 6,
-                children = listOf("plating"), contentRef = "content/cooking-101/reading-recipe.md"),
+                children = listOf("plating"), contentRef = "content/cooking-101/reading-recipe.md",
+                lane = 240, tier = "TECHNIQUE · PICK A TRACK"),
             TreeNode("building-flavor", "Building Flavor", estMinutes = 18,
-                children = listOf("plating")),
-            TreeNode("plating", "Plating & Presentation", estMinutes = 10),
-            TreeNode("add-branch", "Add a branch", isBranchOut = true),
+                children = listOf("plating"), lane = 100),
+            TreeNode("plating", "Plating & Presentation", estMinutes = 10,
+                children = listOf("add-branch"), lane = 170, tier = "MASTERY"),
+            TreeNode("add-branch", "Add a branch", isBranchOut = true, lane = 170),
         ),
     )
 
+    /**
+     * The Machine Learning journey — the hero graph for the gamified roadmap. Its shape is the
+     * whole point of the redesign: it SPLITS (data → supervised + unsupervised) and later
+     * CONVERGES (regression + clustering → model evaluation), which the winding Duolingo-style
+     * path draws as clear forks and merges. Lanes/tiers match the design handoff exactly.
+     */
     private fun machineLearningPath() = LearningPath(
         id = "ml-101",
-        title = "Machine learning",
+        title = "Machine Learning",
         nodes = listOf(
             TreeNode("what-is-ml", "What is ML?", completed = true, estMinutes = 5,
-                children = listOf("types-of-learning"), contentRef = "content/ml-101/what-is-ml.md"),
-            TreeNode("types-of-learning", "Types of Learning", estMinutes = 10,
-                children = listOf("data-basics", "model-basics")),
-            TreeNode("data-basics", "Working with Data", estMinutes = 14, children = listOf("evaluation")),
-            TreeNode("model-basics", "Your First Model", estMinutes = 20, children = listOf("evaluation")),
-            TreeNode("evaluation", "Evaluating Models", estMinutes = 12),
-            TreeNode("add-branch", "Add a branch", isBranchOut = true),
+                children = listOf("types-of-learning"), contentRef = "content/ml-101/what-is-ml.md",
+                lane = 170, tier = "FOUNDATIONS"),
+            TreeNode("types-of-learning", "Types of Learning", completed = true, estMinutes = 8,
+                children = listOf("data-basics"), contentRef = "content/ml-101/types-of-learning.md",
+                lane = 108),
+            TreeNode("data-basics", "Data Basics", completed = true, estMinutes = 10,
+                children = listOf("supervised", "unsupervised"), contentRef = "content/ml-101/data-basics.md",
+                lane = 230),
+            TreeNode("supervised", "Supervised", estMinutes = 12, children = listOf("regression"),
+                contentRef = "content/ml-101/supervised.md", lane = 96, tier = "CORE ML · PICK A TRACK"),
+            TreeNode("unsupervised", "Unsupervised", estMinutes = 12, children = listOf("clustering"),
+                contentRef = "content/ml-101/unsupervised.md", lane = 244),
+            TreeNode("regression", "Regression", estMinutes = 10, children = listOf("model-evaluation"),
+                contentRef = "content/ml-101/regression.md", lane = 96),
+            TreeNode("clustering", "Clustering", estMinutes = 10, children = listOf("model-evaluation"),
+                contentRef = "content/ml-101/clustering.md", lane = 244),
+            TreeNode("model-evaluation", "Model Evaluation", estMinutes = 9,
+                children = listOf("neural-networks"), contentRef = "content/ml-101/model-evaluation.md",
+                lane = 170, tier = "MASTERY"),
+            TreeNode("neural-networks", "Neural Networks", estMinutes = 15, children = listOf("branch-1"),
+                contentRef = "content/ml-101/neural-networks.md", lane = 170),
+            TreeNode("branch-1", "Branch out", isBranchOut = true, lane = 170),
         ),
     )
 

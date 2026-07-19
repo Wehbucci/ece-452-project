@@ -155,6 +155,7 @@ class FirebasePathRepository : PathRepository {
                             "contentRef" to node.contentRef,
                             "state" to if (node.isBranchOut) "branch-out" else if (node.completed) "completed" else "active",
                             "contentStatus" to "not_generated",
+                            "lane" to node.lane,
                         ),
                         SetOptions.merge(),
                     ).await()
@@ -228,6 +229,7 @@ class FirebasePathRepository : PathRepository {
             parentId = getString("parentId"),
             contentRef = getString("contentRef"),
             isBranchOut = (getString("state") ?: "").equals("branch-out", ignoreCase = true),
+            lane = getLong("lane")?.toInt() ?: TreeNode.LANE_CENTER,
         )
     }
 }
