@@ -1,5 +1,6 @@
 package com.example.grasp.ui.feature.subtopic
 
+import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
@@ -25,16 +26,18 @@ class SubtopicPresenter(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onViewAttached() {
-        val loaded = repo.subtopic(pathId, nodeId)
-        if (loaded == null) {
-            view?.showNotFound()
-            return
+        scope.launch {
+            val loaded = repo.subtopic(pathId, nodeId)
+            if (loaded == null) {
+                view?.showNotFound()
+                return@launch
+            }
+            subtopic = loaded
+            completed = loaded.completed
+            view?.showSubtopic(loaded)
+            view?.showCompleted(completed)
+            loadChatIndicators()
         }
-        subtopic = loaded
-        completed = loaded.completed
-        view?.showSubtopic(loaded)
-        view?.showCompleted(completed)
-        loadChatIndicators()
     }
 
     override fun detach() {
@@ -45,6 +48,11 @@ class SubtopicPresenter(
     override fun onToggleComplete() {
         completed = !completed
         view?.showCompleted(completed)
+        
+        // Persist change to cloud
+        scope.launch {
+            repo.updateNodeCompletion(pathId, nodeId, completed)
+        }
     }
 
     override fun onAskAi() {

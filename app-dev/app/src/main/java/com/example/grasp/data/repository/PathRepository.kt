@@ -44,7 +44,7 @@ interface PathRepository {
     fun createTopic(query: String, mode: Mode): LearningPath?
 
     /** Persist completion state for a node in Firestore or the backend. */
-    fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)
+    suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)
 
-    fun deleteTopic(pathId: String)
+    suspend fun deleteTopic(pathId: String)
 }

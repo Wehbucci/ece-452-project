@@ -23,12 +23,12 @@ class TinkerPresenter(
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     override fun onViewAttached() {
-        val loaded = repo.tinkerGuide(guideId)
-        if (loaded == null) view?.showNotFound() else {
-            guide = loaded
-            view?.showGuide(loaded)
-        }
         scope.launch {
+            val loaded = repo.tinkerGuide(guideId)
+            if (loaded == null) view?.showNotFound() else {
+                guide = loaded
+                view?.showGuide(loaded)
+            }
             val hasHistory = chatRepo.existingChatIds("tinker__$guideId").isNotEmpty()
             view?.showChatIndicator(hasHistory)
         }

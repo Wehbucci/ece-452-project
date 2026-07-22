@@ -1,29 +1,27 @@
 package com.example.grasp.ui.feature.path
 
+import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Logic for the gamified Learner roadmap. Loads [pathId] on attach and thereafter owns the
  * whole game state: which nodes are complete, the derived per-node visual state, XP → level,
  * and branch insertion.
- *
- * ── Why it's a plain class with NO Compose/Android imports ────────────────────────────────
- * Everything here is pure so it can be unit-tested with a fake [PathContract.View] and plain
- * JUnit (see `PathPresenterTest`). Completion + XP is exactly the "progress persistence" piece
- * the architecture lists as still-to-do: today it lives in the in-memory [completed] set, but
- * because the rules are pure functions of that set, a future version can hydrate it from — and
- * write it back to — `UserRepository`/Firestore with **no change to the View**.
- *
- * @param pathId which roadmap to load (scoped per presenter instance).
- * @param repo data source — defaults to the in-memory fake; injectable for tests/previews.
  */
 class PathPresenter(
     private val pathId: String,
     private val repo: PathRepository = FirebasePathRepository(),
 ) : BasePresenter<PathContract.View>(), PathContract.Presenter {
+
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /** Path display title, set once the path loads. */
     private var title: String = ""
@@ -38,16 +36,23 @@ class PathPresenter(
     private var branchesGrown = 0
 
     override fun onViewAttached() {
-        val path = repo.learningPath(pathId)
-        if (path == null) {
-            view?.showNotFound()
-            return
+        scope.launch {
+            val path = repo.learningPath(pathId)
+            if (path == null) {
+                view?.showNotFound()
+                return@launch
+            }
+            title = path.title
+            nodes = path.nodes
+            completed.clear()
+            completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
+            emit()
         }
-        title = path.title
-        nodes = path.nodes
-        completed.clear()
-        completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
-        emit()
+    }
+
+    override fun detach() {
+        scope.cancel()
+        super.detach()
     }
 
     // ── User events ───────────────────────────────────────────────────────────────────────
@@ -84,6 +89,11 @@ class PathPresenter(
         val previousCurrent = currentId()
 
         completed += nodeId
+
+        // Persist change to cloud
+        scope.launch {
+            repo.updateNodeCompletion(pathId, nodeId, true)
+        }
 
         val newXp = xp()
         val newCurrent = currentId()

@@ -16,6 +16,10 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
 
@@ -24,6 +28,9 @@ class FirebasePathRepository : PathRepository {
     private val db = Firebase.firestore
     private val auth = Firebase.auth
     private val uid: String? get() = auth.currentUser?.uid
+    
+    // Background scope for "Fire and Forget" cloud saves
+    private val backgroundScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private fun userDocRef(uid: String) = db.collection("users").document(uid)
 
@@ -168,41 +175,39 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    override fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
+    override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
+        Log.d("FirebasePathRepo", "Cloud sync: Node $nodeId -> completed=$completed")
         try {
-            runBlocking {
-                nodesRef(uid, pathId).document(nodeId)
-                    .update("completed", completed, "state", if (completed) "completed" else "active")
-                    .await()
-            }
+            // Use .set() with SetOptions.merge() instead of .update().
+            // .update() fails if the document doesn't exist yet. 
+            // .set() with merge will create it or update it if it exists.
+            nodesRef(uid, pathId).document(nodeId)
+                .set(
+                    mapOf(
+                        "completed" to completed, 
+                        "state" to if (completed) "completed" else "active",
+                        "updatedAt" to FieldValue.serverTimestamp()
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+            Log.d("FirebasePathRepo", "Cloud sync: Successfully updated node $nodeId")
         } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "updateNodeCompletion failed for $pathId/$nodeId", e)
+            Log.e("FirebasePathRepo", "Cloud sync: Failed to update node $nodeId", e)
         }
     }
     
-    override fun deleteTopic(pathId: String) {
+    override suspend fun deleteTopic(pathId: String) {
         val uid = uid ?: return
-
         try {
-            runBlocking {
-                val nodeCollection = nodesRef(uid, pathId)
-
-                // Delete all nodes inside the topic
-                val nodesSnapshot = nodeCollection.get().await()
-
-                for (document in nodesSnapshot.documents) {
-                    document.reference.delete().await()
-                }
-
-                // Delete the topic document itself
-                topicsRef(uid)
-                    .document(pathId)
-                    .delete()
-                    .await()
-
-                Log.d("FirebasePathRepo", "Deleted topic: $pathId")
+            val nodeCollection = nodesRef(uid, pathId)
+            val nodesSnapshot = nodeCollection.get().await()
+            for (document in nodesSnapshot.documents) {
+                document.reference.delete().await()
             }
+            topicsRef(uid).document(pathId).delete().await()
+            Log.d("FirebasePathRepo", "Deleted topic: $pathId")
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "deleteTopic failed for $pathId", e)
         }

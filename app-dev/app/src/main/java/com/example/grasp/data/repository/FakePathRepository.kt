@@ -172,10 +172,10 @@ object FakePathRepository : PathRepository {
         return learningPath(id)
     }
 
-    override fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
+    override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         // Demo implementation: no-op.
     }
 
-    override fun deleteTopic(pathId: String) {
+    override suspend fun deleteTopic(pathId: String) {
     }
 }

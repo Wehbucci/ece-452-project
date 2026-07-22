@@ -1,6 +1,7 @@
 package com.example.grasp.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
@@ -16,6 +17,7 @@ import com.example.grasp.ui.feature.path.PathScreen
 import com.example.grasp.ui.feature.profile.ProfileScreen
 import com.example.grasp.ui.feature.subtopic.SubtopicScreen
 import com.example.grasp.ui.feature.tinker.TinkerScreen
+import com.google.firebase.auth.FirebaseAuth
 
 /**
  * The app's single navigation graph (single-activity architecture). This is the ONLY place
@@ -29,17 +31,26 @@ import com.example.grasp.ui.feature.tinker.TinkerScreen
 @Composable
 fun GraspApp() {
     val navController = rememberNavController()
-    GraspNavHost(navController = navController)
+    // Determine the start destination based on current auth state.
+    val startDestination = remember {
+        if (FirebaseAuth.getInstance().currentUser != null) {
+            GraspDestinations.HOME
+        } else {
+            GraspDestinations.LOGIN
+        }
+    }
+    GraspNavHost(navController = navController, startDestination = startDestination)
 }
 
 @Composable
 fun GraspNavHost(
     navController: NavHostController,
+    startDestination: String,
     modifier: Modifier = Modifier,
 ) {
     NavHost(
         navController = navController,
-        startDestination = GraspDestinations.LOGIN,
+        startDestination = startDestination,
         modifier = modifier,
     ) {
         // ---- Auth ----
