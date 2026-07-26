@@ -2,7 +2,6 @@ package com.example.grasp.data.repository
 
 import com.example.grasp.data.model.TreeNode
 import org.json.JSONObject
-import kotlin.math.abs
 
 /**
  * One node exactly as the model returned it, before any validation or layout.
@@ -24,23 +23,6 @@ private const val SYSTEM_INSTRUCTION = """
 
 /** Upper bound on a generated time estimate, so one bad number can't distort the HUD. */
 private const val MAX_EST_MINUTES = 120
-
-/**
- * Node centers must stay inside `PathLayout.CanvasWidth` (340dp), half a slot clear of either
- * edge, so no label is cut off.
- */
-private const val LANE_MIN = 56
-private const val LANE_MAX = 284
-
-/**
- * Minimum center-to-center distance between two nodes on the SAME row. Equal to
- * `PathLayout.SlotWidth`, below which their circles and labels would overlap. Keep the two in
- * sync if that constant ever changes.
- */
-private const val LANE_SEPARATION = 112
-
-/** Step used when searching outward for a free lane. Slightly over [LANE_SEPARATION]. */
-private const val LANE_STEP = 114
 
 /**
  * Generates the Learner roadmap for [title] (FR2.1).
@@ -224,28 +206,6 @@ internal fun laneByNode(nodes: List<GeneratedNode>): Map<String, Int> {
     walk(nodes.first().id, TreeNode.LANE_CENTER, row = 0)
     return lanes
 }
-
-/**
- * The lane closest to [wanted] that is on-canvas and at least [LANE_SEPARATION] from every lane in
- * [occupied]. Searches alternately outward, preferring the side with more room. Falls back to the
- * clamped [wanted] if the row is genuinely full (needs 4+ nodes on one row — the tree prompt
- * doesn't produce those).
- */
-private fun freeLane(wanted: Int, occupied: List<Int>): Int {
-    val start = wanted.coerceIn(LANE_MIN, LANE_MAX)
-    val outwardIsRight = start <= TreeNode.LANE_CENTER
-    val candidates = sequenceOf(start) + (1..MAX_LANE_PROBES).asSequence().flatMap { step ->
-        val offset = step * LANE_STEP
-        if (outwardIsRight) sequenceOf(start + offset, start - offset)
-        else sequenceOf(start - offset, start + offset)
-    }
-    return candidates.firstOrNull { lane ->
-        lane in LANE_MIN..LANE_MAX && occupied.none { abs(it - lane) < LANE_SEPARATION }
-    } ?: start
-}
-
-/** How far out [freeLane] will look; two steps already spans the whole canvas. */
-private const val MAX_LANE_PROBES = 3
 
 // ── Prompt & fallback ──────────────────────────────────────────────────────────────────────
 

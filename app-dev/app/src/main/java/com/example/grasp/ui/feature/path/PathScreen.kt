@@ -77,6 +77,7 @@ fun PathScreen(
     var sheetSubtopic by remember { mutableStateOf<Subtopic?>(null) }
     var sheetCompleted by remember { mutableStateOf(false) }
     var branchSheet by remember { mutableStateOf(false) }
+    var branchFromTitle by remember { mutableStateOf("") }
     var branchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var branchGenerating by remember { mutableStateOf(false) }
 
@@ -111,11 +112,12 @@ fun PathScreen(
                 sheetSubtopic = subtopic
                 sheetCompleted = completed
             }
-            override fun showBranchSheet() {
+            override fun showBranchSheet(fromTitle: String) {
                 sheetSubtopic = null
                 sheetLoadingTitle = null
                 branchSuggestions = emptyList()
                 branchGenerating = false
+                branchFromTitle = fromTitle
                 branchSheet = true
             }
             override fun showBranchSuggestions(topics: List<String>) { branchSuggestions = topics }
@@ -212,6 +214,7 @@ fun PathScreen(
                     onAskAboutBlock = { index, text ->
                         presenter.onAskAboutBlock(subtopic.nodeId, text, index)
                     },
+                    onBranchOut = { presenter.onBranchFromNode(subtopic.nodeId) },
                     onOpenResource = { url -> uriHandler.openUri(url) },
                 )
             } else {
@@ -227,6 +230,7 @@ fun PathScreen(
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
             BranchSheetContent(
+                fromTitle = branchFromTitle,
                 suggestions = branchSuggestions,
                 generating = branchGenerating,
                 onGenerate = { presenter.onGenerateBranch(it) },

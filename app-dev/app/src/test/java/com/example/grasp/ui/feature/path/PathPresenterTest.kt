@@ -29,6 +29,7 @@ class PathPresenterTest {
         var subtopicSheet: Subtopic? = null
         var subtopicCompleted = false
         var branchSheetShown = false
+        val branchFromTitles = mutableListOf<String>()
         var dismissCount = 0
         var confetti = 0
         val loadingTitles = mutableListOf<String>()
@@ -48,7 +49,10 @@ class PathPresenterTest {
         override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
             subtopicSheet = subtopic; subtopicCompleted = completed
         }
-        override fun showBranchSheet() { branchSheetShown = true }
+        override fun showBranchSheet(fromTitle: String) {
+            branchSheetShown = true
+            branchFromTitles += fromTitle
+        }
         override fun showBranchSuggestions(topics: List<String>) { branchSuggestions += topics }
         override fun showBranchGenerating(generating: Boolean) { generatingStates += generating }
         override fun dismissSheet() { dismissCount++ }
@@ -185,8 +189,51 @@ class PathPresenterTest {
 
         assertTrue(view.branchSheetShown)
         assertNull(view.subtopicSheet)
+        // The affordance is a placeholder, so the sheet names the lesson above it.
+        assertEquals(listOf("Neural Networks"), view.branchFromTitles)
         // The fake repository has no AI, so the chips come back empty rather than hardcoded.
         assertEquals(listOf(emptyList<String>()), view.branchSuggestions)
+    }
+
+    @Test
+    fun `branching off a lesson adds a detour without disturbing the main line`() {
+        val (presenter, view) = attach()
+
+        presenter.onBranchFromNode("data-basics")
+        assertEquals(listOf("Data Basics"), view.branchFromTitles)
+
+        presenter.onGenerateBranch("Feature engineering")
+
+        val state = view.lastState!!
+        val detour = state.nodes.first { it.title == "Feature engineering" }
+        assertEquals(listOf("data-basics"), detour.parentIds)
+        // Everything data-basics already led to is still hanging off it.
+        assertEquals(listOf("data-basics"), state.node("supervised").parentIds)
+        assertEquals(listOf("data-basics"), state.node("unsupervised").parentIds)
+        // The affordance at the end of the roadmap is untouched, and the branch brought its own.
+        assertNotNull(state.nodes.firstOrNull { it.id == "branch-1" })
+        assertEquals(2, state.nodes.count { it.state == PathNodeState.BRANCH })
+    }
+
+    @Test
+    fun `a detour is laid out beside its row neighbours, not on top of them`() {
+        val (presenter, view) = attach()
+
+        presenter.onBranchFromNode("data-basics")
+        presenter.onGenerateBranch("Feature engineering")
+
+        val state = view.lastState!!
+        val detour = state.nodes.first { it.title == "Feature engineering" }
+        val neighbours = state.nodes.filter { it.row == detour.row && it.id != detour.id }
+
+        assertTrue("the detour shares a row with the existing branches", neighbours.isNotEmpty())
+        assertTrue("stays on the 340dp canvas", detour.lane in 56..284)
+        neighbours.forEach { neighbour ->
+            assertTrue(
+                "${neighbour.id} at lane ${neighbour.lane} is stacked on the detour at ${detour.lane}",
+                neighbour.lane != detour.lane,
+            )
+        }
     }
 
     @Test

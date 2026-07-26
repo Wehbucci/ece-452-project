@@ -131,6 +131,36 @@ class LearnerTreeGeneratorTest {
     }
 
     @Test
+    fun `a branch off a mid-path node clears every row it spans`() {
+        // A straight roadmap down the middle: branching off "a" puts the new nodes alongside b and c.
+        val roadmap = listOf(
+            TreeNode("root", "Root", children = listOf("a"), lane = TreeNode.LANE_CENTER),
+            TreeNode("a", "A", children = listOf("b"), lane = TreeNode.LANE_CENTER),
+            TreeNode("b", "B", children = listOf("c"), lane = TreeNode.LANE_CENTER),
+            TreeNode("c", "C", lane = TreeNode.LANE_CENTER),
+        )
+
+        val lane = laneForBranch(roadmap, anchorId = "a", branchLength = 2)
+
+        assertTrue(
+            "the branch must clear the main line, but sat at lane $lane",
+            abs(lane - TreeNode.LANE_CENTER) >= 112,
+        )
+        assertTrue("and stay on the canvas", lane in 56..284)
+    }
+
+    @Test
+    fun `a branch off the end of the roadmap just continues straight down`() {
+        val roadmap = listOf(
+            TreeNode("root", "Root", children = listOf("a"), lane = TreeNode.LANE_CENTER),
+            TreeNode("a", "A", lane = TreeNode.LANE_CENTER),
+        )
+
+        // Nothing sits below "a", so there is no reason to jog sideways.
+        assertEquals(TreeNode.LANE_CENTER, laneForBranch(roadmap, anchorId = "a", branchLength = 3))
+    }
+
+    @Test
     fun `unique ids never collide with what is already on the path`() {
         assertEquals("deep-learning", uniqueId("deep-learning", emptySet()))
         assertEquals("deep-learning-2", uniqueId("deep-learning", setOf("deep-learning")))

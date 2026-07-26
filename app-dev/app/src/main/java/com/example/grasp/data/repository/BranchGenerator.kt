@@ -14,6 +14,7 @@ internal const val BRANCH_TIER = "YOUR BRANCHES"
 /** A grown branch stays short — it's a detour, not a second roadmap. */
 private const val MAX_BRANCH_NODES = 4
 
+
 private const val SYSTEM_INSTRUCTION = """
     You extend structured learning trees.
     Always output valid JSON only.
@@ -28,7 +29,8 @@ private const val SYSTEM_INSTRUCTION = """
  *        finished instead of restarting the subject.
  * @param topic what the user asked for, typed or picked from [suggestBranchTopics].
  * @param takenIds ids already on the path; new ids are made unique against these.
- * @param lane horizontal position to grow in — the branch inherits the affordance's lane.
+ * @param lane horizontal position to grow in. Callers that need the branch to clear existing nodes
+ *        leave this alone and re-lane the result once they know how long the branch turned out.
  *
  * Returns the chain of new lesson nodes FOLLOWED BY a fresh branch-out affordance, so the user
  * can keep growing from the end of what they just added. Never empty: if generation fails they

@@ -45,6 +45,7 @@ import com.example.grasp.ui.theme.PathRegionPill
  * Mostly stateless — it owns only the ephemeral text/chip selection for the pending branch name
  * and hands the final name to [onGenerate]; all graph mutation happens in `PathPresenter`.
  *
+ * @param fromTitle the lesson this branch grows off, so it's clear WHERE it will be added.
  * @param suggestions starter chips for THIS path, generated from the node the branch grows off.
  *        Empty while they load, or if they couldn't be produced — the text field is the real input.
  * @param generating true while the AI is building the branch: the button locks so a second tap
@@ -53,6 +54,7 @@ import com.example.grasp.ui.theme.PathRegionPill
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BranchSheetContent(
+    fromTitle: String,
     suggestions: List<String>,
     generating: Boolean,
     onGenerate: (String) -> Unit,
@@ -78,15 +80,15 @@ fun BranchSheetContent(
         }
 
         Text(
-            text = "Branch out",
+            text = "Branch off $fromTitle",
             fontFamily = FredokaFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = 26.sp,
             color = PathInk,
         )
         Text(
-            text = "Spin off a new direction from where you are. Pick a starter or describe your own — " +
-                "we'll grow a fresh branch on your tree.",
+            text = "Describe what you want this new section to cover and the AI will write it, " +
+                "as a short run of lessons growing out of $fromTitle.",
             fontFamily = NunitoFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = 15.sp,
@@ -121,9 +123,10 @@ fun BranchSheetContent(
         OutlinedTextField(
             value = name,
             onValueChange = { name = it },
-            label = { Text("Name your branch") },
-            singleLine = true,
+            label = { Text("What should this section cover?") },
+            placeholder = { Text("e.g. how to sharpen and care for knives") },
             enabled = !generating,
+            minLines = 2,
             modifier = Modifier.fillMaxWidth(),
         )
 

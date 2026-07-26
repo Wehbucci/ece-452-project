@@ -30,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.ResourceLink
@@ -45,6 +46,7 @@ import com.example.grasp.ui.theme.PathNodeCurrentBevel
 import com.example.grasp.ui.theme.PathNodeCurrentTint
 import com.example.grasp.ui.theme.PathNodeDone
 import com.example.grasp.ui.theme.PathNodeDoneBevel
+import com.example.grasp.ui.theme.PathNodeBranch
 import com.example.grasp.ui.theme.PathNodeDoneTint
 import com.example.grasp.ui.theme.PathWhyItMattersBg
 
@@ -60,6 +62,7 @@ import com.example.grasp.ui.theme.PathWhyItMattersBg
  * @param onMarkComplete complete the lesson (+40 XP) — no-op'd by the caller when already done.
  * @param onAskAi route to the AI chat for this subtopic.
  * @param onAskAboutBlock route to the AI chat about ONE paragraph of the lesson (FR5.2).
+ * @param onBranchOut grow a new section off this node.
  * @param onOpenResource open an optional "explore further" link.
  */
 @Composable
@@ -69,6 +72,7 @@ fun SubtopicSheetContent(
     onMarkComplete: () -> Unit,
     onAskAi: () -> Unit,
     onAskAboutBlock: (index: Int, text: String) -> Unit,
+    onBranchOut: () -> Unit,
     onOpenResource: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -187,6 +191,24 @@ fun SubtopicSheetContent(
             ) {
                 Icon(Icons.Filled.Star, contentDescription = "Ask AI", tint = PathNodeCurrent, modifier = Modifier.size(24.dp))
             }
+        }
+
+        // Grow a detour from THIS node — branching isn't limited to the end of the roadmap.
+        Surface(
+            onClick = onBranchOut,
+            shape = RoundedCornerShape(14.dp),
+            color = PathNodeBranch.copy(alpha = 0.12f),
+            contentColor = PathNodeBranch,
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = "＋ Branch off this lesson",
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            )
         }
     }
 }

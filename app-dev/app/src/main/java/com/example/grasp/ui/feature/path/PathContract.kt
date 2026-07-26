@@ -32,8 +32,8 @@ interface PathContract {
         /** Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA. */
         fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean)
 
-        /** Open the "grow your path" branch-out bottom sheet. */
-        fun showBranchSheet()
+        /** Open the "grow your path" sheet; [fromTitle] is the lesson the branch will grow off. */
+        fun showBranchSheet(fromTitle: String)
 
         /** Fill the open branch sheet's starter chips (empty = show none). */
         fun showBranchSuggestions(topics: List<String>)
@@ -75,6 +75,9 @@ interface PathContract {
 
         /** Explicit "grow your path" request (e.g. from the branch node). */
         fun onBranchRequested()
+
+        /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
+        fun onBranchFromNode(nodeId: String)
 
         /** Mark [nodeId] complete: +XP, unlock the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)

@@ -37,7 +37,7 @@ class PathPresenter(
     /** Node whose lesson is being loaded into the sheet — a late result for anything else is stale. */
     private var openingNodeId: String? = null
 
-    /** Branch-out node the open branch sheet will grow from. */
+    /** Node the open branch sheet will grow from — an affordance, or any lesson on the board. */
     private var pendingBranchId: String? = null
 
     /** Guards against a second "generate" tap while the AI is still building the first branch. */
@@ -88,6 +88,12 @@ class PathPresenter(
         openBranchSheet(branch.id)
     }
 
+    override fun onBranchFromNode(nodeId: String) {
+        // Any lesson can sprout a detour, not just the dashed affordance at the end.
+        val node = nodes.firstOrNull { it.id == nodeId } ?: return
+        openBranchSheet(node.id)
+    }
+
     /**
      * Opens the detail sheet for [node]. A node's lesson is written the first time it is opened,
      * so the sheet appears immediately in a loading state instead of freezing the tap for the
@@ -114,15 +120,22 @@ class PathPresenter(
         }
     }
 
-    /** Opens the "grow your path" sheet for [branchNodeId] and fetches its starter chips. */
-    private fun openBranchSheet(branchNodeId: String) {
-        pendingBranchId = branchNodeId
+    /** Opens the "grow your path" sheet anchored at [anchorId] and fetches its starter chips. */
+    private fun openBranchSheet(anchorId: String) {
+        val anchor = nodes.firstOrNull { it.id == anchorId } ?: return
+        pendingBranchId = anchorId
         openingNodeId = null
-        view?.showBranchSheet()
+        // The affordance is a placeholder, so name the lesson ABOVE it as what we're growing from.
+        val fromTitle = if (anchor.isBranchOut) {
+            nodes.firstOrNull { anchorId in it.children }?.title ?: title
+        } else {
+            anchor.title
+        }
+        view?.showBranchSheet(fromTitle)
         scope.launch {
-            val ideas = repo.branchSuggestions(pathId, branchNodeId)
-            // Ignore suggestions that arrive after the user moved on to a different affordance.
-            if (pendingBranchId == branchNodeId) view?.showBranchSuggestions(ideas)
+            val ideas = repo.branchSuggestions(pathId, anchorId)
+            // Ignore suggestions that arrive after the user moved on to a different anchor.
+            if (pendingBranchId == anchorId) view?.showBranchSuggestions(ideas)
         }
     }
 
@@ -186,20 +199,30 @@ class PathPresenter(
     }
 
     /**
-     * Swaps the consumed affordance [branchId] for [grown]: whatever pointed at the affordance now
-     * points at the first new node, and the branch (which ends in a fresh affordance) is appended.
+     * Grafts [grown] onto the board at [anchorId], mirroring what the repository just persisted.
+     *
+     * An affordance anchor is CONSUMED: it disappears and whatever pointed at it now points at the
+     * first new node. Any other anchor keeps everything it had and simply gains another child, so
+     * the branch appears beside the existing path rather than replacing it.
      */
-    private fun spliceBranch(branchId: String, grown: List<TreeNode>) {
+    private fun spliceBranch(anchorId: String, grown: List<TreeNode>) {
         val firstId = grown.first().id
-        nodes = nodes
-            .filterNot { it.id == branchId }
-            .map { node ->
-                if (branchId in node.children) {
-                    node.copy(children = node.children.map { if (it == branchId) firstId else it })
-                } else {
-                    node
-                }
+        val anchor = nodes.firstOrNull { it.id == anchorId }
+        nodes = if (anchor?.isBranchOut == true) {
+            nodes
+                .filterNot { it.id == anchorId }
+                .map { node ->
+                    if (anchorId in node.children) {
+                        node.copy(children = node.children.map { if (it == anchorId) firstId else it })
+                    } else {
+                        node
+                    }
+                } + grown
+        } else {
+            nodes.map { node ->
+                if (node.id == anchorId) node.copy(children = node.children + firstId) else node
             } + grown
+        }
     }
 
     override fun onAskAi(nodeId: String) {

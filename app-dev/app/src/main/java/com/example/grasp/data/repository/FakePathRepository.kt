@@ -190,19 +190,27 @@ object FakePathRepository : PathRepository {
      */
     override suspend fun growBranch(pathId: String, fromNodeId: String, topic: String): List<TreeNode> {
         val path = learningPath(pathId) ?: return emptyList()
-        val from = path.nodes.firstOrNull { it.id == fromNodeId }
+        val target = path.nodes.firstOrNull { it.id == fromNodeId }
         val taken = path.nodes.mapTo(mutableSetOf()) { it.id }
         val title = topic.trim().ifEmpty { "New branch" }
         val topicId = uniqueId(slugify(title), taken)
         val branchId = uniqueId(BRANCH_OUT_ID, taken + topicId)
+        // Consuming an affordance reuses its lane; a detour off a lesson has to find a free one.
+        val lane = when {
+            target == null -> TreeNode.LANE_CENTER
+            target.isBranchOut -> target.lane
+            // One lesson plus the affordance capping it, so two rows.
+            else -> laneForBranch(path.nodes, target.id, branchLength = 2)
+        }
         return listOf(
             TreeNode(
                 id = topicId,
                 title = title,
                 estMinutes = 12,
                 children = listOf(branchId),
+                parentId = if (target?.isBranchOut == true) null else target?.id,
                 contentRef = "content/$pathId/$topicId.md",
-                lane = from?.lane ?: TreeNode.LANE_CENTER,
+                lane = lane,
                 tier = BRANCH_TIER,
             ),
             TreeNode(
@@ -210,7 +218,7 @@ object FakePathRepository : PathRepository {
                 title = BRANCH_OUT_TITLE,
                 parentId = topicId,
                 isBranchOut = true,
-                lane = from?.lane ?: TreeNode.LANE_CENTER,
+                lane = lane,
             ),
         )
     }
