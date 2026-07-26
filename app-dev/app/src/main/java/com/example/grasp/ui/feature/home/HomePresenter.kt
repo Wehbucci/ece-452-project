@@ -32,14 +32,26 @@ class HomePresenter(
         super.detach()
     }
 
+    /** True while a topic is being generated, so a second submit can't start a parallel one. */
+    private var generating = false
+
     override fun onSubmitTopic(query: String, mode: Mode) {
-        if (query.isBlank()) return
+        if (query.isBlank() || generating) return
+        generating = true
+        // The roadmap AND every lesson in it are written before we navigate, so this is a real
+        // wait — show it rather than leaving Home looking frozen.
+        view?.showGenerating(query.trim())
         scope.launch {
             val createdPath = repo.createTopic(query, mode)
-            val id = createdPath?.id ?: query.trim().lowercase().replace(Regex("\\s+"), "-")
+            generating = false
+            view?.showGenerating(null)
+            if (createdPath == null) {
+                view?.showGenerationFailed()
+                return@launch
+            }
             when (mode) {
-                Mode.LEARNER -> view?.openLearner(id)
-                Mode.TINKERER -> view?.openTinker(id)
+                Mode.LEARNER -> view?.openLearner(createdPath.id)
+                Mode.TINKERER -> view?.openTinker(createdPath.id)
             }
         }
     }

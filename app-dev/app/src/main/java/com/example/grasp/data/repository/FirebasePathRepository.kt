@@ -19,8 +19,13 @@ import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
 
@@ -120,6 +125,38 @@ class FirebasePathRepository : PathRepository {
         }
 
     /**
+     * Writes the lesson for every node in [lessons], several at a time.
+     *
+     * Concurrent because a roadmap is 6-12 nodes and doing them one after another would take
+     * minutes; [MAX_PARALLEL_GENERATIONS] keeps the burst polite to the AI service. Nodes whose
+     * generation fails are simply absent from the result — they fall back to being written on
+     * first open rather than sinking the whole roadmap.
+     */
+    private suspend fun generateContentFor(
+        pathTitle: String,
+        lessons: List<TreeNode>,
+    ): Map<String, GeneratedContent> = coroutineScope {
+        val gate = Semaphore(MAX_PARALLEL_GENERATIONS)
+        lessons
+            .mapIndexed { index, node ->
+                async {
+                    gate.withPermit {
+                        node.id to generateSubtopicContent(
+                            pathTitle = pathTitle,
+                            nodeTitle = node.title,
+                            previousTitles = lessons.take(index).takeLast(3).map { it.title },
+                            upcomingTitles = lessons.drop(index + 1).take(2).map { it.title },
+                            estMinutes = node.estMinutes,
+                        )
+                    }
+                }
+            }
+            .awaitAll()
+            .mapNotNull { (id, content) -> content?.let { id to it } }
+            .toMap()
+    }
+
+    /**
      * Writes the lesson for [node] and stores it on the node document so it is only ever paid for
      * once. A failed generation is NOT cached — reopening the node retries.
      */
@@ -142,17 +179,7 @@ class FirebasePathRepository : PathRepository {
 
         try {
             nodesRef(uid, pathId).document(node.id).set(
-                mapOf(
-                    "summary" to generated.summary,
-                    "whyItMatters" to generated.whyItMatters,
-                    "body" to generated.body,
-                    "resources" to generated.resources.map {
-                        mapOf("title" to it.title, "url" to it.url, "kind" to it.kind.name)
-                    },
-                    "estMinutes" to generated.estMinutes,
-                    "contentStatus" to CONTENT_GENERATED,
-                    "updatedAt" to FieldValue.serverTimestamp(),
-                ),
+                contentFields(generated) + ("updatedAt" to FieldValue.serverTimestamp()),
                 SetOptions.merge(),
             ).await()
         } catch (e: Exception) {
@@ -184,19 +211,28 @@ class FirebasePathRepository : PathRepository {
             if (index == 0) node.copy(parentId = from?.id) else node
         }
 
-        val uid = uid ?: return@withContext branch // signed out: the branch lives in memory only
+        // Same deal as a new topic: the branch's lessons are written now, not on first open.
+        val content = generateContentFor(path.title, branch.filter { !it.isBranchOut })
+        val grown = branch.map { node ->
+            content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
+        }
+
+        val uid = uid ?: return@withContext grown // signed out: the branch lives in memory only
         try {
             // 1) The new nodes, appended after everything already on the path.
-            branch.forEachIndexed { index, node ->
+            grown.forEachIndexed { index, node ->
                 nodesRef(uid, pathId).document(node.id)
-                    .set(nodeDoc(node, order = path.nodes.size + index), SetOptions.merge())
+                    .set(
+                        nodeDoc(node, order = path.nodes.size + index, content = content[node.id]),
+                        SetOptions.merge(),
+                    )
                     .await()
             }
             // 2) Re-point the parent at the first new node, replacing the consumed affordance.
             if (from != null) {
                 nodesRef(uid, pathId).document(from.id).set(
                     mapOf(
-                        "children" to from.children.map { if (it == fromNodeId) branch.first().id else it },
+                        "children" to from.children.map { if (it == fromNodeId) grown.first().id else it },
                         "updatedAt" to FieldValue.serverTimestamp(),
                     ),
                     SetOptions.merge(),
@@ -210,7 +246,7 @@ class FirebasePathRepository : PathRepository {
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "growBranch failed for $pathId/$fromNodeId", e)
         }
-        branch
+        grown
     }
 
     override suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String> =
@@ -233,11 +269,13 @@ class FirebasePathRepository : PathRepository {
                 .replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "topic" }
             val title = query.trim().replaceFirstChar { it.uppercase() }
 
-            // Structure only — each node's lesson is written later, on first open (see [subtopic]).
             val nodes = when (mode) {
                 Mode.LEARNER -> buildLearnerTree(normalizedId, title)
                 Mode.TINKERER -> buildTinkerTree(normalizedId, title)
             }
+            // Every lesson is written NOW, so the roadmap is complete and readable (and offline)
+            // the moment it opens. [subtopic] still generates on demand for anything missing here.
+            val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
 
             try {
                 topicsRef(uid).document(normalizedId).set(
@@ -264,10 +302,17 @@ class FirebasePathRepository : PathRepository {
 
                 nodes.forEachIndexed { index, node ->
                     nodesRef(uid, normalizedId).document(node.id)
-                        .set(nodeDoc(node, index, parentByNodeId[node.id]), SetOptions.merge())
+                        .set(
+                            nodeDoc(node, index, parentByNodeId[node.id], content[node.id]),
+                            SetOptions.merge(),
+                        )
                         .await()
                 }
-                LearningPath(id = normalizedId, title = title, nodes = nodes)
+                // Reading time comes from the generated lesson, so the board shows it immediately.
+                val withTimes = nodes.map { node ->
+                    content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
+                }
+                LearningPath(id = normalizedId, title = title, nodes = withTimes)
             } catch (e: Exception) {
                 Log.e("FirebasePathRepo", "createTopic failed for $query", e)
                 FakePathRepository.createTopic(query, mode)
@@ -312,11 +357,17 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    /** The Firestore shape of one node — one place, so every writer stays in sync. */
+    /**
+     * The Firestore shape of one node — one place, so every writer stays in sync.
+     *
+     * [content] is the node's generated lesson when it was written up front; it overrides the
+     * "not generated yet" defaults below.
+     */
     private fun nodeDoc(
         node: TreeNode,
         order: Int,
         parentId: String? = node.parentId,
+        content: GeneratedContent? = null,
     ): Map<String, Any?> = mapOf(
         "id" to node.id,
         "title" to node.title,
@@ -335,6 +386,18 @@ class FirebasePathRepository : PathRepository {
         "contentStatus" to "not_generated",
         "tier" to node.tier,
         "lane" to node.lane,
+    ) + (content?.let(::contentFields) ?: emptyMap())
+
+    /** The generated-lesson half of a node document, shared by the up-front and lazy writers. */
+    private fun contentFields(content: GeneratedContent): Map<String, Any?> = mapOf(
+        "summary" to content.summary,
+        "whyItMatters" to content.whyItMatters,
+        "body" to content.body,
+        "resources" to content.resources.map {
+            mapOf("title" to it.title, "url" to it.url, "kind" to it.kind.name)
+        },
+        "estMinutes" to content.estMinutes,
+        "contentStatus" to CONTENT_GENERATED,
     )
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toTreeNode(): TreeNode? {
@@ -383,5 +446,8 @@ class FirebasePathRepository : PathRepository {
     private companion object {
         /** `contentStatus` marking a node whose lesson has been written and cached. */
         const val CONTENT_GENERATED = "generated"
+
+        /** How many lessons to write at once when generating a whole roadmap or branch. */
+        const val MAX_PARALLEL_GENERATIONS = 4
     }
 }

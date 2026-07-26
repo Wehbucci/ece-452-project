@@ -18,6 +18,16 @@ interface HomeContract {
         /** Render the popular-topic suggestions. */
         fun showPopularTopics(topics: List<TopicSuggestion>)
 
+        /**
+         * Cover the screen while the whole roadmap and all of its lessons are generated, or clear
+         * it when [topic] is null. Generation takes long enough that the user needs to see it
+         * happening rather than a frozen Home screen.
+         */
+        fun showGenerating(topic: String?)
+
+        /** Generation failed — the user is still on Home and can try again. */
+        fun showGenerationFailed()
+
         /** Navigate to a Learner roadmap for [pathId]. */
         fun openLearner(pathId: String)
 

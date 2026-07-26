@@ -15,6 +15,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -31,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.Mode
@@ -64,11 +67,18 @@ fun HomeScreen(
     var popularTopics by remember { mutableStateOf<List<TopicSuggestion>>(emptyList()) }
     var mode by remember { mutableStateOf(Mode.LEARNER) }
     var query by remember { mutableStateOf("") }
+    var generatingTopic by remember { mutableStateOf<String?>(null) }
+    var generationFailed by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
     val view = remember(onOpenLearner, onOpenTinker) {
         object : HomeContract.View {
             override fun showPopularTopics(topics: List<TopicSuggestion>) { popularTopics = topics }
+            override fun showGenerating(topic: String?) {
+                generatingTopic = topic
+                if (topic != null) generationFailed = false
+            }
+            override fun showGenerationFailed() { generationFailed = true }
             override fun openLearner(pathId: String) = onOpenLearner(pathId)
             override fun openTinker(pathId: String) = onOpenTinker(pathId)
         }
@@ -83,6 +93,14 @@ fun HomeScreen(
             GraspBottomBar(selected = TopLevelDestination.HOME, onSelect = onSelectTab)
         },
     ) { padding ->
+        // Generating a topic writes the roadmap AND every lesson in it before navigating, so the
+        // whole screen goes over to a progress state instead of appearing to do nothing.
+        val generating = generatingTopic
+        if (generating != null) {
+            GeneratingOverlay(topic = generating, modifier = Modifier.padding(padding))
+            return@Scaffold
+        }
+
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -90,6 +108,23 @@ fun HomeScreen(
             contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
+            if (generationFailed) {
+                item {
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.errorContainer,
+                        ),
+                    ) {
+                        Text(
+                            text = "We couldn't build that roadmap. Check your connection and try again.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(14.dp),
+                        )
+                    }
+                }
+            }
+
             item {
                 Text("Hi there 👋", style = MaterialTheme.typography.titleMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -131,7 +166,7 @@ fun HomeScreen(
                     label = { Text("Type a topic or task") },
                     singleLine = true,
                     trailingIcon = {
-                        IconButton(onClick = submit) {
+                        IconButton(onClick = submit, enabled = query.isNotBlank()) {
                             Icon(Icons.AutoMirrored.Filled.ArrowForward, contentDescription = "Generate")
                         }
                     },
@@ -147,6 +182,37 @@ fun HomeScreen(
                 TopicCard(topic = topic, onClick = { presenter.onPopularTopicClicked(topic) })
             }
         }
+    }
+}
+
+/**
+ * Full-screen progress state shown while a topic is generated.
+ *
+ * Names the two things being built, because the wait covers both the roadmap and every lesson on
+ * it — a bare spinner would read as the app having hung.
+ */
+@Composable
+private fun GeneratingOverlay(topic: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator()
+        Text(
+            text = "Building your roadmap",
+            style = MaterialTheme.typography.headlineSmall,
+            textAlign = TextAlign.Center,
+        )
+        Text(
+            text = "Breaking \"$topic\" into subtopics and writing every lesson. " +
+                "This takes a moment, and then it's yours to keep, even offline.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
