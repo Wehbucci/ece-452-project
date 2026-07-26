@@ -1,12 +1,15 @@
 package com.example.grasp.ui.feature.path
 
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.data.repository.FakePathRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.coroutines.CoroutineContext
 
 /**
  * Plain-JUnit tests for [PathPresenter] — the whole reason the presenter has NO Compose/Android
@@ -28,6 +31,9 @@ class PathPresenterTest {
         var branchSheetShown = false
         var dismissCount = 0
         var confetti = 0
+        val loadingTitles = mutableListOf<String>()
+        val branchSuggestions = mutableListOf<List<String>>()
+        val generatingStates = mutableListOf<Boolean>()
         val unlocks = mutableListOf<String>()
         val popIns = mutableListOf<String>()
         val levelUps = mutableListOf<Int>()
@@ -37,10 +43,13 @@ class PathPresenterTest {
 
         override fun showPath(state: PathUiState) { lastState = state }
         override fun showNotFound() { notFound = true }
+        override fun showSubtopicLoading(title: String) { loadingTitles += title }
         override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
             subtopicSheet = subtopic; subtopicCompleted = completed
         }
         override fun showBranchSheet() { branchSheetShown = true }
+        override fun showBranchSuggestions(topics: List<String>) { branchSuggestions += topics }
+        override fun showBranchGenerating(generating: Boolean) { generatingStates += generating }
         override fun dismissSheet() { dismissCount++ }
         override fun playUnlock(nodeId: String) { unlocks += nodeId }
         override fun playPopIn(nodeId: String) { popIns += nodeId }
@@ -51,10 +60,19 @@ class PathPresenterTest {
         override fun openChat(context: String, pathId: String, nodeId: String) { chats += nodeId }
     }
 
+    /**
+     * Runs every `launch` inline on the calling thread. The presenter now loads content and grows
+     * branches in coroutines; with the fake (never-actually-suspending) repository this makes those
+     * paths complete before the test's next line — no test-dispatcher dependency needed.
+     */
+    private class DirectDispatcher : CoroutineDispatcher() {
+        override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
+    }
+
     private fun PathUiState.node(id: String) = nodes.first { it.id == id }
 
     private fun attach(pathId: String = "ml-101"): Pair<PathPresenter, FakeView> {
-        val presenter = PathPresenter(pathId)
+        val presenter = PathPresenter(pathId, FakePathRepository, DirectDispatcher())
         val view = FakeView()
         presenter.attach(view)
         return presenter to view
@@ -128,11 +146,13 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `tapping an available node opens the detail sheet`() {
+    fun `tapping an available node shows the loading state, then its content`() {
         val (presenter, view) = attach()
 
         presenter.onNodeTapped("supervised")
 
+        // The lesson is generated on first open, so the sheet opens before the content exists.
+        assertEquals(listOf("Supervised"), view.loadingTitles)
         assertNotNull(view.subtopicSheet)
         assertEquals("supervised", view.subtopicSheet!!.nodeId)
         assertFalse(view.subtopicCompleted)
@@ -140,29 +160,69 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `tapping the branch node opens the branch sheet`() {
+    fun `a lesson that arrives after the sheet closed is discarded`() {
+        val (presenter, view) = attach()
+
+        presenter.onNodeTapped("supervised")
+        view.subtopicSheet = null
+        presenter.onSheetDismissed()
+        presenter.onNodeTapped("supervised")
+
+        // Re-opening works; the point is the presenter tracks WHICH node the sheet is waiting on.
+        assertNotNull(view.subtopicSheet)
+        assertEquals(2, view.loadingTitles.size)
+    }
+
+    @Test
+    fun `tapping the branch node opens the branch sheet and asks for starter ideas`() {
         val (presenter, view) = attach()
 
         presenter.onNodeTapped("branch-1")
 
         assertTrue(view.branchSheetShown)
         assertNull(view.subtopicSheet)
+        // The fake repository has no AI, so the chips come back empty rather than hardcoded.
+        assertEquals(listOf(emptyList<String>()), view.branchSuggestions)
     }
 
     @Test
-    fun `generating a branch inserts a topic node plus a new branch and pops it in`() {
+    fun `generating a branch inserts the generated nodes and pops the first one in`() {
         val (presenter, view) = attach()
 
+        presenter.onNodeTapped("branch-1")
         presenter.onGenerateBranch("Deep Learning")
 
         val state = view.lastState!!
         val topic = state.nodes.firstOrNull { it.title == "Deep Learning" }
         assertNotNull("a new topic node should be inserted", topic)
-        assertTrue("a fresh branch node should be appended", state.nodes.count { it.state == PathNodeState.BRANCH } >= 1)
+        assertNull("the consumed affordance is gone", state.nodes.firstOrNull { it.id == "branch-1" })
+        assertEquals(
+            "exactly one affordance remains, at the end of the new branch",
+            1,
+            state.nodes.count { it.state == PathNodeState.BRANCH },
+        )
+        // The node that pointed at the affordance now points at the branch.
+        assertEquals(listOf("neural-networks"), topic!!.parentIds)
         assertTrue("YOUR BRANCHES region should appear", state.regions.any { it.label == "YOUR BRANCHES" })
-        assertEquals(listOf(topic!!.id), view.popIns)
+        assertEquals(listOf(topic.id), view.popIns)
         assertEquals(1, view.dismissCount)
+        assertEquals("the button locks while generating", listOf(true, false), view.generatingStates)
         assertTrue(view.toasts.any { it.contains("branch", ignoreCase = true) })
+    }
+
+    @Test
+    fun `a second branch grows from the new affordance, not the consumed one`() {
+        val (presenter, view) = attach()
+
+        presenter.onNodeTapped("branch-1")
+        presenter.onGenerateBranch("Deep Learning")
+        presenter.onGenerateBranch("Transformers")
+
+        val state = view.lastState!!
+        val transformers = state.nodes.first { it.title == "Transformers" }
+        // Chained onto the previous branch — the old code always regrew from the first affordance.
+        assertEquals(listOf("deep-learning"), transformers.parentIds)
+        assertEquals(1, state.nodes.count { it.state == PathNodeState.BRANCH })
     }
 
     @Test
@@ -176,11 +236,9 @@ class PathPresenterTest {
 
     @Test
     fun `unknown path shows not-found`() {
-        val presenter = PathPresenter("does-not-resolve-to-null?")
-        val view = FakeView()
         // FakePathRepository never returns null, so this simply proves attach renders SOMETHING
         // rather than crashing; not-found is exercised by the null-repo contract.
-        presenter.attach(view)
+        val (_, view) = attach("does-not-resolve-to-null?")
         assertTrue(view.notFound || view.lastState != null)
     }
 }

@@ -4,8 +4,8 @@ import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.repository.ChatRepository
-import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
+import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
 import kotlinx.coroutines.CoroutineScope
@@ -19,7 +19,9 @@ class ChatPresenter(
     private val pathId: String = "",
     private val nodeId: String = "",
     private val blockIndex: Int = -1,
-    private val repo: PathRepository = FakePathRepository,
+    // The real repository, so the tutor is grounded in the SAME generated lesson the user is
+    // reading (it falls back to the fake data when signed out).
+    private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
@@ -33,7 +35,16 @@ class ChatPresenter(
     private val messages = mutableListOf<ChatMessage>()
     private var nextId = 0
     private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private val gemini by lazy { GeminiChatSession(buildSystemInstruction()) }
+
+    /**
+     * Built on first use rather than eagerly: the instruction embeds the node's lesson, which the
+     * repository may have to generate (and which must not be fetched on the main thread).
+     * Only ever touched from [onSend]'s single coroutine, so no locking is needed.
+     */
+    private var gemini: GeminiChatSession? = null
+
+    private suspend fun gemini(): GeminiChatSession =
+        gemini ?: GeminiChatSession(buildSystemInstruction()).also { gemini = it }
 
     override fun onViewAttached() {
         view?.showMessages(messages.toList())
@@ -70,7 +81,7 @@ class ChatPresenter(
         scope.launch {
             var accumulated = ""
             try {
-                gemini.sendMessageStream(text.trim()).collect { chunk ->
+                gemini().sendMessageStream(text.trim()).collect { chunk ->
                     accumulated += chunk
                     updatePending(pendingId, accumulated, stillPending = true)
                 }
@@ -106,7 +117,7 @@ class ChatPresenter(
         }
     }
 
-    private fun buildSystemInstruction(): String = buildString {
+    private suspend fun buildSystemInstruction(): String = buildString {
         appendLine("You are a helpful AI tutor in the Grasp learning app.")
         appendLine("Be concise, clear, and encouraging.")
         appendLine("If the user shares an image, describe what you see and relate it to the topic.")

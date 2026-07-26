@@ -23,11 +23,23 @@ interface PathContract {
         /** The path id didn't resolve (show an empty/error state, never crash). */
         fun showNotFound()
 
+        /**
+         * Open the detail sheet for a node titled [title] while its lesson is being written.
+         * Always followed by [showSubtopicSheet] or [dismissSheet].
+         */
+        fun showSubtopicLoading(title: String)
+
         /** Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA. */
         fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean)
 
         /** Open the "grow your path" branch-out bottom sheet. */
         fun showBranchSheet()
+
+        /** Fill the open branch sheet's starter chips (empty = show none). */
+        fun showBranchSuggestions(topics: List<String>)
+
+        /** Put the open branch sheet into / out of its "growing your branch…" state. */
+        fun showBranchGenerating(generating: Boolean)
 
         /** Close whichever bottom sheet is open. */
         fun dismissSheet()
@@ -64,7 +76,10 @@ interface PathContract {
         /** Mark [nodeId] complete: +XP, unlock the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)
 
-        /** Confirm a new branch named [name]; inserts a topic node + a fresh branch node. */
+        /**
+         * Confirm a new branch about [name]: generates and persists a short chain of nodes where
+         * the tapped affordance was, ending in a fresh affordance.
+         */
         fun onGenerateBranch(name: String)
 
         /** "Ask AI" for [nodeId] — routes to chat. */

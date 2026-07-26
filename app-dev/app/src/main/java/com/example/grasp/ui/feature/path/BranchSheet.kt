@@ -9,9 +9,12 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -41,15 +44,21 @@ import com.example.grasp.ui.theme.PathRegionPill
  *
  * Mostly stateless — it owns only the ephemeral text/chip selection for the pending branch name
  * and hands the final name to [onGenerate]; all graph mutation happens in `PathPresenter`.
+ *
+ * @param suggestions starter chips for THIS path, generated from the node the branch grows off.
+ *        Empty while they load, or if they couldn't be produced — the text field is the real input.
+ * @param generating true while the AI is building the branch: the button locks so a second tap
+ *        can't grow two branches from the same spot.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun BranchSheetContent(
+    suggestions: List<String>,
+    generating: Boolean,
     onGenerate: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var name by remember { mutableStateOf("") }
-    val presets = listOf("Deep Learning", "Natural Language", "Computer Vision", "Reinforcement Learning")
 
     Column(
         modifier = modifier
@@ -84,25 +93,27 @@ fun BranchSheetContent(
             color = PathMuted,
         )
 
-        FlowRow(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            presets.forEach { preset ->
-                val selected = name == preset
-                Surface(
-                    onClick = { name = preset },
-                    shape = RoundedCornerShape(percent = 50),
-                    color = if (selected) PathNodeCurrentTint else PathRegionPill,
-                    contentColor = PathInk,
-                ) {
-                    Text(
-                        text = preset,
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                    )
+        if (suggestions.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                suggestions.forEach { suggestion ->
+                    val selected = name == suggestion
+                    Surface(
+                        onClick = { name = suggestion },
+                        shape = RoundedCornerShape(percent = 50),
+                        color = if (selected) PathNodeCurrentTint else PathRegionPill,
+                        contentColor = PathInk,
+                    ) {
+                        Text(
+                            text = suggestion,
+                            fontFamily = NunitoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                        )
+                    }
                 }
             }
         }
@@ -112,10 +123,12 @@ fun BranchSheetContent(
             onValueChange = { name = it },
             label = { Text("Name your branch") },
             singleLine = true,
+            enabled = !generating,
             modifier = Modifier.fillMaxWidth(),
         )
 
         // Amber "generate" bevel button.
+        val enabled = name.isNotBlank() && !generating
         Box(modifier = Modifier.fillMaxWidth().height(54.dp)) {
             Box(
                 Modifier
@@ -128,17 +141,29 @@ fun BranchSheetContent(
                 Modifier
                     .matchParentSize()
                     .clip(RoundedCornerShape(16.dp))
-                    .background(PathNodeBranch)
-                    .clickable(enabled = name.isNotBlank()) { onGenerate(name) },
+                    .background(if (enabled) PathNodeBranch else PathNodeBranch.copy(alpha = 0.55f))
+                    .clickable(enabled = enabled) { onGenerate(name) },
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = "✧ Generate this branch",
-                    fontFamily = FredokaFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 16.sp,
-                    color = Color.White,
-                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (generating) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Color.White,
+                        )
+                    }
+                    Text(
+                        text = if (generating) "Growing your branch…" else "✧ Generate this branch",
+                        fontFamily = FredokaFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 16.sp,
+                        color = Color.White,
+                    )
+                }
             }
         }
     }

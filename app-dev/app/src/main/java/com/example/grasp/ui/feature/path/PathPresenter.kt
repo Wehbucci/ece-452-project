@@ -5,6 +5,7 @@ import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,9 +20,10 @@ import kotlinx.coroutines.launch
 class PathPresenter(
     private val pathId: String,
     private val repo: PathRepository = FirebasePathRepository(),
+    dispatcher: CoroutineDispatcher = Dispatchers.Main,
 ) : BasePresenter<PathContract.View>(), PathContract.Presenter {
 
-    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val scope = CoroutineScope(dispatcher + SupervisorJob())
 
     /** Path display title, set once the path loads. */
     private var title: String = ""
@@ -32,8 +34,14 @@ class PathPresenter(
     /** Source of truth for progress: the set of completed (non-branch) node ids. */
     private val completed: MutableSet<String> = mutableSetOf()
 
-    /** Monotonic counter so each generated branch gets unique node ids. */
-    private var branchesGrown = 0
+    /** Node whose lesson is being loaded into the sheet — a late result for anything else is stale. */
+    private var openingNodeId: String? = null
+
+    /** Branch-out node the open branch sheet will grow from. */
+    private var pendingBranchId: String? = null
+
+    /** Guards against a second "generate" tap while the AI is still building the first branch. */
+    private var growing = false
 
     override fun onViewAttached() {
         scope.launch {
@@ -60,7 +68,7 @@ class PathPresenter(
     override fun onNodeTapped(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
         if (node.isBranchOut) {
-            view?.showBranchSheet()
+            openBranchSheet(nodeId)
             return
         }
         when (stateOf(node)) {
@@ -70,15 +78,52 @@ class PathPresenter(
                 view?.showToast("🔒 Finish ${blockingParentTitle(node)} first")
             }
             // Done / current / open all open the detail sheet.
-            else -> {
-                val subtopic = repo.subtopic(pathId, nodeId) ?: return
-                view?.showSubtopicSheet(subtopic, completed = nodeId in completed)
-            }
+            else -> openSubtopic(node)
         }
     }
 
     override fun onBranchRequested() {
+        // The newest affordance sits at the end of the board — grow from there.
+        val branch = nodes.lastOrNull { it.isBranchOut } ?: return
+        openBranchSheet(branch.id)
+    }
+
+    /**
+     * Opens the detail sheet for [node]. A node's lesson is written the first time it is opened,
+     * so the sheet appears immediately in a loading state instead of freezing the tap for the
+     * length of an AI call (NFR 1.2).
+     */
+    private fun openSubtopic(node: TreeNode) {
+        openingNodeId = node.id
+        view?.showSubtopicLoading(node.title)
+        scope.launch {
+            val subtopic = repo.subtopic(pathId, node.id)
+            // The user may have dismissed the sheet, or opened another node, while we waited.
+            if (openingNodeId != node.id) return@launch
+            if (subtopic == null) {
+                view?.dismissSheet()
+                view?.showToast("⚠️ Couldn't open that lesson — check your connection")
+                return@launch
+            }
+            view?.showSubtopicSheet(subtopic, completed = node.id in completed)
+            // Generation is also where a node's reading time comes from — keep the board honest.
+            if (subtopic.estMinutes != node.estMinutes) {
+                nodes = nodes.map { if (it.id == node.id) it.copy(estMinutes = subtopic.estMinutes) else it }
+                emit()
+            }
+        }
+    }
+
+    /** Opens the "grow your path" sheet for [branchNodeId] and fetches its starter chips. */
+    private fun openBranchSheet(branchNodeId: String) {
+        pendingBranchId = branchNodeId
+        openingNodeId = null
         view?.showBranchSheet()
+        scope.launch {
+            val ideas = repo.branchSuggestions(pathId, branchNodeId)
+            // Ignore suggestions that arrive after the user moved on to a different affordance.
+            if (pendingBranchId == branchNodeId) view?.showBranchSuggestions(ideas)
+        }
     }
 
     override fun onMarkComplete(nodeId: String) {
@@ -115,42 +160,46 @@ class PathPresenter(
     }
 
     override fun onGenerateBranch(name: String) {
-        val branchNode = nodes.firstOrNull { it.isBranchOut } ?: return
-        val topicName = name.trim().ifEmpty { "New Branch" }
-        branchesGrown++
-        val topicId = "grown-$branchesGrown"
-        val nextBranchId = "branch-out-$branchesGrown"
+        val branchId = pendingBranchId ?: nodes.lastOrNull { it.isBranchOut }?.id ?: return
+        if (growing) return
+        growing = true
+        view?.showBranchGenerating(true)
 
-        val newTopic = TreeNode(
-            id = topicId,
-            title = topicName,
-            estMinutes = 12,
-            children = listOf(nextBranchId),
-            lane = branchNode.lane,
-            tier = "YOUR BRANCHES",
-        )
-        val newBranch = TreeNode(
-            id = nextBranchId,
-            title = "Branch out",
-            isBranchOut = true,
-            lane = branchNode.lane,
-        )
-
-        // The old branch node's slot becomes the new topic; the parent that pointed at the
-        // branch now points at the topic; a fresh branch node is appended below it.
-        nodes = nodes.map { n ->
-            when {
-                n.id == branchNode.id -> newTopic
-                branchNode.id in n.children ->
-                    n.copy(children = n.children.map { if (it == branchNode.id) topicId else it })
-                else -> n
+        scope.launch {
+            // The repository generates the branch AND persists it, so what pops in here is what
+            // will still be on the board after a reload.
+            val grown = repo.growBranch(pathId, branchId, name)
+            growing = false
+            view?.showBranchGenerating(false)
+            if (grown.isEmpty()) {
+                view?.showToast("⚠️ Couldn't grow that branch — try again")
+                return@launch
             }
-        } + newBranch
+            spliceBranch(branchId, grown)
+            pendingBranchId = null
 
-        emit()
-        view?.dismissSheet()
-        view?.playPopIn(topicId)
-        view?.showToast("🌱 New branch added")
+            emit()
+            view?.dismissSheet()
+            view?.playPopIn(grown.first().id)
+            view?.showToast("🌱 New branch added")
+        }
+    }
+
+    /**
+     * Swaps the consumed affordance [branchId] for [grown]: whatever pointed at the affordance now
+     * points at the first new node, and the branch (which ends in a fresh affordance) is appended.
+     */
+    private fun spliceBranch(branchId: String, grown: List<TreeNode>) {
+        val firstId = grown.first().id
+        nodes = nodes
+            .filterNot { it.id == branchId }
+            .map { node ->
+                if (branchId in node.children) {
+                    node.copy(children = node.children.map { if (it == branchId) firstId else it })
+                } else {
+                    node
+                }
+            } + grown
     }
 
     override fun onAskAi(nodeId: String) {
@@ -159,8 +208,9 @@ class PathPresenter(
     }
 
     override fun onSheetDismissed() {
-        // Nothing to persist yet; the View owns sheet visibility. Hook kept for symmetry so a
-        // future version can, e.g., record "peeked but didn't complete" analytics.
+        // Drop the pending targets so a late generation result can't reopen a closed sheet.
+        openingNodeId = null
+        pendingBranchId = null
     }
 
     // ── Derivation (pure functions of `nodes` + `completed`) ────────────────────────────────

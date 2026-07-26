@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -177,6 +178,42 @@ fun SubtopicSheetContent(
             ) {
                 Icon(Icons.Filled.Star, contentDescription = "Ask AI", tint = PathNodeCurrent, modifier = Modifier.size(24.dp))
             }
+        }
+    }
+}
+
+/**
+ * What the detail sheet shows while a node's lesson is being written.
+ *
+ * A node's content is generated the first time it is opened, so this state is real (a few
+ * seconds) rather than decorative — naming the subtopic makes the wait feel like progress on the
+ * thing the user tapped.
+ */
+@Composable
+fun SubtopicLoadingContent(title: String, modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 22.dp, end = 22.dp, top = 6.dp, bottom = 40.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        SheetChip("✧ WRITING YOUR LESSON", PathNodeCurrentTint, PathNodeCurrent)
+        Text(
+            text = title,
+            fontFamily = FredokaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 26.sp,
+            color = PathInk,
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = PathNodeCurrent)
+            Text(
+                text = "Putting this lesson together for you…",
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                color = PathMuted,
+            )
         }
     }
 }

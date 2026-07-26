@@ -38,6 +38,7 @@ import com.example.grasp.ui.components.PathLayout
 import com.example.grasp.ui.components.PathNode
 import com.example.grasp.ui.components.PathToast
 import com.example.grasp.ui.components.RegionLabel
+import com.example.grasp.ui.feature.subtopic.SubtopicLoadingContent
 import com.example.grasp.ui.feature.subtopic.SubtopicSheetContent
 import com.example.grasp.ui.theme.GraspTheme
 import com.example.grasp.ui.theme.PathMuted
@@ -70,10 +71,14 @@ fun PathScreen(
     var state by remember { mutableStateOf<PathUiState?>(null) }
     var notFound by remember { mutableStateOf(false) }
 
-    // Sheets
+    // Sheets. `sheetLoadingTitle` holds the detail sheet open, showing a spinner, while the node's
+    // lesson is generated; `sheetSubtopic` replaces it once the content arrives.
+    var sheetLoadingTitle by remember { mutableStateOf<String?>(null) }
     var sheetSubtopic by remember { mutableStateOf<Subtopic?>(null) }
     var sheetCompleted by remember { mutableStateOf(false) }
     var branchSheet by remember { mutableStateOf(false) }
+    var branchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
+    var branchGenerating by remember { mutableStateOf(false) }
 
     // One-shot motion signals
     var confettiTrigger by remember { mutableIntStateOf(0) }
@@ -95,13 +100,31 @@ fun PathScreen(
         object : PathContract.View {
             override fun showPath(s: PathUiState) { state = s; notFound = false }
             override fun showNotFound() { notFound = true }
+            override fun showSubtopicLoading(title: String) {
+                branchSheet = false
+                sheetSubtopic = null
+                sheetLoadingTitle = title
+            }
             override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
                 branchSheet = false
+                sheetLoadingTitle = null
                 sheetSubtopic = subtopic
                 sheetCompleted = completed
             }
-            override fun showBranchSheet() { sheetSubtopic = null; branchSheet = true }
-            override fun dismissSheet() { sheetSubtopic = null; branchSheet = false }
+            override fun showBranchSheet() {
+                sheetSubtopic = null
+                sheetLoadingTitle = null
+                branchSuggestions = emptyList()
+                branchGenerating = false
+                branchSheet = true
+            }
+            override fun showBranchSuggestions(topics: List<String>) { branchSuggestions = topics }
+            override fun showBranchGenerating(generating: Boolean) { branchGenerating = generating }
+            override fun dismissSheet() {
+                sheetSubtopic = null
+                sheetLoadingTitle = null
+                branchSheet = false
+            }
             override fun playUnlock(nodeId: String) { fillIntoId = nodeId; enterId = nodeId; enterNonce++ }
             override fun playPopIn(nodeId: String) { enterId = nodeId; enterNonce++ }
             override fun showConfetti() { confettiTrigger++ }
@@ -110,6 +133,7 @@ fun PathScreen(
             override fun shakeNode(nodeId: String) { shakeId = nodeId; shakeNonce++ }
             override fun openChat(context: String, pathId: String, nodeId: String) {
                 sheetSubtopic = null
+                sheetLoadingTitle = null
                 onOpenChat(context, pathId, nodeId)
             }
         }
@@ -167,20 +191,29 @@ fun PathScreen(
         }
     }
 
-    // Subtopic detail sheet.
+    // Subtopic detail sheet — the same sheet holds the "writing your lesson" state and the lesson.
     val subtopic = sheetSubtopic
-    if (subtopic != null) {
+    val loadingTitle = sheetLoadingTitle
+    if (subtopic != null || loadingTitle != null) {
         ModalBottomSheet(
-            onDismissRequest = { sheetSubtopic = null; presenter.onSheetDismissed() },
+            onDismissRequest = {
+                sheetSubtopic = null
+                sheetLoadingTitle = null
+                presenter.onSheetDismissed()
+            },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            SubtopicSheetContent(
-                subtopic = subtopic,
-                completed = sheetCompleted,
-                onMarkComplete = { presenter.onMarkComplete(subtopic.nodeId) },
-                onAskAi = { presenter.onAskAi(subtopic.nodeId) },
-                onOpenResource = { url -> uriHandler.openUri(url) },
-            )
+            if (subtopic != null) {
+                SubtopicSheetContent(
+                    subtopic = subtopic,
+                    completed = sheetCompleted,
+                    onMarkComplete = { presenter.onMarkComplete(subtopic.nodeId) },
+                    onAskAi = { presenter.onAskAi(subtopic.nodeId) },
+                    onOpenResource = { url -> uriHandler.openUri(url) },
+                )
+            } else {
+                SubtopicLoadingContent(title = loadingTitle!!)
+            }
         }
     }
 
@@ -190,7 +223,11 @@ fun PathScreen(
             onDismissRequest = { branchSheet = false; presenter.onSheetDismissed() },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         ) {
-            BranchSheetContent(onGenerate = { presenter.onGenerateBranch(it) })
+            BranchSheetContent(
+                suggestions = branchSuggestions,
+                generating = branchGenerating,
+                onGenerate = { presenter.onGenerateBranch(it) },
+            )
         }
     }
 }
