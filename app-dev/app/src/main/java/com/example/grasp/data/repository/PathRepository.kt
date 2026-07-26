@@ -7,6 +7,7 @@ import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TopicSuggestion
+import com.example.grasp.data.model.TreeNode
 
 /**
  * The Model layer's boundary for paths, guides and content (overview.md §5).
@@ -34,14 +35,36 @@ interface PathRepository {
     /** A Tinkerer guide by id, or null if not found. */
     fun tinkerGuide(id: String): TinkerGuide?
 
-    /** Resolved content for one node (the lazy `contentRef` fetch), or null if not found. */
-    fun subtopic(pathId: String, nodeId: String): Subtopic?
+    /**
+     * Resolved content for one node (the lazy `contentRef` fetch), or null if not found.
+     *
+     * Suspending because the first call for a node may have to GENERATE its lesson before it can
+     * return; afterwards the cached copy comes back immediately (and offline).
+     */
+    suspend fun subtopic(pathId: String, nodeId: String): Subtopic?
 
     /** A sample conversation for the chat skeleton (FR5.5 history). */
     fun sampleChat(): List<ChatMessage>
 
-    /** Create or hydrate a topic path from a user prompt. */
-    fun createTopic(query: String, mode: Mode): LearningPath?
+    /**
+     * Create or hydrate a topic path from a user prompt.
+     *
+     * Suspending because generating the roadmap is an AI round-trip — it must not run on the
+     * main thread (NFR 1.2: no noticeable lag or UI glitch).
+     */
+    suspend fun createTopic(query: String, mode: Mode): LearningPath?
+
+    /**
+     * Grows a new branch where the branch-out affordance [fromNodeId] sits, and persists it.
+     *
+     * [fromNodeId] is consumed: it is replaced by the generated nodes, and a fresh affordance is
+     * appended after them. Returns the new nodes in order (lessons, then the new affordance), or
+     * an empty list if nothing could be grown.
+     */
+    suspend fun growBranch(pathId: String, fromNodeId: String, topic: String): List<TreeNode>
+
+    /** Starter branch ideas for the "grow your path" sheet; empty when none could be produced. */
+    suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String>
 
     /** Persist completion state for a node in Firestore or the backend. */
     suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)

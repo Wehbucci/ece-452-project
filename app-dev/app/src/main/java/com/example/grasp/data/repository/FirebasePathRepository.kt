@@ -22,6 +22,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 
 class FirebasePathRepository : PathRepository {
 
@@ -81,49 +82,165 @@ class FirebasePathRepository : PathRepository {
 
     override fun tinkerGuide(id: String): TinkerGuide? = null
 
-    override fun subtopic(pathId: String, nodeId: String): Subtopic? {
-        val uid = uid ?: return FakePathRepository.subtopic(pathId, nodeId)
-        return try {
-            val path = learningPath(pathId) ?: return null
-            val node = path.nodes.firstOrNull { it.id == nodeId } ?: return null
-            val index = path.nodes.indexOfFirst { it.id == nodeId }.coerceAtLeast(0)
-            Subtopic(
-                nodeId = node.id,
-                title = node.title,
-                stepLabel = "Step ${index + 1} of ${path.nodes.size}",
-                summary = "A generated summary for ${node.title.lowercase()}.",
-                whyItMatters = "This node helps the learner move from the overview to practical understanding.",
-                body = listOf(
-                    "This lesson content is generated lazily and stored per node so the roadmap stays lightweight.",
-                    "A future version can replace this placeholder with richer markdown or rich media.",
-                ),
-                resources = listOf(
-                    ResourceLink("Wikipedia", "https://en.wikipedia.org", ResourceKind.ARTICLE),
-                    ResourceLink("Suggested guide", "https://example.com/guide", ResourceKind.GUIDE),
-                ),
-                estMinutes = node.estMinutes,
-                completed = node.completed,
-            )
-        } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "subtopic failed for $pathId/$nodeId", e)
-            FakePathRepository.subtopic(pathId, nodeId)
+    /**
+     * Resolves a node's lesson, generating it on first open and caching it in the node document.
+     *
+     * This is the lazy half of the proposal's Conflict 1 trade-off: [createTopic] only writes the
+     * roadmap's structure, and the words behind a node are written here, once, the first time
+     * somebody looks at it. Every later open — including offline — reads the cached copy.
+     */
+    override suspend fun subtopic(pathId: String, nodeId: String): Subtopic? =
+        withContext(Dispatchers.IO) {
+            val uid = uid ?: return@withContext FakePathRepository.subtopic(pathId, nodeId)
+            try {
+                val path = learningPath(pathId) ?: return@withContext null
+                val node = path.nodes.firstOrNull { it.id == nodeId } ?: return@withContext null
+
+                val cached = nodesRef(uid, pathId).document(nodeId).get().await().toGeneratedContent()
+                val content = cached ?: generateAndCache(uid, pathId, path, node)
+
+                // Lessons are what get numbered; the branch-out affordance isn't one.
+                val lessons = path.nodes.filter { !it.isBranchOut }
+                val step = lessons.indexOfFirst { it.id == nodeId }
+                Subtopic(
+                    nodeId = node.id,
+                    title = node.title,
+                    stepLabel = "Step ${step + 1} of ${lessons.size}",
+                    summary = content.summary,
+                    whyItMatters = content.whyItMatters,
+                    body = content.body,
+                    resources = content.resources,
+                    estMinutes = content.estMinutes,
+                    completed = node.completed,
+                )
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "subtopic failed for $pathId/$nodeId", e)
+                FakePathRepository.subtopic(pathId, nodeId)
+            }
         }
+
+    /**
+     * Writes the lesson for [node] and stores it on the node document so it is only ever paid for
+     * once. A failed generation is NOT cached — reopening the node retries.
+     */
+    private suspend fun generateAndCache(
+        uid: String,
+        pathId: String,
+        path: LearningPath,
+        node: TreeNode,
+    ): GeneratedContent {
+        val lessons = path.nodes.filter { !it.isBranchOut }
+        val position = lessons.indexOfFirst { it.id == node.id }.coerceAtLeast(0)
+        val generated = generateSubtopicContent(
+            pathTitle = path.title,
+            nodeTitle = node.title,
+            // Only the immediate neighbours: enough to place the lesson without bloating the prompt.
+            previousTitles = lessons.take(position).takeLast(3).map { it.title },
+            upcomingTitles = lessons.drop(position + 1).take(2).map { it.title },
+            estMinutes = node.estMinutes,
+        ) ?: return placeholderContent(node.title, node.estMinutes)
+
+        try {
+            nodesRef(uid, pathId).document(node.id).set(
+                mapOf(
+                    "summary" to generated.summary,
+                    "whyItMatters" to generated.whyItMatters,
+                    "body" to generated.body,
+                    "resources" to generated.resources.map {
+                        mapOf("title" to it.title, "url" to it.url, "kind" to it.kind.name)
+                    },
+                    "estMinutes" to generated.estMinutes,
+                    "contentStatus" to CONTENT_GENERATED,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                SetOptions.merge(),
+            ).await()
+        } catch (e: Exception) {
+            // The lesson is already written — failing to cache it only costs a re-generation.
+            Log.e("FirebasePathRepo", "caching content failed for $pathId/${node.id}", e)
+        }
+        return generated
     }
+
+    override suspend fun growBranch(
+        pathId: String,
+        fromNodeId: String,
+        topic: String,
+    ): List<TreeNode> = withContext(Dispatchers.IO) {
+        val path = learningPath(pathId) ?: return@withContext emptyList()
+        val affordance = path.nodes.firstOrNull { it.id == fromNodeId } ?: return@withContext emptyList()
+        // The branch grows out of whatever the affordance hangs off, so the AI continues from
+        // there rather than restarting the topic.
+        val from = path.nodes.firstOrNull { fromNodeId in it.children }
+
+        val branch = buildBranch(
+            pathId = pathId,
+            pathTitle = path.title,
+            fromTitle = from?.title ?: path.title,
+            topic = topic,
+            takenIds = path.nodes.mapTo(mutableSetOf()) { it.id },
+            lane = affordance.lane,
+        ).mapIndexed { index, node ->
+            if (index == 0) node.copy(parentId = from?.id) else node
+        }
+
+        val uid = uid ?: return@withContext branch // signed out: the branch lives in memory only
+        try {
+            // 1) The new nodes, appended after everything already on the path.
+            branch.forEachIndexed { index, node ->
+                nodesRef(uid, pathId).document(node.id)
+                    .set(nodeDoc(node, order = path.nodes.size + index), SetOptions.merge())
+                    .await()
+            }
+            // 2) Re-point the parent at the first new node, replacing the consumed affordance.
+            if (from != null) {
+                nodesRef(uid, pathId).document(from.id).set(
+                    mapOf(
+                        "children" to from.children.map { if (it == fromNodeId) branch.first().id else it },
+                        "updatedAt" to FieldValue.serverTimestamp(),
+                    ),
+                    SetOptions.merge(),
+                ).await()
+            }
+            // 3) Retire the consumed affordance — the new one at the end of the branch replaces it.
+            nodesRef(uid, pathId).document(fromNodeId).delete().await()
+            topicsRef(uid).document(pathId)
+                .set(mapOf("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                .await()
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "growBranch failed for $pathId/$fromNodeId", e)
+        }
+        branch
+    }
+
+    override suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String> =
+        withContext(Dispatchers.IO) {
+            val path = learningPath(pathId) ?: return@withContext emptyList()
+            val from = path.nodes.firstOrNull { fromNodeId in it.children }
+            suggestBranchTopics(
+                pathTitle = path.title,
+                fromTitle = from?.title ?: path.title,
+                existingTitles = path.nodes.filter { !it.isBranchOut }.map { it.title },
+            )
+        }
 
     override fun sampleChat(): List<ChatMessage> = emptyList()
 
-    override fun createTopic(query: String, mode: Mode): LearningPath? {
-        val uid = uid ?: return FakePathRepository.createTopic(query, mode)
-        val normalizedId = query.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "topic" }
-        val title = query.trim().replaceFirstChar { it.uppercase() }
-        val nodes = when(mode) {
-            Mode.LEARNER -> generateLearnerTree(normalizedId, title)
-            Mode.TINKERER -> generateTinkerTree(normalizedId, title)
-        }
-                return try {
-            runBlocking {
-                val topicRef = topicsRef(uid).document(normalizedId)
-                topicRef.set(
+    override suspend fun createTopic(query: String, mode: Mode): LearningPath? =
+        withContext(Dispatchers.IO) {
+            val uid = uid ?: return@withContext FakePathRepository.createTopic(query, mode)
+            val normalizedId = query.trim().lowercase()
+                .replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "topic" }
+            val title = query.trim().replaceFirstChar { it.uppercase() }
+
+            // Structure only — each node's lesson is written later, on first open (see [subtopic]).
+            val nodes = when (mode) {
+                Mode.LEARNER -> buildLearnerTree(normalizedId, title)
+                Mode.TINKERER -> buildTinkerTree(normalizedId, title)
+            }
+
+            try {
+                topicsRef(uid).document(normalizedId).set(
                     mapOf(
                         "title" to title,
                         "mode" to mode.name.lowercase(),
@@ -142,38 +259,20 @@ class FirebasePathRepository : PathRepository {
                 val parentByNodeId = linkedMapOf<String, String?>()
                 nodes.forEach { parentByNodeId[it.id] = null }
                 nodes.forEach { node ->
-                    node.children.forEach { childId ->
-                        parentByNodeId[childId] = node.id
-                    }
+                    node.children.forEach { childId -> parentByNodeId[childId] = node.id }
                 }
 
                 nodes.forEachIndexed { index, node ->
-                    val nodeDoc = nodesRef(uid, normalizedId).document(node.id)
-                    nodeDoc.set(
-                        mapOf(
-                            "id" to node.id,
-                            "title" to node.title,
-                            "updatedAt" to FieldValue.serverTimestamp(),
-                            "order" to index,
-                            "completed" to node.completed,
-                            "estMinutes" to node.estMinutes,
-                            "parentId" to parentByNodeId[node.id],
-                            "children" to node.children,
-                            "contentRef" to node.contentRef,
-                            "state" to if (node.isBranchOut) "branch-out" else if (node.completed) "completed" else "active",
-                            "contentStatus" to "not_generated",
-                            "lane" to node.lane,
-                        ),
-                        SetOptions.merge(),
-                    ).await()
+                    nodesRef(uid, normalizedId).document(node.id)
+                        .set(nodeDoc(node, index, parentByNodeId[node.id]), SetOptions.merge())
+                        .await()
                 }
+                LearningPath(id = normalizedId, title = title, nodes = nodes)
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "createTopic failed for $query", e)
+                FakePathRepository.createTopic(query, mode)
             }
-            LearningPath(id = normalizedId, title = title, nodes = nodes)
-        } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "createTopic failed for $query", e)
-            FakePathRepository.createTopic(query, mode)
         }
-    }
 
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
@@ -213,13 +312,30 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    private fun generateLearnerTree(pathId: String, title: String): List<TreeNode> {
-        return buildLearnerTree(pathId, title)
-    }
-
-    private fun generateTinkerTree(pathId: String, title: String): List<TreeNode> {
-        return buildTinkerTree(pathId, title)
-    }
+    /** The Firestore shape of one node — one place, so every writer stays in sync. */
+    private fun nodeDoc(
+        node: TreeNode,
+        order: Int,
+        parentId: String? = node.parentId,
+    ): Map<String, Any?> = mapOf(
+        "id" to node.id,
+        "title" to node.title,
+        "updatedAt" to FieldValue.serverTimestamp(),
+        "order" to order,
+        "completed" to node.completed,
+        "estMinutes" to node.estMinutes,
+        "parentId" to parentId,
+        "children" to node.children,
+        "contentRef" to node.contentRef,
+        "state" to when {
+            node.isBranchOut -> "branch-out"
+            node.completed -> "completed"
+            else -> "active"
+        },
+        "contentStatus" to "not_generated",
+        "tier" to node.tier,
+        "lane" to node.lane,
+    )
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toTreeNode(): TreeNode? {
         val nodeId = getString("id") ?: id
@@ -235,6 +351,37 @@ class FirebasePathRepository : PathRepository {
             contentRef = getString("contentRef"),
             isBranchOut = (getString("state") ?: "").equals("branch-out", ignoreCase = true),
             lane = getLong("lane")?.toInt() ?: TreeNode.LANE_CENTER,
+            tier = getString("tier"),
         )
+    }
+
+    /** The cached lesson on a node document, or null if it hasn't been generated yet. */
+    private fun com.google.firebase.firestore.DocumentSnapshot.toGeneratedContent(): GeneratedContent? {
+        if (getString("contentStatus") != CONTENT_GENERATED) return null
+        val summary = getString("summary").orEmpty()
+        val body = (get("body") as? List<*>)?.filterIsInstance<String>().orEmpty()
+        if (summary.isBlank() || body.isEmpty()) return null
+        val resources = (get("resources") as? List<*>).orEmpty()
+            .filterIsInstance<Map<*, *>>()
+            .mapNotNull { resource ->
+                val title = resource["title"] as? String ?: return@mapNotNull null
+                val url = resource["url"] as? String ?: return@mapNotNull null
+                val kind = ResourceKind.entries
+                    .firstOrNull { it.name.equals(resource["kind"] as? String, ignoreCase = true) }
+                    ?: ResourceKind.ARTICLE
+                ResourceLink(title, url, kind)
+            }
+        return GeneratedContent(
+            summary = summary,
+            whyItMatters = getString("whyItMatters").orEmpty(),
+            body = body,
+            resources = resources,
+            estMinutes = getLong("estMinutes")?.toInt() ?: 0,
+        )
+    }
+
+    private companion object {
+        /** `contentStatus` marking a node whose lesson has been written and cached. */
+        const val CONTENT_GENERATED = "generated"
     }
 }

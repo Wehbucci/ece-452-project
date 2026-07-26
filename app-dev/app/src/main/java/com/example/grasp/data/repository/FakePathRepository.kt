@@ -125,14 +125,21 @@ object FakePathRepository : PathRepository {
     )
 
     // ---- Subtopic detail content (the lazy contentRef fetch) ------------------------
-    override fun subtopic(pathId: String, nodeId: String): Subtopic? {
+    override suspend fun subtopic(pathId: String, nodeId: String): Subtopic? {
         val path = learningPath(pathId) ?: return null
-        val index = path.nodes.indexOfFirst { it.id == nodeId }.takeIf { it >= 0 } ?: 0
-        val node = path.nodes[index]
+        val index = path.nodes.indexOfFirst { it.id == nodeId }
+        // Nodes the user grew themselves aren't part of this canned path. Describe what they asked
+        // for instead of handing back a different node's lesson under the wrong id — the caller
+        // marks THAT id complete.
+        val node = path.nodes.getOrNull(index) ?: TreeNode(
+            id = nodeId,
+            title = nodeId.replace('-', ' ').replaceFirstChar { it.uppercase() },
+            estMinutes = 12,
+        )
         return Subtopic(
             nodeId = node.id,
             title = node.title,
-            stepLabel = "Step ${index + 1} of ${path.nodes.size}",
+            stepLabel = "Step ${if (index >= 0) index + 1 else path.nodes.size + 1} of ${path.nodes.size}",
             summary = "A quick, beginner-friendly intro to ${node.title.lowercase()} — the essentials " +
                 "you need before moving on.",
             whyItMatters = "Getting comfortable with ${node.title.lowercase()} makes every later " +
@@ -167,10 +174,49 @@ object FakePathRepository : PathRepository {
                 "rests against your knuckles. That keeps fingertips clear of the edge."),
     )
 
-    override fun createTopic(query: String, mode: Mode): LearningPath? {
+    override suspend fun createTopic(query: String, mode: Mode): LearningPath? {
         val id = query.trim().lowercase().replace(Regex("\\s+"), "-")
         return learningPath(id)
     }
+
+    /**
+     * Grows a branch WITHOUT calling the AI: one node named after what was asked for, capped by a
+     * fresh affordance. Same shape as the real thing, so presenter tests exercise the real
+     * splice/render path offline and deterministically.
+     *
+     * Unlike the real repository this keeps no state, so it can't see previously grown nodes: an
+     * unknown [fromNodeId] is tolerated (it's an affordance this object never stored) and ids stay
+     * unique only as far as the topic names differ.
+     */
+    override suspend fun growBranch(pathId: String, fromNodeId: String, topic: String): List<TreeNode> {
+        val path = learningPath(pathId) ?: return emptyList()
+        val from = path.nodes.firstOrNull { it.id == fromNodeId }
+        val taken = path.nodes.mapTo(mutableSetOf()) { it.id }
+        val title = topic.trim().ifEmpty { "New branch" }
+        val topicId = uniqueId(slugify(title), taken)
+        val branchId = uniqueId(BRANCH_OUT_ID, taken + topicId)
+        return listOf(
+            TreeNode(
+                id = topicId,
+                title = title,
+                estMinutes = 12,
+                children = listOf(branchId),
+                contentRef = "content/$pathId/$topicId.md",
+                lane = from?.lane ?: TreeNode.LANE_CENTER,
+                tier = BRANCH_TIER,
+            ),
+            TreeNode(
+                id = branchId,
+                title = BRANCH_OUT_TITLE,
+                parentId = topicId,
+                isBranchOut = true,
+                lane = from?.lane ?: TreeNode.LANE_CENTER,
+            ),
+        )
+    }
+
+    override suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String> =
+        emptyList()
 
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         // Demo implementation: no-op.
