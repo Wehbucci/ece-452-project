@@ -41,6 +41,8 @@ import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.LessonDiagram
+import com.example.grasp.ui.components.LessonImage
 import com.example.grasp.ui.components.SectionHeader
 import com.example.grasp.ui.components.StatusPill
 import com.example.grasp.ui.theme.NodeActive
@@ -134,7 +136,7 @@ fun SubtopicScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    StatusPill(current.stepLabel, NodeActive)
+                    StatusPill(current.sectionLabel, NodeActive)
                     StatusPill("${current.estMinutes} min", MaterialTheme.colorScheme.onSurfaceVariant)
                 }
 
@@ -172,6 +174,13 @@ fun SubtopicScreen(
                             text = block.text,
                             hasHistory = index in blocksWithHistory,
                             onClick = { presenter.onBlockClicked(block.text, index) },
+                        )
+
+                        is LessonBlock.Diagram -> LessonDiagram(block)
+
+                        is LessonBlock.Image -> LessonImage(
+                            image = block,
+                            onOpenSource = { url -> uriHandler.openUri(url) },
                         )
                     }
                 }

@@ -108,11 +108,11 @@ class FirebasePathRepository : PathRepository {
 
                 // Lessons are what get numbered; the branch-out affordance isn't one.
                 val lessons = path.nodes.filter { !it.isBranchOut }
-                val step = lessons.indexOfFirst { it.id == nodeId }
+                val position = lessons.indexOfFirst { it.id == nodeId }
                 Subtopic(
                     nodeId = node.id,
                     title = node.title,
-                    stepLabel = "Step ${step + 1} of ${lessons.size}",
+                    sectionLabel = "Section ${position + 1} of ${lessons.size}",
                     summary = content.summary,
                     whyItMatters = content.whyItMatters,
                     body = content.body,

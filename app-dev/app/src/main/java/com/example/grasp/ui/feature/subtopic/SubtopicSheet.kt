@@ -36,6 +36,8 @@ import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.LessonDiagram
+import com.example.grasp.ui.components.LessonImage
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathChipNeutralBg
@@ -94,7 +96,7 @@ fun SubtopicSheetContent(
             SheetChip("${subtopic.estMinutes} min", PathChipNeutralBg, PathMuted)
             Spacer(Modifier.weight(1f))
             Text(
-                text = subtopic.stepLabel.uppercase(),
+                text = subtopic.sectionLabel.uppercase(),
                 fontFamily = NunitoFamily,
                 fontWeight = FontWeight.Black,
                 fontSize = 11.sp,
@@ -147,6 +149,8 @@ fun SubtopicSheetContent(
                     is LessonBlock.Heading -> LessonHeading(block)
                     is LessonBlock.Paragraph ->
                         ParagraphBlock(block.text, onClick = { onAskAboutBlock(index, block.text) })
+                    is LessonBlock.Diagram -> LessonDiagram(block)
+                    is LessonBlock.Image -> LessonImage(block, onOpenSource = onOpenResource)
                 }
             }
         }

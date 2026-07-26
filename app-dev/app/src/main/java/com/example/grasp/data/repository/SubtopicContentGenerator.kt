@@ -1,9 +1,12 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.DiagramItem
+import com.example.grasp.data.model.DiagramKind
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.paragraphs
+import org.json.JSONObject
 import java.net.URLEncoder
 
 /**
@@ -29,6 +32,11 @@ private const val SYSTEM_INSTRUCTION = """
 
 private const val MIN_EST_MINUTES = 3
 private const val MAX_EST_MINUTES = 60
+
+/** Caps on visuals. A lesson is prose first; these are there to stop it becoming a slideshow. */
+private const val MAX_DIAGRAMS = 2
+private const val MAX_IMAGES = 2
+private const val MAX_DIAGRAM_ITEMS = 5
 
 /**
  * Writes the lesson for one node (FR4.1, FR4.3).
@@ -59,14 +67,8 @@ suspend fun generateSubtopicContent(
     ) ?: return null
 
     val summary = json.optString("summary").trim()
-    val body = lessonBlocks(json.objectList("body").map { block ->
-        mapOf(
-            "type" to block.optString("type"),
-            "text" to block.optString("text"),
-            "level" to block.optInt("level", 1),
-        )
-    })
-    // Summary + teaching prose ARE the lesson; headings alone are not worth showing.
+    val body = resolveImages(json.objectList("body").mapNotNull(::parseBodyBlock))
+    // Summary + teaching prose ARE the lesson; headings and pictures alone are not worth showing.
     if (summary.isEmpty() || body.paragraphs().isEmpty()) return null
 
     return GeneratedContent(
@@ -113,6 +115,66 @@ fun placeholderContent(nodeTitle: String, estMinutes: Int): GeneratedContent = G
 )
 
 /**
+ * One block of the model's answer. Image blocks arrive as a SEARCH QUERY, not a URL — the model
+ * says what picture the lesson wants and [resolveImages] goes and finds a real one.
+ */
+private sealed interface ParsedBlock {
+    data class Ready(val block: LessonBlock) : ParsedBlock
+    data class WantsImage(val query: String, val caption: String) : ParsedBlock
+}
+
+private fun parseBodyBlock(json: JSONObject): ParsedBlock? {
+    val type = json.optString("type").lowercase()
+    val text = json.optString("text").trim()
+    return when (type) {
+        "image" -> {
+            val query = json.optString("query").trim()
+            if (query.isEmpty()) null else ParsedBlock.WantsImage(query, text)
+        }
+
+        "diagram" -> {
+            val items = json.objectList("items").mapNotNull { item ->
+                val label = item.optString("label").trim()
+                if (label.isEmpty()) return@mapNotNull null
+                DiagramItem(
+                    label = label,
+                    detail = item.optString("detail").trim(),
+                    value = item.optDouble("value", 0.0).toFloat(),
+                )
+            }
+            val kind = DiagramKind.entries
+                .firstOrNull { it.name.equals(json.optString("kind"), ignoreCase = true) }
+            // A diagram with one item isn't a diagram, and an unknown shape can't be drawn.
+            if (kind == null || items.size < 2) null
+            else ParsedBlock.Ready(LessonBlock.Diagram(text, kind, items.take(MAX_DIAGRAM_ITEMS)))
+        }
+
+        else -> lessonBlocks(
+            listOf(mapOf("type" to type, "text" to text, "level" to json.optInt("level", 1))),
+        ).firstOrNull()?.let(ParsedBlock::Ready)
+    }
+}
+
+/**
+ * Swaps each image request for a real picture, dropping the ones nothing was found for.
+ *
+ * Sequential rather than concurrent: a lesson asks for at most [MAX_IMAGES] pictures, and the
+ * whole roadmap is already generating several lessons at once.
+ */
+private suspend fun resolveImages(parsed: List<ParsedBlock>): List<LessonBlock> {
+    var remaining = MAX_IMAGES
+    return parsed.mapNotNull { block ->
+        when (block) {
+            is ParsedBlock.Ready -> block.block
+            is ParsedBlock.WantsImage -> {
+                if (remaining <= 0) null
+                else findLessonImage(block.query, block.caption)?.also { remaining-- }
+            }
+        }
+    }
+}
+
+/**
  * Turns raw body entries into [LessonBlock]s, from either the model's answer or a stored lesson.
  *
  * Tolerates two shapes on purpose. The current one is a map per block with a `type` of "heading"
@@ -126,16 +188,48 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
         is String -> entry.trim().ifBlank { null }?.let(LessonBlock::Paragraph)
         is Map<*, *> -> {
             val text = (entry["text"] as? String)?.trim().orEmpty()
-            when {
-                text.isEmpty() -> null
-                (entry["type"] as? String).equals("heading", ignoreCase = true) -> LessonBlock.Heading(
-                    text = text,
-                    // Anything past a subheading is flattened; a phone lesson has no use for it.
-                    level = ((entry["level"] as? Number)?.toInt() ?: 1).coerceIn(1, 2),
-                )
-                else -> LessonBlock.Paragraph(text)
+            when ((entry["type"] as? String)?.lowercase()) {
+                "heading" -> text.ifEmpty { null }?.let {
+                    LessonBlock.Heading(
+                        text = it,
+                        // Past a subheading it's flattened; a phone lesson has no use for more.
+                        level = ((entry["level"] as? Number)?.toInt() ?: 1).coerceIn(1, 2),
+                    )
+                }
+
+                "diagram" -> {
+                    val kind = DiagramKind.entries
+                        .firstOrNull { it.name.equals(entry["kind"] as? String, ignoreCase = true) }
+                    val items = (entry["items"] as? List<*>).orEmpty()
+                        .filterIsInstance<Map<*, *>>()
+                        .mapNotNull { item ->
+                            val label = (item["label"] as? String)?.trim().orEmpty()
+                            if (label.isEmpty()) return@mapNotNull null
+                            DiagramItem(
+                                label = label,
+                                detail = (item["detail"] as? String)?.trim().orEmpty(),
+                                value = (item["value"] as? Number)?.toFloat() ?: 0f,
+                            )
+                        }
+                    if (kind == null || items.size < 2) null
+                    else LessonBlock.Diagram(text, kind, items)
+                }
+
+                "image" -> {
+                    val url = (entry["url"] as? String)?.trim().orEmpty()
+                    if (!url.startsWith("http")) null
+                    else LessonBlock.Image(
+                        text = text,
+                        url = url,
+                        sourceUrl = (entry["sourceUrl"] as? String)?.trim().orEmpty(),
+                        credit = (entry["credit"] as? String)?.trim().orEmpty(),
+                    )
+                }
+
+                else -> text.ifEmpty { null }?.let(LessonBlock::Paragraph)
             }
         }
+
         else -> null
     }
 }
@@ -144,6 +238,21 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
 internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
     is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
     is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
+    is LessonBlock.Diagram -> mapOf(
+        "type" to "diagram",
+        "text" to text,
+        "kind" to kind.name,
+        "items" to items.map {
+            mapOf("label" to it.label, "detail" to it.detail, "value" to it.value)
+        },
+    )
+    is LessonBlock.Image -> mapOf(
+        "type" to "image",
+        "text" to text,
+        "url" to url,
+        "sourceUrl" to sourceUrl,
+        "credit" to credit,
+    )
 }
 
 private fun resourceKind(raw: String): ResourceKind =
@@ -197,6 +306,26 @@ private fun contentPrompt(
       separate blocks the learner can tap to ask questions about. 4-7 sentences per paragraph.
       · Headings are short label text, no numbering and no trailing punctuation. Paragraphs are
       plain prose — no markdown, no bullet points, no numbering.
+      · You may place up to $MAX_DIAGRAMS diagram blocks and up to $MAX_IMAGES image blocks among
+      the paragraphs, right after the paragraph each one illustrates. Both are OPTIONAL: include
+      one only where seeing it genuinely helps, and never as decoration. A lesson with no visual
+      is better than a lesson with a pointless one, and the prose must still stand alone without
+      them.
+
+    Diagram blocks are drawn by the app, so they carry only structure and short labels. Pick the
+    kind that matches what you are showing, and use one only when the content really has that
+    shape:
+      · "flow" — a genuine ordered sequence where each stage follows from the last.
+      · "compare" — two or three things set against each other on the same terms.
+      · "bar" — quantities worth comparing. Give each item a "value"; they only need to be
+      right relative to each other.
+    Every diagram needs 2 to $MAX_DIAGRAM_ITEMS items, a short "label" each, an optional one-line
+    "detail", and a "text" caption saying what the diagram shows.
+
+    Image blocks are looked up in Wikimedia Commons, so give a "query" of 2-5 plain search words
+    naming a concrete, photographable thing ("bell pepper julienne cut", "Hertzsprung-Russell
+    diagram"), plus a "text" caption. Do NOT request an image for an abstract idea, and do not
+    write a URL — searching is the app's job, and a request that finds nothing is simply dropped.
     - resources: 2-4 OPTIONAL places to explore further, for a learner who finishes the lesson and
     wants more. These are extras, not where the teaching happens, so never rely on them to carry
     material you left out of the body. Use only URLs you are confident actually exist — Wikipedia
@@ -214,8 +343,19 @@ private fun contentPrompt(
         { "type": "heading", "text": "What a perceptron actually does", "level": 1 },
         { "type": "paragraph", "text": "First teaching paragraph." },
         { "type": "paragraph", "text": "Second teaching paragraph." },
+        {
+        "type": "diagram",
+        "kind": "flow",
+        "text": "How one input becomes one output",
+        "items": [
+            { "label": "Inputs", "detail": "The numbers fed in." },
+            { "label": "Weighted sum", "detail": "Each input scaled and added up." },
+            { "label": "Threshold", "detail": "Fires only past a cutoff." }
+        ]
+        },
         { "type": "heading", "text": "Where it breaks down", "level": 1 },
-        { "type": "paragraph", "text": "Third teaching paragraph." }
+        { "type": "paragraph", "text": "Third teaching paragraph." },
+        { "type": "image", "query": "perceptron diagram", "text": "The classic single-layer perceptron." }
     ],
     "resources": [{ "title": "...", "url": "https://...", "kind": "ARTICLE" }],
     "estMinutes": 10

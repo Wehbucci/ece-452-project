@@ -10,7 +10,7 @@ package com.example.grasp.data.model
  */
 sealed interface LessonBlock {
 
-    /** The text of this block, whatever kind it is. */
+    /** The text of this block: heading label, paragraph prose, or a visual's caption. */
     val text: String
 
     /**
@@ -22,8 +22,62 @@ sealed interface LessonBlock {
 
     /** A paragraph of the lesson — the tappable unit the user can ask questions about. */
     data class Paragraph(override val text: String) : LessonBlock
+
+    /**
+     * A diagram the app DRAWS from a spec the AI wrote (FR4.4).
+     *
+     * Deliberately a small vocabulary of shapes rather than free-form image generation: the app
+     * renders it natively, so it matches the theme, stays sharp, costs no extra generation, and
+     * — unlike a generated picture — its labels are guaranteed to say what the AI meant.
+     *
+     * @property text the caption shown under the drawing.
+     */
+    data class Diagram(
+        override val text: String,
+        val kind: DiagramKind,
+        val items: List<DiagramItem>,
+    ) : LessonBlock
+
+    /**
+     * A real photo or illustration found online for this lesson.
+     *
+     * Sourced rather than generated, because a lesson's picture has to be ACCURATE — a generated
+     * image of a knife grip or a circuit is confidently wrong in ways a learner can't catch.
+     * [credit] and [sourceUrl] travel with it since the licences require attribution.
+     */
+    data class Image(
+        override val text: String,
+        val url: String,
+        val sourceUrl: String,
+        val credit: String,
+    ) : LessonBlock
 }
 
-/** Just the teaching prose, e.g. for feeding the AI tutor the lesson without its scaffolding. */
+/** The diagram shapes the app knows how to draw. */
+enum class DiagramKind {
+    /** An ordered sequence: each item follows the one above it. */
+    FLOW,
+
+    /** Two or three things set against each other, side by side. */
+    COMPARE,
+
+    /** Labelled magnitudes drawn as proportional bars. */
+    BAR,
+}
+
+/**
+ * One entry in a [LessonBlock.Diagram].
+ *
+ * @property label the short name of this step / column / bar.
+ * @property detail a sentence expanding on it; may be empty.
+ * @property value magnitude for [DiagramKind.BAR], ignored by the other kinds.
+ */
+data class DiagramItem(
+    val label: String,
+    val detail: String = "",
+    val value: Float = 0f,
+)
+
+/** Just the teaching prose, e.g. for checking a generated lesson actually taught something. */
 fun List<LessonBlock>.paragraphs(): List<String> =
     filterIsInstance<LessonBlock.Paragraph>().map { it.text }

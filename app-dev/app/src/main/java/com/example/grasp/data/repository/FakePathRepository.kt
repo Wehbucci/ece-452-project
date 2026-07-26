@@ -141,7 +141,7 @@ object FakePathRepository : PathRepository {
         return Subtopic(
             nodeId = node.id,
             title = node.title,
-            stepLabel = "Step ${if (index >= 0) index + 1 else path.nodes.size + 1} of ${path.nodes.size}",
+            sectionLabel = "Section ${if (index >= 0) index + 1 else path.nodes.size + 1} of ${path.nodes.size}",
             summary = "A quick, beginner-friendly intro to ${node.title.lowercase()} — the essentials " +
                 "you need before moving on.",
             whyItMatters = "Getting comfortable with ${node.title.lowercase()} makes every later " +
