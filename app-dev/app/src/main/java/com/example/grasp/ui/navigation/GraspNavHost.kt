@@ -103,8 +103,10 @@ fun GraspNavHost(
                 onBack = navController::popBackStack,
                 // The subtopic detail is now an in-path bottom sheet, so the roadmap navigates
                 // out only for "Ask AI" → the existing chat feature.
-                onOpenChat = { ctx, p, n ->
-                    navController.navigate(GraspDestinations.chat(context = ctx, pathId = p, nodeId = n))
+                onOpenChat = { ctx, p, n, blockIndex ->
+                    navController.navigate(
+                        GraspDestinations.chat(context = ctx, pathId = p, nodeId = n, blockIndex = blockIndex),
+                    )
                 },
             )
         }

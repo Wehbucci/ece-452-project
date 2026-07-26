@@ -64,7 +64,7 @@ import com.example.grasp.ui.theme.PathScreenBg
 fun PathScreen(
     pathId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String, nodeId: String) -> Unit,
+    onOpenChat: (context: String, pathId: String, nodeId: String, blockIndex: Int) -> Unit,
     presenterFactory: (String) -> PathContract.Presenter = { PathPresenter(it) },
 ) {
     // (1) UI state
@@ -131,10 +131,10 @@ fun PathScreen(
             override fun showLevelUp(level: Int) { levelUp = level }
             override fun showToast(message: String) { toast = message }
             override fun shakeNode(nodeId: String) { shakeId = nodeId; shakeNonce++ }
-            override fun openChat(context: String, pathId: String, nodeId: String) {
+            override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) {
                 sheetSubtopic = null
                 sheetLoadingTitle = null
-                onOpenChat(context, pathId, nodeId)
+                onOpenChat(context, pathId, nodeId, blockIndex)
             }
         }
     }
@@ -209,6 +209,9 @@ fun PathScreen(
                     completed = sheetCompleted,
                     onMarkComplete = { presenter.onMarkComplete(subtopic.nodeId) },
                     onAskAi = { presenter.onAskAi(subtopic.nodeId) },
+                    onAskAboutBlock = { index, text ->
+                        presenter.onAskAboutBlock(subtopic.nodeId, text, index)
+                    },
                     onOpenResource = { url -> uriHandler.openUri(url) },
                 )
             } else {

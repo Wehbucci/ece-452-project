@@ -40,6 +40,7 @@ class PathPresenterTest {
         val toasts = mutableListOf<String>()
         val shakes = mutableListOf<String>()
         val chats = mutableListOf<String>()
+        val chatBlockIndices = mutableListOf<Int>()
 
         override fun showPath(state: PathUiState) { lastState = state }
         override fun showNotFound() { notFound = true }
@@ -57,7 +58,10 @@ class PathPresenterTest {
         override fun showLevelUp(level: Int) { levelUps += level }
         override fun showToast(message: String) { toasts += message }
         override fun shakeNode(nodeId: String) { shakes += nodeId }
-        override fun openChat(context: String, pathId: String, nodeId: String) { chats += nodeId }
+        override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) {
+            chats += nodeId
+            chatBlockIndices += blockIndex
+        }
     }
 
     /**
@@ -232,6 +236,17 @@ class PathPresenterTest {
         presenter.onAskAi("supervised")
 
         assertEquals(listOf("supervised"), view.chats)
+        assertEquals("whole subtopic, not one block", listOf(-1), view.chatBlockIndices)
+    }
+
+    @Test
+    fun `tapping a lesson paragraph opens a chat scoped to that paragraph`() {
+        val (presenter, view) = attach()
+
+        presenter.onAskAboutBlock("supervised", "Labelled data is what makes it supervised.", 2)
+
+        assertEquals(listOf("supervised"), view.chats)
+        assertEquals(listOf(2), view.chatBlockIndices)
     }
 
     @Test

@@ -62,8 +62,11 @@ interface PathContract {
         /** Nudge a node left-right to signal "can't do that yet" (locked tap). */
         fun shakeNode(nodeId: String)
 
-        /** Route to the existing AI chat feature for this subtopic. */
-        fun openChat(context: String, pathId: String, nodeId: String)
+        /**
+         * Route to the existing AI chat feature for this subtopic.
+         * [blockIndex] is -1 for the whole subtopic, or the index of the lesson paragraph asked about.
+         */
+        fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int)
     }
 
     interface Presenter : MvpPresenter<View> {
@@ -84,6 +87,9 @@ interface PathContract {
 
         /** "Ask AI" for [nodeId] — routes to chat. */
         fun onAskAi(nodeId: String)
+
+        /** A paragraph of [nodeId]'s lesson was tapped — routes to chat scoped to that block. */
+        fun onAskAboutBlock(nodeId: String, blockText: String, blockIndex: Int)
 
         /** The open sheet was dismissed by the user. */
         fun onSheetDismissed()

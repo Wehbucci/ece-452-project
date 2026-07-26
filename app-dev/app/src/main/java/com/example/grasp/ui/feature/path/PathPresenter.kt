@@ -204,7 +204,12 @@ class PathPresenter(
 
     override fun onAskAi(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId }
-        view?.openChat(node?.title ?: "your material", pathId, nodeId)
+        view?.openChat(node?.title ?: "your material", pathId, nodeId, blockIndex = -1)
+    }
+
+    override fun onAskAboutBlock(nodeId: String, blockText: String, blockIndex: Int) {
+        // Same convention as the full subtopic screen: the block's opening words name the chat.
+        view?.openChat(blockText.take(60), pathId, nodeId, blockIndex)
     }
 
     override fun onSheetDismissed() {

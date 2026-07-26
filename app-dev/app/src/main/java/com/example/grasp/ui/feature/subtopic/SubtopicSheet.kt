@@ -59,7 +59,8 @@ import com.example.grasp.ui.theme.PathWhyItMattersBg
  * @param completed whether this node is marked done (flips the CTA to "Revisit lesson").
  * @param onMarkComplete complete the lesson (+40 XP) — no-op'd by the caller when already done.
  * @param onAskAi route to the AI chat for this subtopic.
- * @param onOpenResource open a "dive deeper" link.
+ * @param onAskAboutBlock route to the AI chat about ONE paragraph of the lesson (FR5.2).
+ * @param onOpenResource open an optional "explore further" link.
  */
 @Composable
 fun SubtopicSheetContent(
@@ -67,6 +68,7 @@ fun SubtopicSheetContent(
     completed: Boolean,
     onMarkComplete: () -> Unit,
     onAskAi: () -> Unit,
+    onAskAboutBlock: (index: Int, text: String) -> Unit,
     onOpenResource: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -132,15 +134,22 @@ fun SubtopicSheetContent(
             }
         }
 
+        // The lesson itself. Each paragraph is its own block so it can be asked about directly.
+        if (subtopic.body.isNotEmpty()) {
+            SectionLabel("THE LESSON", modifier = Modifier.padding(top = 4.dp))
+            subtopic.body.forEachIndexed { index, block ->
+                LessonBlock(text = block, onClick = { onAskAboutBlock(index, block) })
+            }
+        }
+
         if (subtopic.resources.isNotEmpty()) {
+            SectionLabel("EXPLORE FURTHER", modifier = Modifier.padding(top = 8.dp))
             Text(
-                text = "DIVE DEEPER",
+                text = "Optional — the lesson above is complete on its own.",
                 fontFamily = NunitoFamily,
-                fontWeight = FontWeight.Black,
-                fontSize = 11.sp,
-                letterSpacing = 1.sp,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 13.sp,
                 color = PathFaint,
-                modifier = Modifier.padding(top = 4.dp),
             )
             subtopic.resources.forEach { link ->
                 ResourceRow(link) { onOpenResource(link.url) }
@@ -213,6 +222,53 @@ fun SubtopicLoadingContent(title: String, modifier: Modifier = Modifier) {
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
                 color = PathMuted,
+            )
+        }
+    }
+}
+
+/** A small all-caps section heading. */
+@Composable
+private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
+    Text(
+        text = text,
+        fontFamily = NunitoFamily,
+        fontWeight = FontWeight.Black,
+        fontSize = 11.sp,
+        letterSpacing = 1.sp,
+        color = PathFaint,
+        modifier = modifier,
+    )
+}
+
+/**
+ * One paragraph of the lesson, as a tappable block (FR4.1/5.2 — select a section of the content
+ * to ask about it). The whole block is the tap target, so a learner who is stuck on one idea can
+ * open the chat already scoped to it.
+ */
+@Composable
+private fun LessonBlock(text: String, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(14.dp),
+        color = PathChipNeutralBg,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = text,
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
+                color = PathInk,
+            )
+            Text(
+                text = "Tap to ask AI about this ›",
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                color = PathNodeCurrent,
             )
         }
     }

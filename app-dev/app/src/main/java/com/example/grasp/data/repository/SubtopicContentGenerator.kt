@@ -124,16 +124,28 @@ private fun contentPrompt(
     ${context("Already covered (build on this, don't re-explain it)", previousTitles)}
     ${context("Coming up later (do NOT cover this here)", upcomingTitles)}
 
+    The body is THE LESSON ITSELF. It is the only place the learner is taught this material —
+    there is no textbook behind it and no video to watch. Teach the content directly. Do not
+    describe what the lesson will cover, do not tell the learner what they are about to learn, and
+    do not tell them to go read about it somewhere else. Explain the actual ideas, define the
+    actual terms, and work through actual examples, the way a good tutor would if this were the
+    only explanation the learner ever got.
+
     Write these parts:
-    - summary: 1-2 sentences a beginner could read in ten seconds — what this lesson is about.
+    - summary: 1-2 sentences a beginner could read in ten seconds, framing what this lesson covers.
     - whyItMatters: 1-2 sentences on what this unlocks for them, concretely.
-    - body: 3 to 5 paragraphs that actually teach "$nodeTitle". Each paragraph must stand on its
-    own and cover one idea, because the app shows them as separate blocks the learner can tap to
-    ask questions about. Use concrete examples. Plain prose only — no markdown, no headings, no
-    bullet points, no numbering. 2-4 sentences per paragraph.
-    - resources: 2-4 places to go deeper. Use only URLs you are confident actually exist —
-    Wikipedia articles, official documentation, well-known books or courses. If you are not sure a
-    URL is real, leave that resource out. kind must be one of ARTICLE, BOOK, VIDEO, GUIDE.
+    - body: 5 to 8 substantial paragraphs that TEACH "$nodeTitle" in full. Introduce each term the
+    first time you use it. Ground every idea in a concrete example, a worked case, or a number the
+    learner can picture. Where something is commonly misunderstood, say so and correct it. Someone
+    who reads only these paragraphs and nothing else should come away actually understanding
+    "$nodeTitle" and able to use it. Each paragraph covers one idea and stands on its own, because
+    the app shows them as separate blocks the learner can tap to ask questions about. 4-7 sentences
+    per paragraph. Plain prose only — no markdown, no headings, no bullet points, no numbering.
+    - resources: 2-4 OPTIONAL places to explore further, for a learner who finishes the lesson and
+    wants more. These are extras, not where the teaching happens, so never rely on them to carry
+    material you left out of the body. Use only URLs you are confident actually exist — Wikipedia
+    articles, official documentation, well-known books or courses. If you are not sure a URL is
+    real, leave that resource out. kind must be one of ARTICLE, BOOK, VIDEO, GUIDE.
     - estMinutes: honest whole-minute estimate to read and absorb this lesson.
 
     Return ONLY valid JSON, no commentary, no markdown fences.
@@ -142,7 +154,7 @@ private fun contentPrompt(
     {
     "summary": "...",
     "whyItMatters": "...",
-    "body": ["First paragraph.", "Second paragraph.", "Third paragraph."],
+    "body": ["First teaching paragraph.", "Second teaching paragraph.", "..."],
     "resources": [{ "title": "...", "url": "https://...", "kind": "ARTICLE" }],
     "estMinutes": 10
     }
