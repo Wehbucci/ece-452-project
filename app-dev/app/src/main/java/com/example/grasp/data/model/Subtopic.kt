@@ -7,7 +7,9 @@ package com.example.grasp.data.model
  *
  * @property nodeId id of the [TreeNode] this content belongs to
  * @property title subtopic name
- * @property stepLabel position indicator for the header, e.g. "Step 4 of 8"
+ * @property sectionLabel position indicator for the header, e.g. "Section 4 of 8". A Learner
+ *           roadmap is made of sections that can fork and be branched off, NOT of ordered steps —
+ *           steps belong to Tinkerer guides ([TinkerStep]).
  * @property summary the quick intro/excerpt
  * @property whyItMatters short "why this matters" blurb
  * @property body the lesson itself: headings and paragraphs, where each paragraph is a block the
@@ -19,7 +21,7 @@ package com.example.grasp.data.model
 data class Subtopic(
     val nodeId: String,
     val title: String,
-    val stepLabel: String,
+    val sectionLabel: String,
     val summary: String,
     val whyItMatters: String,
     val body: List<LessonBlock>,
