@@ -1,7 +1,9 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
+import com.example.grasp.data.model.paragraphs
 import java.net.URLEncoder
 
 /**
@@ -14,7 +16,7 @@ import java.net.URLEncoder
 data class GeneratedContent(
     val summary: String,
     val whyItMatters: String,
-    val body: List<String>,
+    val body: List<LessonBlock>,
     val resources: List<ResourceLink>,
     val estMinutes: Int,
 )
@@ -57,9 +59,15 @@ suspend fun generateSubtopicContent(
     ) ?: return null
 
     val summary = json.optString("summary").trim()
-    val body = json.stringList("body")
-    // Summary + body ARE the lesson; without them there is nothing worth showing.
-    if (summary.isEmpty() || body.isEmpty()) return null
+    val body = lessonBlocks(json.objectList("body").map { block ->
+        mapOf(
+            "type" to block.optString("type"),
+            "text" to block.optString("text"),
+            "level" to block.optInt("level", 1),
+        )
+    })
+    // Summary + teaching prose ARE the lesson; headings alone are not worth showing.
+    if (summary.isEmpty() || body.paragraphs().isEmpty()) return null
 
     return GeneratedContent(
         summary = summary,
@@ -91,14 +99,52 @@ fun placeholderContent(nodeTitle: String, estMinutes: Int): GeneratedContent = G
     whyItMatters = "$nodeTitle is still part of your roadmap — reopen it once you're back online " +
         "and it will be generated then.",
     body = listOf(
-        "This node's content hasn't been generated yet. It needs a connection to the AI service " +
-            "the first time you open it; after that it's saved and works offline.",
-        "You can still ask the AI assistant about $nodeTitle, mark this node complete, or branch " +
-            "off in a new direction from the roadmap.",
+        LessonBlock.Paragraph(
+            "This node's content hasn't been generated yet. It needs a connection to the AI " +
+                "service the first time you open it; after that it's saved and works offline.",
+        ),
+        LessonBlock.Paragraph(
+            "You can still ask the AI assistant about $nodeTitle, mark this node complete, or " +
+                "branch off in a new direction from the roadmap.",
+        ),
     ),
     resources = listOf(wikipediaSearch(nodeTitle)),
     estMinutes = estMinutes.coerceAtLeast(MIN_EST_MINUTES),
 )
+
+/**
+ * Turns raw body entries into [LessonBlock]s, from either the model's answer or a stored lesson.
+ *
+ * Tolerates two shapes on purpose. The current one is a map per block with a `type` of "heading"
+ * or "paragraph"; the other is a bare string, which is how lessons generated before headings
+ * existed were saved. Those read back as plain paragraphs rather than breaking.
+ *
+ * Pure, so the tolerance is actually testable.
+ */
+internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { entry ->
+    when (entry) {
+        is String -> entry.trim().ifBlank { null }?.let(LessonBlock::Paragraph)
+        is Map<*, *> -> {
+            val text = (entry["text"] as? String)?.trim().orEmpty()
+            when {
+                text.isEmpty() -> null
+                (entry["type"] as? String).equals("heading", ignoreCase = true) -> LessonBlock.Heading(
+                    text = text,
+                    // Anything past a subheading is flattened; a phone lesson has no use for it.
+                    level = ((entry["level"] as? Number)?.toInt() ?: 1).coerceIn(1, 2),
+                )
+                else -> LessonBlock.Paragraph(text)
+            }
+        }
+        else -> null
+    }
+}
+
+/** The Firestore/JSON shape of [LessonBlock], so the writer and reader can't drift apart. */
+internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
+    is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
+    is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
+}
 
 private fun resourceKind(raw: String): ResourceKind =
     ResourceKind.entries.firstOrNull { it.name.equals(raw.trim(), ignoreCase = true) }
@@ -134,13 +180,23 @@ private fun contentPrompt(
     Write these parts:
     - summary: 1-2 sentences a beginner could read in ten seconds, framing what this lesson covers.
     - whyItMatters: 1-2 sentences on what this unlocks for them, concretely.
-    - body: 5 to 8 substantial paragraphs that TEACH "$nodeTitle" in full. Introduce each term the
-    first time you use it. Ground every idea in a concrete example, a worked case, or a number the
-    learner can picture. Where something is commonly misunderstood, say so and correct it. Someone
-    who reads only these paragraphs and nothing else should come away actually understanding
-    "$nodeTitle" and able to use it. Each paragraph covers one idea and stands on its own, because
-    the app shows them as separate blocks the learner can tap to ask questions about. 4-7 sentences
-    per paragraph. Plain prose only — no markdown, no headings, no bullet points, no numbering.
+    - body: the lesson, as an ordered list of heading and paragraph blocks.
+      Structure it like a well-organised set of notes, not a wall of text:
+      · Open with a heading (level 1), then its paragraphs. Use 3 to 5 level-1 headings in total,
+      each naming the idea that section teaches — a real title like "Why labelled data matters",
+      never a filler like "Introduction", "Overview", "Details" or "Conclusion".
+      · Give a section a level-2 subheading only when it genuinely splits into named parts, such as
+      two contrasting approaches or a worked example inside a longer explanation. Most sections
+      need none, and a section must never have exactly one subheading.
+      · Under the headings, write 5 to 8 substantial paragraphs in total. Introduce each term the
+      first time you use it. Ground every idea in a concrete example, a worked case, or a number
+      the learner can picture. Where something is commonly misunderstood, say so and correct it.
+      Someone who reads only this and nothing else should come away actually understanding
+      "$nodeTitle" and able to use it.
+      · Each paragraph covers one idea and stands on its own, because the app shows paragraphs as
+      separate blocks the learner can tap to ask questions about. 4-7 sentences per paragraph.
+      · Headings are short label text, no numbering and no trailing punctuation. Paragraphs are
+      plain prose — no markdown, no bullet points, no numbering.
     - resources: 2-4 OPTIONAL places to explore further, for a learner who finishes the lesson and
     wants more. These are extras, not where the teaching happens, so never rely on them to carry
     material you left out of the body. Use only URLs you are confident actually exist — Wikipedia
@@ -154,7 +210,13 @@ private fun contentPrompt(
     {
     "summary": "...",
     "whyItMatters": "...",
-    "body": ["First teaching paragraph.", "Second teaching paragraph.", "..."],
+    "body": [
+        { "type": "heading", "text": "What a perceptron actually does", "level": 1 },
+        { "type": "paragraph", "text": "First teaching paragraph." },
+        { "type": "paragraph", "text": "Second teaching paragraph." },
+        { "type": "heading", "text": "Where it breaks down", "level": 1 },
+        { "type": "paragraph", "text": "Third teaching paragraph." }
+    ],
     "resources": [{ "title": "...", "url": "https://...", "kind": "ARTICLE" }],
     "estMinutes": 10
     }

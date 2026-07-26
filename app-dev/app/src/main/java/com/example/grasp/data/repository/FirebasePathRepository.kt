@@ -6,6 +6,7 @@ import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.paragraphs
 import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.SavedItem
@@ -409,7 +410,7 @@ class FirebasePathRepository : PathRepository {
     private fun contentFields(content: GeneratedContent): Map<String, Any?> = mapOf(
         "summary" to content.summary,
         "whyItMatters" to content.whyItMatters,
-        "body" to content.body,
+        "body" to content.body.map { it.toMap() },
         "resources" to content.resources.map {
             mapOf("title" to it.title, "url" to it.url, "kind" to it.kind.name)
         },
@@ -439,8 +440,9 @@ class FirebasePathRepository : PathRepository {
     private fun com.google.firebase.firestore.DocumentSnapshot.toGeneratedContent(): GeneratedContent? {
         if (getString("contentStatus") != CONTENT_GENERATED) return null
         val summary = getString("summary").orEmpty()
-        val body = (get("body") as? List<*>)?.filterIsInstance<String>().orEmpty()
-        if (summary.isBlank() || body.isEmpty()) return null
+        // Lessons saved before headings existed are plain strings; [lessonBlocks] reads both.
+        val body = lessonBlocks((get("body") as? List<*>).orEmpty())
+        if (summary.isBlank() || body.paragraphs().isEmpty()) return null
         val resources = (get("resources") as? List<*>).orEmpty()
             .filterIsInstance<Map<*, *>>()
             .mapNotNull { resource ->

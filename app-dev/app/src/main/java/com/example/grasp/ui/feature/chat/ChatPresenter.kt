@@ -3,6 +3,7 @@ package com.example.grasp.ui.feature.chat
 import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -135,7 +136,13 @@ class ChatPresenter(
             appendLine("Why it matters: ${subtopic.whyItMatters}")
             appendLine()
             appendLine("Content:")
-            subtopic.body.forEach { paragraph -> appendLine(paragraph) }
+            // Headings included, so the tutor knows how the lesson is organised.
+            subtopic.body.forEach { block ->
+                when (block) {
+                    is LessonBlock.Heading -> appendLine().appendLine("## ${block.text}")
+                    is LessonBlock.Paragraph -> appendLine(block.text)
+                }
+            }
         } else if (pathId.isNotEmpty()) {
             val guide = repo.tinkerGuide(pathId)
             if (guide != null) {

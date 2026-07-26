@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.ui.theme.FredokaFamily
@@ -138,11 +139,15 @@ fun SubtopicSheetContent(
             }
         }
 
-        // The lesson itself. Each paragraph is its own block so it can be asked about directly.
+        // The lesson itself. Paragraphs are individually tappable; headings just structure them.
         if (subtopic.body.isNotEmpty()) {
             SectionLabel("THE LESSON", modifier = Modifier.padding(top = 4.dp))
             subtopic.body.forEachIndexed { index, block ->
-                LessonBlock(text = block, onClick = { onAskAboutBlock(index, block) })
+                when (block) {
+                    is LessonBlock.Heading -> LessonHeading(block)
+                    is LessonBlock.Paragraph ->
+                        ParagraphBlock(block.text, onClick = { onAskAboutBlock(index, block.text) })
+                }
             }
         }
 
@@ -264,12 +269,41 @@ private fun SectionLabel(text: String, modifier: Modifier = Modifier) {
 }
 
 /**
+ * A section title inside the lesson. Level 1 reads as a heading in the display face; level 2 is a
+ * quieter all-caps label, so a subheading can never be mistaken for the section above it.
+ */
+@Composable
+private fun LessonHeading(heading: LessonBlock.Heading) {
+    if (heading.level <= 1) {
+        Text(
+            text = heading.text,
+            fontFamily = FredokaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 19.sp,
+            lineHeight = 24.sp,
+            color = PathInk,
+            modifier = Modifier.padding(top = 10.dp),
+        )
+    } else {
+        Text(
+            text = heading.text.uppercase(),
+            fontFamily = NunitoFamily,
+            fontWeight = FontWeight.Black,
+            fontSize = 12.sp,
+            letterSpacing = 0.8.sp,
+            color = PathNodeCurrent,
+            modifier = Modifier.padding(top = 6.dp),
+        )
+    }
+}
+
+/**
  * One paragraph of the lesson, as a tappable block (FR4.1/5.2 — select a section of the content
  * to ask about it). The whole block is the tap target, so a learner who is stuck on one idea can
  * open the chat already scoped to it.
  */
 @Composable
-private fun LessonBlock(text: String, onClick: () -> Unit) {
+private fun ParagraphBlock(text: String, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         shape = RoundedCornerShape(14.dp),

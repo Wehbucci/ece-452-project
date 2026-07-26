@@ -38,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.ui.components.SectionHeader
@@ -155,13 +156,24 @@ fun SubtopicScreen(
                 }
 
                 SectionHeader("Learn")
-                // Each block is tappable to ask the AI about it.
+                // Headings structure the lesson; each paragraph is tappable to ask the AI about it.
                 current.body.forEachIndexed { index, block ->
-                    ContentBlock(
-                        text = block,
-                        hasHistory = index in blocksWithHistory,
-                        onClick = { presenter.onBlockClicked(block, index) },
-                    )
+                    when (block) {
+                        is LessonBlock.Heading -> Text(
+                            text = block.text,
+                            style = if (block.level <= 1) MaterialTheme.typography.titleMedium
+                            else MaterialTheme.typography.titleSmall,
+                            color = if (block.level <= 1) MaterialTheme.colorScheme.onSurface
+                            else MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+
+                        is LessonBlock.Paragraph -> ContentBlock(
+                            text = block.text,
+                            hasHistory = index in blocksWithHistory,
+                            onClick = { presenter.onBlockClicked(block.text, index) },
+                        )
+                    }
                 }
 
                 SectionHeader("Dive deeper")
