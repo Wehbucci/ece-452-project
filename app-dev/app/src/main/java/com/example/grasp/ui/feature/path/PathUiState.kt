@@ -54,16 +54,29 @@ data class PathNodeUi(
 data class RegionUi(val label: String, val row: Int)
 
 /**
+ * A small ghost "+" marking a spot where a new section could be added, shown only while the board
+ * is in add mode.
+ *
+ * @property anchorId the node a branch started here would grow out of.
+ * @property lane/[row] where the ghost sits — pre-resolved so it previews roughly where the new
+ *           nodes will actually land.
+ */
+data class AddSlotUi(val anchorId: String, val lane: Int, val row: Int)
+
+/**
  * Everything the journey screen needs for one frame: the HUD numbers and the laid-out nodes.
  *
  * @property xpInLevel XP earned within the current level, 0..[xpPerLevel].
  * @property xpFraction [xpInLevel] / [xpPerLevel], clamped 0f..1f, drives the XP bar width.
  * @property rowCount total rows (used to size the scroll canvas height).
+ * @property addSlots the "+" spots offered while adding a node; empty when not in add mode, which
+ *           is also how the View knows whether to show the add-mode banner.
  */
 data class PathUiState(
     val title: String,
     val nodes: List<PathNodeUi>,
     val regions: List<RegionUi>,
+    val addSlots: List<AddSlotUi> = emptyList(),
     val masteredCount: Int,
     val totalLessons: Int,
     val streak: Int,

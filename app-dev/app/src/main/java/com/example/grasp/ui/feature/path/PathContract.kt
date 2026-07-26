@@ -79,6 +79,15 @@ interface PathContract {
         /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
         fun onBranchFromNode(nodeId: String)
 
+        /** Toggle add mode: show a "+" at every spot a new section could go, or hide them again. */
+        fun onAddNodeRequested()
+
+        /** Leave add mode without picking a spot. */
+        fun onAddModeCancelled()
+
+        /** A "+" slot (or, in add mode, a node) was picked — open the sheet for that spot. */
+        fun onAddSlotTapped(anchorId: String)
+
         /** Mark [nodeId] complete: +XP, unlock the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)
 

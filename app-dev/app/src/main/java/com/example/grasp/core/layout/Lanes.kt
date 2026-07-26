@@ -1,10 +1,14 @@
-package com.example.grasp.data.repository
+package com.example.grasp.core.layout
 
 import com.example.grasp.data.model.TreeNode
 import kotlin.math.abs
 
 /**
- * Horizontal layout for the journey board, shared by the roadmap generator and the branch grower.
+ * Horizontal layout for the journey board.
+ *
+ * Shared by the roadmap generator, the branch grower and the presenter's "where can I add a node"
+ * markers, so all three agree on where a node can sit. It lives in `core` rather than in either
+ * caller because it belongs to neither.
  *
  * A "lane" is a node's center X in `PathLayout`'s 340dp-wide canvas. Vertical position is NOT
  * decided here — the presenter derives a node's row from graph depth — so all this has to

@@ -1,6 +1,7 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
+import com.example.grasp.core.layout.freeLane
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -43,6 +44,9 @@ class PathPresenter(
     /** Guards against a second "generate" tap while the AI is still building the first branch. */
     private var growing = false
 
+    /** True while the board is showing "+" slots and waiting for the user to pick one. */
+    private var addMode = false
+
     override fun onViewAttached() {
         scope.launch {
             val path = repo.learningPath(pathId)
@@ -67,6 +71,12 @@ class PathPresenter(
 
     override fun onNodeTapped(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
+        // In add mode the whole board is a picker, so tapping a node means "put it here" — the
+        // same thing its "+" slot means.
+        if (addMode) {
+            onAddSlotTapped(nodeId)
+            return
+        }
         if (node.isBranchOut) {
             openBranchSheet(nodeId)
             return
@@ -92,6 +102,23 @@ class PathPresenter(
         // Any lesson can sprout a detour, not just the dashed affordance at the end.
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
         openBranchSheet(node.id)
+    }
+
+    override fun onAddNodeRequested() {
+        addMode = !addMode
+        emit()
+    }
+
+    override fun onAddModeCancelled() {
+        if (!addMode) return
+        addMode = false
+        emit()
+    }
+
+    override fun onAddSlotTapped(anchorId: String) {
+        addMode = false
+        emit() // clear the slots first, so the board behind the sheet is back to normal
+        openBranchSheet(anchorId)
     }
 
     /**
@@ -289,6 +316,29 @@ class PathPresenter(
     private fun xp(): Int = completed.count { id -> nodes.any { it.id == id && !it.isBranchOut } } * XP_PER_LESSON
     private fun levelFor(xp: Int): Int = xp / XP_PER_LEVEL + 1
 
+    /**
+     * A "+" ghost under every lesson, marking where a new section could go.
+     *
+     * Each ghost is placed the way the real branch will be — in its anchor's lane if that row is
+     * free, pushed aside if the anchor already leads somewhere. Ghosts are placed one after another
+     * and count as occupying their row, so two of them can't land on the same spot either.
+     *
+     * The branch-out affordances are skipped: they already ARE an add slot.
+     */
+    private fun addSlots(rows: Map<String, Int>): List<AddSlotUi> {
+        if (!addMode) return emptyList()
+        val lanesByRow = HashMap<Int, MutableList<Int>>()
+        nodes.forEach { lanesByRow.getOrPut(rows.getValue(it.id)) { mutableListOf() } += it.lane }
+
+        return nodes.filterNot { it.isBranchOut }.map { node ->
+            val row = rows.getValue(node.id) + 1
+            val occupied = lanesByRow.getOrPut(row) { mutableListOf() }
+            val lane = freeLane(node.lane, occupied)
+            occupied += lane
+            AddSlotUi(anchorId = node.id, lane = lane, row = row)
+        }
+    }
+
     /** Assemble the immutable snapshot the View renders. */
     private fun emit() {
         val parents = parentsMap()
@@ -316,11 +366,14 @@ class PathPresenter(
             .map { (_, group) -> group.minBy { it.row } }
             .sortedBy { it.row }
 
+        val slots = addSlots(rows)
+
         view?.showPath(
             PathUiState(
                 title = title,
                 nodes = nodeUis,
                 regions = regions,
+                addSlots = slots,
                 masteredCount = completed.size,
                 totalLessons = nodes.count { !it.isBranchOut },
                 streak = STREAK,
@@ -328,7 +381,9 @@ class PathPresenter(
                 xpInLevel = xp % XP_PER_LEVEL,
                 xpPerLevel = XP_PER_LEVEL,
                 xpFraction = (xp % XP_PER_LEVEL).toFloat() / XP_PER_LEVEL,
-                rowCount = (rows.values.maxOrNull() ?: 0) + 1,
+                // Slots sit a row below their anchor, so they can extend the canvas past the
+                // deepest node.
+                rowCount = maxOf(rows.values.maxOrNull() ?: 0, slots.maxOfOrNull { it.row } ?: 0) + 1,
             ),
         )
     }

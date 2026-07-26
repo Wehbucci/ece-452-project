@@ -196,6 +196,71 @@ class PathPresenterTest {
     }
 
     @Test
+    fun `add mode offers a slot under every lesson and clears when cancelled`() {
+        val (presenter, view) = attach()
+
+        assertTrue("no slots until asked for", view.lastState!!.addSlots.isEmpty())
+
+        presenter.onAddNodeRequested()
+
+        val slots = view.lastState!!.addSlots
+        // One per lesson; the dashed affordance is skipped because it already is an add slot.
+        assertEquals(9, slots.size)
+        assertTrue(slots.none { it.anchorId == "branch-1" })
+        // Each slot sits directly under the node it would grow from.
+        val rows = view.lastState!!.nodes.associate { it.id to it.row }
+        slots.forEach { slot ->
+            assertEquals(rows.getValue(slot.anchorId) + 1, slot.row)
+        }
+
+        presenter.onAddModeCancelled()
+        assertTrue(view.lastState!!.addSlots.isEmpty())
+    }
+
+    @Test
+    fun `slots on the same row never land on the same lane`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+
+        view.lastState!!.addSlots.groupBy { it.row }.forEach { (row, sameRow) ->
+            val lanes = sameRow.map { it.lane }
+            assertEquals("two slots stacked on row $row", lanes.size, lanes.distinct().size)
+        }
+    }
+
+    @Test
+    fun `picking a slot leaves add mode and opens the sheet for that spot`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+        presenter.onAddSlotTapped("data-basics")
+
+        assertTrue(view.lastState!!.addSlots.isEmpty())
+        assertTrue(view.branchSheetShown)
+        assertEquals(listOf("Data Basics"), view.branchFromTitles)
+
+        presenter.onGenerateBranch("Feature engineering")
+        assertEquals(
+            listOf("data-basics"),
+            view.lastState!!.nodes.first { it.title == "Feature engineering" }.parentIds,
+        )
+    }
+
+    @Test
+    fun `tapping a node in add mode picks it instead of opening its lesson`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+        presenter.onNodeTapped("regression") // normally LOCKED, so it would shake and refuse
+
+        assertTrue(view.shakes.isEmpty())
+        assertNull(view.subtopicSheet)
+        assertTrue(view.branchSheetShown)
+        assertEquals(listOf("Regression"), view.branchFromTitles)
+    }
+
+    @Test
     fun `branching off a lesson adds a detour without disturbing the main line`() {
         val (presenter, view) = attach()
 

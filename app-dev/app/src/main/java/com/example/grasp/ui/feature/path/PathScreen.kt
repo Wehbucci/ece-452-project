@@ -3,19 +3,28 @@
 package com.example.grasp.ui.feature.path
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -27,10 +36,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.AddSlotNode
 import com.example.grasp.ui.components.ConfettiBurst
 import com.example.grasp.ui.components.LevelUpRibbon
 import com.example.grasp.ui.components.PathHud
@@ -40,8 +53,11 @@ import com.example.grasp.ui.components.PathToast
 import com.example.grasp.ui.components.RegionLabel
 import com.example.grasp.ui.feature.subtopic.SubtopicLoadingContent
 import com.example.grasp.ui.feature.subtopic.SubtopicSheetContent
+import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.GraspTheme
+import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathMuted
+import com.example.grasp.ui.theme.PathNodeBranch
 import com.example.grasp.ui.theme.PathScreenBg
 
 /**
@@ -182,11 +198,28 @@ fun PathScreen(
                             enterId = enterId,
                             enterNonce = enterNonce,
                             onNodeTapped = presenter::onNodeTapped,
+                            onSlotTapped = presenter::onAddSlotTapped,
                         )
                         // Non-scrolling celebratory overlays.
                         ConfettiBurst(confettiTrigger, Modifier.fillMaxSize())
                         LevelUpRibbon(levelUp, onFinished = { levelUp = null })
                         PathToast(toast, onFinished = { toast = null })
+
+                        // Add mode: a banner explaining the "+" ghosts, or the button that shows them.
+                        if (s.addSlots.isNotEmpty()) {
+                            AddModeBanner(
+                                onCancel = presenter::onAddModeCancelled,
+                                modifier = Modifier.align(Alignment.TopCenter),
+                            )
+                        } else {
+                            AddNodeButton(
+                                onClick = presenter::onAddNodeRequested,
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .navigationBarsPadding()
+                                    .padding(20.dp),
+                            )
+                        }
                     }
                 }
             }
@@ -252,6 +285,7 @@ private fun JourneyBoard(
     enterId: String?,
     enterNonce: Int,
     onNodeTapped: (String) -> Unit,
+    onSlotTapped: (String) -> Unit,
 ) {
     val regionRows = remember(state.regions) { state.regions.map { it.row }.toSet() }
     val canvasHeight = PathLayout.canvasHeight(state.rowCount, regionRows)
@@ -302,6 +336,86 @@ private fun JourneyBoard(
                         ),
                     )
                 }
+
+                // 4) Add-mode "+" ghosts, on top so they're always the easiest thing to hit.
+                state.addSlots.forEach { slot ->
+                    AddSlotNode(
+                        onClick = { onSlotTapped(slot.anchorId) },
+                        modifier = Modifier.offset(
+                            x = PathLayout.centerX(slot.lane) - PathLayout.circleCenterXInSlot,
+                            y = PathLayout.centerY(slot.row, regionRows) - PathLayout.circleCenterYInSlot,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+/** The floating "add a section" button that puts the board into add mode. */
+@Composable
+private fun AddNodeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        onClick = onClick,
+        shape = RoundedCornerShape(percent = 50),
+        color = PathNodeBranch,
+        contentColor = Color.White,
+        shadowElevation = 6.dp,
+        modifier = modifier,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
+            Text(
+                text = "Add a section",
+                fontFamily = FredokaFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+            )
+        }
+    }
+}
+
+/**
+ * Replaces the add button while the "+" ghosts are up: says what to do next, and gives a way out
+ * that isn't "pick a spot you didn't want".
+ */
+@Composable
+private fun AddModeBanner(onCancel: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(percent = 50),
+        color = PathNodeBranch,
+        contentColor = Color.White,
+        shadowElevation = 6.dp,
+        modifier = modifier.padding(12.dp),
+    ) {
+        Row(
+            modifier = Modifier.padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = "Pick where it goes",
+                fontFamily = FredokaFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 15.sp,
+            )
+            Surface(
+                onClick = onCancel,
+                shape = RoundedCornerShape(percent = 50),
+                color = Color.White.copy(alpha = 0.22f),
+                contentColor = Color.White,
+            ) {
+                Text(
+                    text = "Cancel",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
+                )
             }
         }
     }
@@ -370,6 +484,7 @@ private fun PathScreenPreview() {
                     enterId = null,
                     enterNonce = 0,
                     onNodeTapped = {},
+                    onSlotTapped = {},
                 )
             }
         }

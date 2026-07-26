@@ -1,5 +1,6 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.core.layout.freeLane
 import com.example.grasp.data.model.TreeNode
 import org.json.JSONObject
 
@@ -28,9 +29,8 @@ private const val MAX_EST_MINUTES = 120
  * Generates the Learner roadmap for [title] (FR2.1).
  *
  * Only the STRUCTURE is generated here — titles, ordering, and per-node time estimates (FR4.3).
- * Each node's actual lesson body is generated lazily by [generateSubtopicContent] the first time
- * the user opens it; that split is the proposal's Conflict 1 trade-off (initial load speed over
- * upfront completeness).
+ * The repository then fills in each node's lesson with [generateSubtopicContent] before the
+ * roadmap opens.
  *
  * Never throws. If the call or the parse fails the user still gets a one-node starter roadmap
  * with a branch-out affordance, so the path is grow-able by hand (NFR 3.1).

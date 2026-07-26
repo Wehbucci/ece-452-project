@@ -1,6 +1,7 @@
 package com.example.grasp.data.repository
 
 import android.util.Log
+import com.example.grasp.core.layout.laneForBranch
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
@@ -88,11 +89,11 @@ class FirebasePathRepository : PathRepository {
     override fun tinkerGuide(id: String): TinkerGuide? = null
 
     /**
-     * Resolves a node's lesson, generating it on first open and caching it in the node document.
+     * Resolves a node's lesson, reading the copy [createTopic] cached on the node document.
      *
-     * This is the lazy half of the proposal's Conflict 1 trade-off: [createTopic] only writes the
-     * roadmap's structure, and the words behind a node are written here, once, the first time
-     * somebody looks at it. Every later open — including offline — reads the cached copy.
+     * Falls back to generating it here for anything that copy is missing — a node whose up-front
+     * generation failed, or one restored from an older topic. Every later open, including offline,
+     * reads the cache.
      */
     override suspend fun subtopic(pathId: String, nodeId: String): Subtopic? =
         withContext(Dispatchers.IO) {

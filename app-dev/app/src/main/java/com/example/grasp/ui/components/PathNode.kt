@@ -123,6 +123,9 @@ object PathLayout {
     fun canvasHeight(rowCount: Int, regionRows: Set<Int>): Dp =
         centerY((rowCount - 1).coerceAtLeast(0), regionRows) + BottomPadding
 
+    /** Diameter of an add-mode "+" ghost — well under a node so it never competes with one. */
+    val AddSlotSize: Dp = 40.dp
+
     /** Circle diameter for each visual state (the "chunky game button" sizes). */
     fun circleSize(state: PathNodeState): Dp = when (state) {
         PathNodeState.CURRENT -> 82.dp
@@ -297,6 +300,62 @@ private fun PulseRing(diameter: Dp) {
 }
 
 /** Draws the state's fill, hard "game bevel", optional border and soft glow. */
+/**
+ * A small dashed "+" ghost marking a spot where a new section can be added, shown only while the
+ * board is in add mode.
+ *
+ * Deliberately smaller and lighter than a real node ([PathLayout.AddSlotSize] against a 60-82dp
+ * node) so a board full of them still reads as the roadmap with options laid over it, rather than
+ * as a board full of new lessons. Occupies a full slot so the Screen can position it with the same
+ * [PathLayout] maths as a node.
+ */
+@Composable
+fun AddSlotNode(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // Gentle pulse so the slots read as live targets rather than part of the roadmap.
+    val transition = rememberInfiniteTransition(label = "add-slot")
+    val scale by transition.animateFloat(
+        initialValue = 0.9f,
+        targetValue = 1.05f,
+        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
+        label = "add-slot-scale",
+    )
+
+    Box(
+        modifier = modifier
+            .width(PathLayout.SlotWidth)
+            .height(PathLayout.TagZone + PathLayout.CircleBand),
+        contentAlignment = Alignment.Center,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(PathLayout.CircleBand)
+                .graphicsLayer { scaleX = scale; scaleY = scale }
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = onClick,
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Canvas(Modifier.size(PathLayout.CircleBand)) {
+                val r = PathLayout.AddSlotSize.toPx() / 2f
+                val center = Offset(size.width / 2f, size.height / 2f)
+                drawCircle(PathCard.copy(alpha = 0.9f), radius = r, center = center)
+                drawCircle(
+                    PathNodeBranch, radius = r, center = center,
+                    style = Stroke(2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f))),
+                )
+            }
+            Icon(
+                Icons.Filled.Add,
+                contentDescription = "Add a section here",
+                tint = PathNodeBranch,
+                modifier = Modifier.size(PathLayout.AddSlotSize * 0.5f),
+            )
+        }
+    }
+}
+
 @Composable
 private fun NodeCircle(state: PathNodeState) {
     val diameter = PathLayout.circleSize(state)
