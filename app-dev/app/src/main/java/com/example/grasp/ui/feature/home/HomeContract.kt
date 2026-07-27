@@ -3,6 +3,7 @@ package com.example.grasp.ui.feature.home
 import com.example.grasp.core.mvp.MvpPresenter
 import com.example.grasp.core.mvp.MvpView
 import com.example.grasp.data.model.Mode
+import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.TopicSuggestion
 
 /**
@@ -28,6 +29,12 @@ interface HomeContract {
         /** Generation failed — the user is still on Home and can try again. */
         fun showGenerationFailed()
 
+        /**
+         * Render (or clear, when `null`) the "jump back in" banner — the saved path the user is
+         * closest to finishing. Keeps the most likely next action one tap from the launch screen.
+         */
+        fun showContinue(item: SavedItem?)
+
         /** Navigate to a Learner roadmap for [pathId]. */
         fun openLearner(pathId: String)
 
@@ -41,5 +48,8 @@ interface HomeContract {
 
         /** User tapped one of the popular-topic cards. */
         fun onPopularTopicClicked(topic: TopicSuggestion)
+
+        /** User tapped the "jump back in" banner. */
+        fun onContinueClicked(item: SavedItem)
     }
 }
