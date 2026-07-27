@@ -69,5 +69,7 @@ interface PathRepository {
     /** Persist completion state for a node in Firestore or the backend. */
     suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)
 
+    suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean)
+
     suspend fun deleteTopic(pathId: String)
 }

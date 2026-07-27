@@ -396,6 +396,29 @@ class FirebasePathRepository : PathRepository {
         }
     }
     
+
+    override suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean) {
+        val uid = uid ?: return
+        try {
+            val docRef = topicsRef(uid).document(guideId)
+            val doc = docRef.get().await()
+            val steps = (doc.get("steps") as? List<*>).orEmpty()
+                .filterIsInstance<Map<String, Any?>>()
+                .map { raw ->
+                    if (raw["id"] == stepId) raw + ("done" to completed) else raw
+                }
+            docRef.set(
+                mapOf(
+                    "steps" to steps,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                SetOptions.merge(),
+            ).await()
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "updateTinkerStepCompletion failed for $guideId/$stepId", e)
+        }
+    }
+
     override suspend fun deleteTopic(pathId: String) {
         val uid = uid ?: return
         try {

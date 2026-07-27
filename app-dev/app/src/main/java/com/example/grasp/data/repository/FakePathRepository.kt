@@ -214,6 +214,11 @@ object FakePathRepository : PathRepository {
         // Demo implementation: no-op.
     }
 
+    override suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean) {
+        // Demo implementation: no-op.
+    }
+
+
     override suspend fun deleteTopic(pathId: String) {
     }
 }

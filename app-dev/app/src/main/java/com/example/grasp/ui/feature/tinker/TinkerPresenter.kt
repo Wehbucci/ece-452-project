@@ -42,11 +42,16 @@ class TinkerPresenter(
 
     override fun onToggleStep(step: TinkerStep) {
         val current = guide ?: return
+        val newDone = !step.done
         val updated = current.copy(
-            steps = current.steps.map { if (it.id == step.id) it.copy(done = !it.done) else it },
+            steps = current.steps.map { if (it.id == step.id) it.copy(done = newDone) else it },
         )
         guide = updated
         view?.showGuide(updated)
+
+        scope.launch {
+            repo.updateTinkerStepCompletion(guideId, step.id, newDone)
+        }
     }
 
     override fun onAskAi() {
