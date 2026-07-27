@@ -154,3 +154,43 @@ val PathStreak = Color(0xFFFF6B57)
 
 /** "Why it matters" callout background in the subtopic sheet. */
 val PathWhyItMattersBg = Color(0xFFF7F0FF)
+
+// ---------------------------------------------------------------------------
+// App shell (Home / Library / Profile) — the journey's game look, everywhere
+// ---------------------------------------------------------------------------
+// The roadmap screen proved out the "chunky, bevelled, playful" language; these tokens carry it
+// across the three tab screens so the app reads as ONE product instead of one gamified screen
+// bolted onto a plain Material shell. They deliberately re-use the `Path*` hues above (same
+// indigo / green / amber / coral) and only add what the shell needs: card bevels, soft icon-tile
+// tints, a hero gradient and a destructive accent.
+//
+// Rules of thumb:
+//  - Surfaces sit on [PathScreenBg]; every card is [PathCard] + a hard [GameCardBevel] edge.
+//  - An accent always comes in a pair: full-strength ink + its faint *Tint background.
+//  - Mode is semantic and constant app-wide: Learn = indigo, Tinker = amber (see `Mode.accent`).
+
+/** Hard (0-blur) bottom edge under a neutral card — the "stacked plastic" bevel. */
+val GameCardBevel = Color(0xFFE4E1F0)
+
+/** Faint amber tile/chip background (Tinker mode, XP and "grow" affordances). */
+val GameTintAmber = Color(0xFFFDF0D8)
+
+/** Faint coral tile/chip background (streaks, flame stats). */
+val GameTintStreak = Color(0xFFFFF1EC)
+
+/** Neutral tile/chip background for informational rows with no accent of their own. */
+val GameTintNeutral = Color(0xFFF0EFF9)
+
+/** Hairline divider inside grouped cards (settings lists). */
+val GameDivider = Color(0xFFEFEDF7)
+
+/** Placeholder block used by loading skeletons. */
+val GameSkeleton = Color(0xFFE9E7F4)
+
+/** Destructive actions (delete a saved path, log out) + its faint container. */
+val GameDanger = Color(0xFFE5484D)
+val GameDangerTint = Color(0xFFFDECEC)
+
+/** Hero-card gradient (profile header, "continue learning" banner). Indigo → violet. */
+val GameHeroStart = Color(0xFF6C5CE7)
+val GameHeroEnd = Color(0xFF9A7BFF)
