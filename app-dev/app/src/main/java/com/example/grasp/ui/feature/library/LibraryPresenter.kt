@@ -47,7 +47,7 @@ class LibraryPresenter(
         scope.launch {
             when (item) {
                 is LearningPath -> repo.deleteTopic(item.id)
-                is TinkerGuide -> {}
+                is TinkerGuide -> repo.deleteTopic(item.id)
             }
             onViewAttached()
         }
