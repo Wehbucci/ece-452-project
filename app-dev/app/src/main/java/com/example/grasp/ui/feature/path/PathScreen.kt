@@ -322,17 +322,18 @@ private fun JourneyBoard(
         )
 
         /**
-         * The frame the board opens on: aimed at the node the learner is actually on — the one
-         * wearing "YOU'RE HERE" — falling back to the top of the tree if nothing is current, which
-         * on an untouched roadmap is the same node anyway.
+         * The frame the board opens on: aimed at the ROOT — the top of the tree. Aiming at the
+         * "YOU'RE HERE" node instead meant a large roadmap with progress opened deep in the tree
+         * with its root scrolled clean off the top, so the roadmap read as starting nowhere. The
+         * root must be on screen every time the board appears, whether the roadmap was just
+         * generated or reopened years in; everything else is one drag away.
          *
          * RE-DERIVED every composition rather than remembered. That matters: `BoxWithConstraints`
          * composes during measure, so a first pass whose height isn't final yet computes a bad frame
          * — and freezing that pass's answer in a `remember` froze the mistake. Deriving it means a
          * bad measure cannot outlive itself.
          */
-        val focus = state.nodes.firstOrNull { it.state == PathNodeState.CURRENT }
-            ?: state.nodes.minByOrNull { it.row }
+        val focus = state.nodes.minByOrNull { it.row }
         val opening = rememberUpdatedState(
             openingCamera(
                 viewport = viewport,
@@ -455,11 +456,10 @@ private const val MinFitZoom = 0.7f
 private val BoardMargin = 24.dp
 
 /**
- * How far down the visible board the focused node sits when the board frames itself.
+ * How far down the visible board the root sits when the board frames itself.
  *
- * Roughly a quarter of the way, which puts it clear of the HUD above the board and leaves its
- * "YOU'RE HERE" tag and the wire arriving from above room to breathe, while still showing what comes
- * next below it.
+ * Roughly a quarter of the way, which puts it clear of the HUD above the board and leaves room for
+ * its "YOU'RE HERE" tag on a fresh roadmap, while still showing what comes next below it.
  */
 private const val FocusViewportFraction = 0.26f
 

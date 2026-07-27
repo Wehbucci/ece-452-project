@@ -25,7 +25,8 @@ internal data class BoardCamera(val scale: Float, val offset: Offset) {
 
 /**
  * The camera the board frames itself with until the user touches it: zoomed to fit [content]'s
- * width within [marginPx] either side, and aimed at [focusCentre] — the node the learner is on.
+ * width within [marginPx] either side, and aimed at [focusCentre] — the root of the tree, so the
+ * roadmap always opens from its beginning no matter how large it has grown.
  *
  * Both axes are solved outright: the focused node's centre is placed on the viewport's centre line,
  * [focusInsetPx] below its top. Nothing about the result depends on layout alignment, a transform

@@ -9,10 +9,10 @@ import org.junit.Test
 /**
  * Plain-JUnit tests for how the board frames itself.
  *
- * These exist because "the node you're on is visible when the roadmap opens" was reported broken
- * repeatedly, each time after reasoning that the layout would place it correctly. The framing is
- * pure arithmetic now, so the claim is checked here instead of inferred: for every shape of tree,
- * the focused node's centre must land inside the viewport.
+ * These exist because "the root is visible when the roadmap opens" was reported broken repeatedly,
+ * each time after reasoning that the layout would place it correctly. The framing is pure
+ * arithmetic now, so the claim is checked here instead of inferred: for every shape of tree, the
+ * focused node's centre must land inside the viewport.
  */
 class BoardCameraTest {
 
@@ -70,6 +70,17 @@ class BoardCameraTest {
 
         assertEquals(viewport.width / 2f, camera.screenPositionOf(focus).x, 0.5f)
         assertFocusOnScreen(camera, focus)
+    }
+
+    @Test
+    fun `a deep roadmap still opens with its root on screen`() {
+        // A roadmap that has grown far taller than the phone. The frame aims at the root, so no
+        // amount of depth below it may push it off the top.
+        val content = board(3f, 40f)
+        val root = focusOf(content)
+
+        assertFocusOnScreen(frame(content, root), root)
+        assertEquals(focusInset, frame(content, root).screenPositionOf(root).y, 0.5f)
     }
 
     @Test
