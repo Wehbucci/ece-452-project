@@ -10,13 +10,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import com.example.grasp.ui.components.PathLayout
 import com.example.grasp.ui.theme.PathConnector
-import com.example.grasp.ui.theme.PathNodeBranch
 import com.example.grasp.ui.theme.PathNodeCurrent
 import com.example.grasp.ui.theme.PathNodeDone
 
@@ -31,9 +29,6 @@ import com.example.grasp.ui.theme.PathNodeDone
  * Edges are colored by the two endpoints' states (README §"Node states"):
  *  - both DONE → green · parent DONE → indigo · else grey.
  *
- * In add mode it also draws an amber dotted wire out to each [addSlots] ghost, so a "+" reads as
- * "this lesson's next section" rather than as a marker floating loose on the board.
- *
  * When a completion advances the marker, [fillIntoId] names that newly-current node and the
  * edges arriving into it animate their colored stroke in over the grey base — the "connector
  * fills" moment.
@@ -44,7 +39,6 @@ fun TreeCanvas(
     regionRows: Set<Int>,
     fillIntoId: String?,
     modifier: Modifier = Modifier,
-    addSlots: List<AddSlotUi> = emptyList(),
 ) {
     val byId = remember(nodes) { nodes.associateBy { it.id } }
 
@@ -59,7 +53,7 @@ fun TreeCanvas(
 
     Canvas(modifier.fillMaxSize()) {
         fun centerOf(n: PathNodeUi) = Offset(
-            x = PathLayout.centerX(n.lane).toPx(),
+            x = PathLayout.centerX(n.column).toPx(),
             y = PathLayout.centerY(n.row, regionRows).toPx(),
         )
 
@@ -68,7 +62,7 @@ fun TreeCanvas(
             val childCenter = centerOf(child)
             child.parentIds.forEach { pid ->
                 val parent = byId[pid] ?: return@forEach
-                drawConnector(centerOf(parent), childCenter, PathConnector, 5f, dotted = false)
+                drawConnector(centerOf(parent), childCenter, PathConnector, 5f)
             }
         }
 
@@ -86,18 +80,8 @@ fun TreeCanvas(
                 } ?: return@forEach
 
                 val alpha = if (child.id == fillIntoId) fillProgress.value else 1f
-                drawConnector(parentCenter, childCenter, color, 6f, dotted = false, alpha = alpha)
+                drawConnector(parentCenter, childCenter, color, 6f, alpha = alpha)
             }
-        }
-
-        // Pass 3: the amber dotted wire out to each add-mode ghost.
-        addSlots.forEach { slot ->
-            val anchor = byId[slot.anchorId] ?: return@forEach
-            val slotCenter = Offset(
-                x = PathLayout.centerX(slot.lane).toPx(),
-                y = PathLayout.centerY(slot.row, regionRows).toPx(),
-            )
-            drawConnector(centerOf(anchor), slotCenter, PathNodeBranch, 4f, dotted = true)
         }
     }
 }
@@ -108,7 +92,6 @@ private fun DrawScope.drawConnector(
     to: Offset,
     color: androidx.compose.ui.graphics.Color,
     widthDp: Float,
-    dotted: Boolean,
     alpha: Float = 1f,
 ) {
     val midY = (from.y + to.y) / 2f
@@ -120,10 +103,6 @@ private fun DrawScope.drawConnector(
         path = path,
         color = color,
         alpha = alpha,
-        style = Stroke(
-            width = widthDp * density,
-            cap = StrokeCap.Round,
-            pathEffect = if (dotted) PathEffect.dashPathEffect(floatArrayOf(2f, 14f)) else null,
-        ),
+        style = Stroke(width = widthDp * density, cap = StrokeCap.Round),
     )
 }

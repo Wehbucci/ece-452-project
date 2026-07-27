@@ -24,13 +24,12 @@ package com.example.grasp.data.model
  *           actually decides, and it only reads false for a node whose generation failed.
  * @property isBranchOut true if this node is a "branch out" affordance — a spot where the
  *           user can expand a brand-new branch (rendered with a dashed amber outline)
- * @property lane OPTIONAL layout hint: the node's horizontal position (in the design's
- *           340-wide journey canvas) so the gamified roadmap can render deliberate splits and
- *           converges. Defaults to [LANE_CENTER] so paths that don't specify lanes simply
- *           render as a straight, centered column. Vertical position is NOT stored — it is
- *           derived from graph depth by the presenter.
  * @property tier OPTIONAL region grouping ("FOUNDATIONS", "CORE ML · PICK A TRACK", "MASTERY",
  *           …) used to draw the small centered region pills on the journey. Null = no pill.
+ *
+ * No position is stored, in either axis. `core.layout.layoutBoard` derives the whole board from
+ * [children] on every render, so a roadmap re-centers itself when the user grows it instead of
+ * carrying coordinates that were only tidy at the moment they were written.
  */
 data class TreeNode(
     val id: String,
@@ -42,11 +41,5 @@ data class TreeNode(
     val contentRef: String? = null,
     val contentReady: Boolean = true,
     val isBranchOut: Boolean = false,
-    val lane: Int = LANE_CENTER,
     val tier: String? = null,
-) {
-    companion object {
-        /** Center lane of the design's 340-wide journey canvas. */
-        const val LANE_CENTER = 170
-    }
-}
+)
