@@ -55,7 +55,10 @@ class FirebasePathRepository : PathRepository {
             runBlocking {
                 topicsRef(uid).get().await().documents.mapNotNull { doc ->
                     val id = doc.id
-                    learningPath(id)
+                    when (doc.getString("mode")) {
+                        "tinker" -> tinkerGuide(id)
+                        else -> learningPath(id)
+                    }
                 }
             }
         } catch (e: Exception) {
