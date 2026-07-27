@@ -16,7 +16,7 @@ private const val SYSTEM_INSTRUCTION = """
     Always output valid JSON only.
 """
 
-private const val MAX_EST_MINUTES = 120
+private const val MAX_EST_MINUTES = 4320
 
 /**
  * Generates the Tinkerer checklist for [title] (FR3.1).
@@ -71,16 +71,20 @@ private fun guidePrompt(title: String) = """
     Guidance:
     - 4-12 steps, ordered the way someone would actually perform them.
     - "instruction" is a short imperative sentence (e.g. "Crack two eggs into a bowl").
+    - If the step involves an ingredient, material, or measurable quantity, state the EXACT
+      amount and unit inline in "instruction" (e.g. "Whisk 2 cups flour, 1 tsp baking soda,
+      and ½ tsp salt" — not "Mix the dry ingredients"). Never omit a quantity that a real
+      recipe or task would specify.
     - "detail" is optional: one extra sentence of guidance, a safety note, or a tip — leave it
       blank if the instruction is self-explanatory.
-    - "estMinutes" is an honest whole-minute estimate for that one step, between 1 and 60.
+    - "estMinutes" is an honest whole-minute estimate for that one step, between 1 and 4320.
 
     Return ONLY valid JSON, no commentary, no markdown fences.
 
     Format:
     {
       "steps": [
-        { "instruction": "Example instruction", "detail": "", "estMinutes": 5 }
+        { "instruction": "Whisk 2 cups flour, 1 cup sugar, and 1 tsp baking powder in a bowl", "detail": "", "estMinutes": 5 }
       ]
     }
 """.trimIndent()
