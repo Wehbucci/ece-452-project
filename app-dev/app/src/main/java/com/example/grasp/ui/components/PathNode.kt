@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -41,7 +40,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,9 +60,6 @@ import com.example.grasp.ui.theme.PathNodeCurrent
 import com.example.grasp.ui.theme.PathNodeCurrentBevel
 import com.example.grasp.ui.theme.PathNodeDone
 import com.example.grasp.ui.theme.PathNodeDoneBevel
-import com.example.grasp.ui.theme.PathNodeLockedBevel
-import com.example.grasp.ui.theme.PathNodeLockedFill
-import com.example.grasp.ui.theme.PathNodeLockedInk
 import com.example.grasp.ui.theme.PathNodeOpenBevel
 import com.example.grasp.ui.theme.PathScreenBg
 
@@ -131,7 +126,6 @@ object PathLayout {
         PathNodeState.CURRENT -> 82.dp
         PathNodeState.DONE -> 70.dp
         PathNodeState.OPEN -> 70.dp
-        PathNodeState.LOCKED -> 64.dp
         PathNodeState.BRANCH -> 60.dp
     }
 }
@@ -140,9 +134,9 @@ object PathLayout {
  * A single tappable node on the journey — the chunky, bevelled "game button".
  *
  * Stateless: everything visual is a function of [node]. The only motion it owns is transient
- * and driven by keys the Screen bumps:
- *  - [shakeKey]  — bump to shake this node left/right (a locked tap "no").
- *  - [enterKey]  — bump to pop/bounce this node in (unlock, or a freshly-grown branch node).
+ * and driven by a key the Screen bumps:
+ *  - [enterKey]  — bump to pop/bounce this node in (the marker advancing onto it, or a
+ *    freshly-grown branch node).
  *
  * The current node additionally shows an infinitely pulsing ring and a bobbing "YOU'RE HERE"
  * tag. Placement (absolute offset by circle center) is the Screen's job via [PathLayout].
@@ -152,28 +146,14 @@ fun PathNode(
     node: PathNodeUi,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    shakeKey: Int = 0,
     enterKey: Int = 0,
 ) {
-    val density = LocalDensity.current
-    val shakeAmplitude = with(density) { 10.dp.toPx() }
-
-    // Pop/bounce on unlock or insert.
+    // Pop/bounce when the marker advances onto this node, or when it is inserted.
     val enterScale = remember { Animatable(1f) }
     androidx.compose.runtime.LaunchedEffect(enterKey) {
         if (enterKey > 0) {
             enterScale.snapTo(0.4f)
             enterScale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium))
-        }
-    }
-
-    // Left/right shake for a locked tap.
-    val shakeX = remember { Animatable(0f) }
-    androidx.compose.runtime.LaunchedEffect(shakeKey) {
-        if (shakeKey > 0) {
-            listOf(-1f, 1f, -0.8f, 0.8f, -0.4f, 0.4f, 0f).forEach { f ->
-                shakeX.animateTo(f * shakeAmplitude, tween(durationMillis = 45))
-            }
         }
     }
 
@@ -198,7 +178,6 @@ fun PathNode(
                 .graphicsLayer {
                     scaleX = enterScale.value
                     scaleY = enterScale.value
-                    translationX = shakeX.value
                 }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -237,7 +216,6 @@ fun PathNode(
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
                 color = when (node.state) {
-                    PathNodeState.LOCKED -> PathFaint
                     PathNodeState.BRANCH -> PathMuted
                     else -> PathInk
                 },
@@ -375,7 +353,6 @@ private fun NodeCircle(state: PathNodeState) {
             PathNodeState.DONE -> PathNodeDone to PathNodeDoneBevel
             PathNodeState.CURRENT -> PathNodeCurrent to PathNodeCurrentBevel
             PathNodeState.OPEN -> PathCard to PathNodeOpenBevel
-            PathNodeState.LOCKED -> PathNodeLockedFill to PathNodeLockedBevel
             PathNodeState.BRANCH -> PathCard to PathNodeBranchBevel
         }
         // Hard (0-blur) bevel directly beneath, then the fill on top.
@@ -396,7 +373,7 @@ private fun NodeCircle(state: PathNodeState) {
     }
 }
 
-/** The centered glyph: check / star / lesson-book / lock / plus. */
+/** The centered glyph: check / star / lesson-book / plus. */
 @Composable
 private fun NodeGlyph(state: PathNodeState) {
     val glyphSize = PathLayout.circleSize(state) * 0.42f
@@ -405,8 +382,6 @@ private fun NodeGlyph(state: PathNodeState) {
             Icon(Icons.Filled.Check, contentDescription = "Completed", tint = Color.White, modifier = Modifier.size(glyphSize))
         PathNodeState.CURRENT ->
             Icon(Icons.Filled.Star, contentDescription = "You are here", tint = Color.White, modifier = Modifier.size(glyphSize))
-        PathNodeState.LOCKED ->
-            Icon(Icons.Filled.Lock, contentDescription = "Locked", tint = PathNodeLockedInk, modifier = Modifier.size(glyphSize))
         PathNodeState.BRANCH ->
             Icon(Icons.Filled.Add, contentDescription = "Grow your path", tint = PathNodeBranch, modifier = Modifier.size(glyphSize))
         PathNodeState.OPEN ->

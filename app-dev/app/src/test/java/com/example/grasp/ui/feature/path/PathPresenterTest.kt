@@ -16,9 +16,8 @@ import kotlin.coroutines.CoroutineContext
  * imports. They run on the host JVM with a hand-written fake View and the in-memory
  * `FakePathRepository`; no emulator, no Compose runtime.
  *
- * They pin the behaviour the redesign depends on: state derivation (current/open/locked),
- * XP → level, the completion→unlock→confetti→level-up pipeline, the locked-tap "no", and branch
- * insertion.
+ * They pin the behaviour the redesign depends on: state derivation (current/open/done), XP →
+ * level, the completion→advance→confetti→level-up pipeline, and branch insertion.
  */
 class PathPresenterTest {
 
@@ -36,11 +35,10 @@ class PathPresenterTest {
         val loadingSaidGenerating = mutableListOf<Boolean>()
         val branchSuggestions = mutableListOf<List<String>>()
         val generatingStates = mutableListOf<Boolean>()
-        val unlocks = mutableListOf<String>()
+        val advances = mutableListOf<String>()
         val popIns = mutableListOf<String>()
         val levelUps = mutableListOf<Int>()
         val toasts = mutableListOf<String>()
-        val shakes = mutableListOf<String>()
         val chats = mutableListOf<String>()
         val chatBlockIndices = mutableListOf<Int>()
 
@@ -60,12 +58,11 @@ class PathPresenterTest {
         override fun showBranchSuggestions(topics: List<String>) { branchSuggestions += topics }
         override fun showBranchGenerating(generating: Boolean) { generatingStates += generating }
         override fun dismissSheet() { dismissCount++ }
-        override fun playUnlock(nodeId: String) { unlocks += nodeId }
+        override fun playAdvance(nodeId: String) { advances += nodeId }
         override fun playPopIn(nodeId: String) { popIns += nodeId }
         override fun showConfetti() { confetti++ }
         override fun showLevelUp(level: Int) { levelUps += level }
         override fun showToast(message: String) { toasts += message }
-        override fun shakeNode(nodeId: String) { shakes += nodeId }
         override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) {
             chats += nodeId
             chatBlockIndices += blockIndex
@@ -94,17 +91,18 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `derives current, open and locked states from the completed frontier`() {
+    fun `derives done, current and open states from the completed set`() {
         val (_, view) = attach()
         val state = view.lastState!!
 
         // whatis / types / data are pre-completed in the fake ML graph.
         assertEquals(PathNodeState.DONE, state.node("data-basics").state)
-        // First reachable, incomplete, non-branch node is current; its sibling is merely open.
+        // First incomplete, non-branch node is current; its sibling is merely open.
         assertEquals(PathNodeState.CURRENT, state.node("supervised").state)
         assertEquals(PathNodeState.OPEN, state.node("unsupervised").state)
-        // Downstream of an incomplete node is locked.
-        assertEquals(PathNodeState.LOCKED, state.node("regression").state)
+        // Nothing is gated: a node several steps ahead of the marker is open too.
+        assertEquals(PathNodeState.OPEN, state.node("regression").state)
+        assertEquals(PathNodeState.OPEN, state.node("model-evaluation").state)
         // The old standing "Branch out" placeholder is not part of the board any more.
         assertNull(state.nodes.firstOrNull { it.id == "branch-1" })
         assertTrue(state.nodes.none { it.state == PathNodeState.BRANCH })
@@ -121,7 +119,7 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `marking complete adds XP, unlocks the next node and bursts confetti`() {
+    fun `marking complete adds XP, advances to the next node and bursts confetti`() {
         val (presenter, view) = attach()
 
         presenter.onMarkComplete("supervised")
@@ -132,9 +130,9 @@ class PathPresenterTest {
         assertEquals(160, state.xpInLevel)
         assertEquals(1, view.confetti)
         assertEquals(1, view.dismissCount)
-        // Frontier moved to the next reachable node.
+        // The marker moved on to the next incomplete node.
         assertEquals(PathNodeState.CURRENT, state.node("unsupervised").state)
-        assertTrue("unsupervised" in view.unlocks)
+        assertTrue("unsupervised" in view.advances)
         assertTrue(view.levelUps.isEmpty()) // still level 1
     }
 
@@ -151,15 +149,15 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `tapping a locked node shakes and toasts without opening a sheet`() {
+    fun `a node further along the path opens like any other`() {
         val (presenter, view) = attach()
 
+        // "regression" sits behind two unfinished lessons — the roadmap suggests an order, it
+        // doesn't enforce one, so this still opens.
         presenter.onNodeTapped("regression")
 
-        assertEquals(listOf("regression"), view.shakes)
-        assertEquals(1, view.toasts.size)
-        assertTrue(view.toasts.first().contains("Supervised"))
-        assertNull(view.subtopicSheet)
+        assertEquals("regression", view.subtopicSheet?.nodeId)
+        assertTrue(view.toasts.isEmpty())
     }
 
     @Test
@@ -173,7 +171,6 @@ class PathPresenterTest {
         assertNotNull(view.subtopicSheet)
         assertEquals("supervised", view.subtopicSheet!!.nodeId)
         assertFalse(view.subtopicCompleted)
-        assertTrue(view.shakes.isEmpty())
     }
 
     @Test
@@ -329,9 +326,8 @@ class PathPresenterTest {
         val (presenter, view) = attach()
 
         presenter.onAddNodeRequested()
-        presenter.onNodeTapped("regression") // normally LOCKED, so it would shake and refuse
+        presenter.onNodeTapped("regression") // outside add mode this would open its lesson
 
-        assertTrue(view.shakes.isEmpty())
         assertNull(view.subtopicSheet)
         assertTrue(view.branchSheetShown)
         assertEquals(listOf("Regression"), view.branchFromTitles)

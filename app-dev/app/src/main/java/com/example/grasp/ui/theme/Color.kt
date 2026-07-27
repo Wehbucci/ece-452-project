@@ -97,7 +97,6 @@ val StreakAccent = Color(0xFFF2A03D)
 //   done    -> fill PathNodeDone,    bevel PathNodeDoneBevel    (+ soft green glow)
 //   current -> fill PathNodeCurrent, bevel PathNodeCurrentBevel (+ soft indigo glow + pulse ring)
 //   open    -> fill PathCard, 3.dp border PathNodeCurrent, bevel PathNodeOpenBevel
-//   locked  -> fill PathNodeLockedFill, ink PathNodeLockedInk, bevel PathNodeLockedBevel
 //   branch  -> fill PathCard, 3.dp dashed border PathNodeBranch, bevel PathNodeBranchBevel
 //
 // "Game bevel" = a hard (0-blur) solid drop shadow directly below the circle in the *Bevel
@@ -110,7 +109,7 @@ val PathInk = Color(0xFF211D3B)
 /** Secondary text (subtitles, muted labels). */
 val PathMuted = Color(0xFF7B778F)
 
-/** Tertiary text — estimates, and the "ink" of a locked node's label. */
+/** Tertiary text — estimates and other quiet captions. */
 val PathFaint = Color(0xFFA8A5BC)
 
 // ---- Surfaces ----
@@ -148,11 +147,6 @@ val PathNodeBranch = Color(0xFFF5A524)
 val PathNodeBranchBevel = Color(0xFFEBDFC7)
 val PathXpFillStart = Color(0xFFF5A524) // XP-bar gradient start
 val PathXpFillEnd = Color(0xFFFFC65C)   // XP-bar gradient end
-
-// ---- Node: LOCKED ----
-val PathNodeLockedFill = Color(0xFFE1DFEC)
-val PathNodeLockedBevel = Color(0xFFCAC7D8)
-val PathNodeLockedInk = Color(0xFFA8A5BC)
 
 // ---- Accents ----
 /** Streak flame + count in the HUD. */

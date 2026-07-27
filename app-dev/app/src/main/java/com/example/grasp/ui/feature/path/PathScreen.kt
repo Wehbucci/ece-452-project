@@ -69,7 +69,7 @@ import com.example.grasp.ui.theme.PathScreenBg
  * this file just paints [PathUiState] and plays the one-shot motion the presenter requests.
  *
  * The subtopic detail and the "grow your path" flows are Material 3 [ModalBottomSheet]s hosted
- * here (not separate routes) so Mark-complete flows straight into the same XP/unlock/confetti
+ * here (not separate routes) so Mark-complete flows straight into the same XP/advance/confetti
  * pipeline as the board.
  *
  * @param pathId roadmap id (navigation argument).
@@ -103,8 +103,6 @@ fun PathScreen(
     var levelUp by remember { mutableStateOf<Int?>(null) }
     var toast by remember { mutableStateOf<String?>(null) }
     var fillIntoId by remember { mutableStateOf<String?>(null) }
-    var shakeId by remember { mutableStateOf<String?>(null) }
-    var shakeNonce by remember { mutableIntStateOf(0) }
     var enterId by remember { mutableStateOf<String?>(null) }
     var enterNonce by remember { mutableIntStateOf(0) }
 
@@ -145,12 +143,11 @@ fun PathScreen(
                 sheetLoadingTitle = null
                 branchSheet = false
             }
-            override fun playUnlock(nodeId: String) { fillIntoId = nodeId; enterId = nodeId; enterNonce++ }
+            override fun playAdvance(nodeId: String) { fillIntoId = nodeId; enterId = nodeId; enterNonce++ }
             override fun playPopIn(nodeId: String) { enterId = nodeId; enterNonce++ }
             override fun showConfetti() { confettiTrigger++ }
             override fun showLevelUp(level: Int) { levelUp = level }
             override fun showToast(message: String) { toast = message }
-            override fun shakeNode(nodeId: String) { shakeId = nodeId; shakeNonce++ }
             override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) {
                 sheetSubtopic = null
                 sheetLoadingTitle = null
@@ -195,8 +192,6 @@ fun PathScreen(
                         JourneyBoard(
                             state = s,
                             fillIntoId = fillIntoId,
-                            shakeId = shakeId,
-                            shakeNonce = shakeNonce,
                             enterId = enterId,
                             enterNonce = enterNonce,
                             onNodeTapped = presenter::onNodeTapped,
@@ -282,8 +277,6 @@ fun PathScreen(
 private fun JourneyBoard(
     state: PathUiState,
     fillIntoId: String?,
-    shakeId: String?,
-    shakeNonce: Int,
     enterId: String?,
     enterNonce: Int,
     onNodeTapped: (String) -> Unit,
@@ -331,7 +324,6 @@ private fun JourneyBoard(
                     PathNode(
                         node = node,
                         onClick = { onNodeTapped(node.id) },
-                        shakeKey = if (node.id == shakeId) shakeNonce else 0,
                         enterKey = if (node.id == enterId) enterNonce else 0,
                         modifier = Modifier.offset(
                             x = PathLayout.centerX(node.lane) - PathLayout.circleCenterXInSlot,
@@ -447,8 +439,8 @@ private fun PathScreenPreview() {
             n("c", "Data Basics", 10, PathNodeState.DONE, 230, 2, listOf("b")),
             n("d", "Supervised", 12, PathNodeState.CURRENT, 96, 3, listOf("c")),
             n("e", "Unsupervised", 12, PathNodeState.OPEN, 244, 3, listOf("c")),
-            n("f", "Regression", 10, PathNodeState.LOCKED, 96, 4, listOf("d")),
-            n("g", "Clustering", 10, PathNodeState.LOCKED, 244, 4, listOf("e")),
+            n("f", "Regression", 10, PathNodeState.OPEN, 96, 4, listOf("d")),
+            n("g", "Clustering", 10, PathNodeState.OPEN, 244, 4, listOf("e")),
             n("h", "Branch out", 0, PathNodeState.BRANCH, 170, 5, listOf("f")),
         ),
         regions = listOf(
@@ -482,8 +474,6 @@ private fun PathScreenPreview() {
                 JourneyBoard(
                     state = sample,
                     fillIntoId = null,
-                    shakeId = null,
-                    shakeNonce = 0,
                     enterId = null,
                     enterNonce = 0,
                     onNodeTapped = {},

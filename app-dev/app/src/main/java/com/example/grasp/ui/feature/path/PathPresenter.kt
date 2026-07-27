@@ -2,7 +2,6 @@ package com.example.grasp.ui.feature.path
 
 import android.util.Log
 import com.example.grasp.core.layout.LANE_GRID
-import com.example.grasp.core.layout.gridColumnOf
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -80,15 +79,8 @@ class PathPresenter(
             onAddSlotTapped(nodeId)
             return
         }
-        when (stateOf(node)) {
-            // Locked: don't navigate — nudge and explain what's blocking it.
-            PathNodeState.LOCKED -> {
-                view?.shakeNode(nodeId)
-                view?.showToast("🔒 Finish ${blockingParentTitle(node)} first")
-            }
-            // Done / current / open all open the detail sheet.
-            else -> openSubtopic(node)
-        }
+        // Every lesson is open: the roadmap suggests an order, it doesn't enforce one.
+        openSubtopic(node)
     }
 
     override fun onBranchFromNode(nodeId: String) {
@@ -177,9 +169,9 @@ class PathPresenter(
         view?.dismissSheet()
         view?.showConfetti()
 
-        // The frontier moved: unlock + spotlight the node that is now "current".
+        // Move the "you are here" marker on: spotlight whichever node is now current.
         if (newCurrent != null && newCurrent != previousCurrent) {
-            view?.playUnlock(newCurrent)
+            view?.playAdvance(newCurrent)
         }
         // Crossed a level boundary (every [XP_PER_LEVEL] XP).
         val newLevel = levelFor(newXp)
@@ -260,30 +252,20 @@ class PathPresenter(
         return nodes.associate { it.id to depth(it.id) }
     }
 
-    /** A node is reachable when every parent is complete (roots are always reachable). */
-    private fun isReachable(node: TreeNode, parents: Map<String, List<String>>): Boolean =
-        parents[node.id].orEmpty().all { it in completed }
+    /**
+     * The current node = the first non-branch, not-yet-complete node in order.
+     *
+     * Purely a "you are here" marker for where the roadmap picks up — it gates nothing, since any
+     * node can be opened whenever the user likes. Depth-first ordering is what makes it land on the
+     * main line rather than in a detour.
+     */
+    private fun currentId(): String? = nodes.firstOrNull { !it.isBranchOut && it.id !in completed }?.id
 
-    /** The current node = the first non-branch, not-yet-complete, reachable node in order. */
-    private fun currentId(parents: Map<String, List<String>> = parentsMap()): String? =
-        nodes.firstOrNull { !it.isBranchOut && it.id !in completed && isReachable(it, parents) }?.id
-
-    private fun stateOf(
-        node: TreeNode,
-        parents: Map<String, List<String>> = parentsMap(),
-        current: String? = currentId(parents),
-    ): PathNodeState = when {
+    private fun stateOf(node: TreeNode, current: String? = currentId()): PathNodeState = when {
         node.isBranchOut -> PathNodeState.BRANCH
         node.id in completed -> PathNodeState.DONE
         node.id == current -> PathNodeState.CURRENT
-        isReachable(node, parents) -> PathNodeState.OPEN
-        else -> PathNodeState.LOCKED
-    }
-
-    /** Title of the first incomplete parent — used in the "Finish X first" locked toast. */
-    private fun blockingParentTitle(node: TreeNode): String {
-        val parentId = parentsMap()[node.id].orEmpty().firstOrNull { it !in completed }
-        return nodes.firstOrNull { it.id == parentId }?.title ?: "the previous lesson"
+        else -> PathNodeState.OPEN
     }
 
     private fun xp(): Int = completed.count { id -> nodes.any { it.id == id && !it.isBranchOut } } * XP_PER_LESSON
@@ -303,58 +285,81 @@ class PathPresenter(
      * full, the ghost drops a row and tries again from beside its own lesson instead, which draws
      * as the dotted wire sweeping down past the children.
      */
-    private fun addSlots(rows: Map<String, Int>): List<AddSlotUi> {
+    private fun addSlots(
+        rows: Map<String, Int>,
+        columns: Map<String, Int>,
+    ): List<AddSlotUi> {
         if (!addMode) return emptyList()
-        val usedColumns = HashMap<Int, MutableSet<Int>>()
-        nodes.forEach { node ->
-            usedColumns.getOrPut(rows.getValue(node.id)) { mutableSetOf() } += gridColumnOf(node.lane)
-        }
-        val byId = nodes.associateBy { it.id }
+        val taken = HashMap<Int, MutableSet<Int>>()
+        nodes.forEach { taken.getOrPut(rows.getValue(it.id)) { mutableSetOf() } += columns.getValue(it.id) }
 
         return nodes.map { node ->
             val anchorRow = rows.getValue(node.id)
-            // A lesson with nothing after it continues in its own column; one that already leads
-            // somewhere takes the next column along from its right-most child, so the row stays in
-            // left-to-right order.
-            val rightmostChild = node.children.mapNotNull { byId[it] }
-                .maxOfOrNull { gridColumnOf(it.lane) }
-            val wanted = rightmostChild?.plus(1)?.coerceAtMost(LANE_GRID.lastIndex)
-                ?: gridColumnOf(node.lane)
+            val anchorColumn = columns.getValue(node.id)
 
-            // Try the preferred side of each row first, then the rest of that same row, before
-            // dropping to the next one. Staying on the nearest row keeps a ghost next to the
-            // lesson it belongs to; the columns are what stop it from wandering.
+            // Same left-first rule the nodes follow: keep going straight down when that column is
+            // free — which is what a lesson with nothing after it does — and otherwise take the
+            // leftmost column still open on the row. Dropping a row is the last resort, for the
+            // rare row that is already three wide.
             val placement = (1..SLOT_ROW_SEARCH).firstNotNullOfOrNull { drop ->
                 val row = anchorRow + drop
-                val taken = usedColumns.getOrPut(row) { mutableSetOf() }
-                val rightward = (wanted..LANE_GRID.lastIndex).asSequence()
-                val leftward = (wanted - 1 downTo 0).asSequence()
-                (rightward + leftward).firstOrNull { it !in taken }?.let { row to it }
-            } ?: (anchorRow + 1 to wanted)
+                val used = taken.getOrPut(row) { mutableSetOf() }
+                val column = anchorColumn.takeIf { it !in used }
+                    ?: LANE_GRID.indices.firstOrNull { it !in used }
+                column?.let { row to it }
+            } ?: (anchorRow + 1 to anchorColumn)
 
             val (row, column) = placement
-            usedColumns.getOrPut(row) { mutableSetOf() } += column
+            taken.getOrPut(row) { mutableSetOf() } += column
             AddSlotUi(anchorId = node.id, lane = LANE_GRID[column], row = row)
         }
+    }
+
+    /**
+     * Which of the board's three columns each lesson sits in, derived from the graph rather than
+     * read off the stored lane.
+     *
+     * Left-first, in board order: a lesson keeps its parent's column so an unbranched run reads as
+     * one straight line, and anything that can't (a second child, a detour running alongside the
+     * main line) takes the leftmost column still free on its row. Because [nodes] is in
+     * depth-first order the main line always claims its column before any detour, so the spine
+     * stays put and branches fan out to the right of it.
+     *
+     * Deriving it here rather than trusting `TreeNode.lane` means roadmaps generated before this
+     * layout existed lay out the same way as new ones, with no migration.
+     */
+    private fun columnsOf(rows: Map<String, Int>, parents: Map<String, List<String>>): Map<String, Int> {
+        val taken = HashMap<Int, MutableSet<Int>>()
+        val columns = HashMap<String, Int>()
+
+        nodes.forEach { node ->
+            val used = taken.getOrPut(rows.getValue(node.id)) { mutableSetOf() }
+            val parentColumn = parents[node.id].orEmpty().firstNotNullOfOrNull { columns[it] }
+            val column = parentColumn?.takeIf { it !in used }
+                ?: LANE_GRID.indices.firstOrNull { it !in used }
+                ?: 0
+            columns[node.id] = column
+            used += column
+        }
+        return columns
     }
 
     /** Assemble the immutable snapshot the View renders. */
     private fun emit() {
         val parents = parentsMap()
         val rows = rowsMap(parents)
-        val current = currentId(parents)
+        val current = currentId()
         val xp = xp()
+
+        val columns = columnsOf(rows, parents)
 
         val nodeUis = nodes.map { n ->
             PathNodeUi(
                 id = n.id,
                 title = n.title,
                 estMinutes = n.estMinutes,
-                state = stateOf(n, parents, current),
-                // Snapped to the grid so the board reads as ordered columns. Generated roadmaps
-                // already land on these lanes; this only pulls in hand-authored or older ones,
-                // and it is what lets the add-mode ghosts share the same three columns.
-                lane = LANE_GRID[gridColumnOf(n.lane)],
+                state = stateOf(n, current),
+                lane = LANE_GRID[columns.getValue(n.id)],
                 row = rows.getValue(n.id),
                 parentIds = parents[n.id].orEmpty(),
             )
@@ -368,7 +373,7 @@ class PathPresenter(
             .map { (_, group) -> group.minBy { it.row } }
             .sortedBy { it.row }
 
-        val slots = addSlots(rows)
+        val slots = addSlots(rows, columns)
 
         view?.showPath(
             PathUiState(

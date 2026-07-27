@@ -59,7 +59,7 @@ import com.example.grasp.ui.theme.PathWhyItMattersBg
  *
  * Stateless: it renders a resolved [Subtopic] and forwards taps. It intentionally lives in the
  * `subtopic/` package (this is the "subtopic detail becomes a bottom sheet" piece) but is driven
- * by `PathPresenter` so that Mark-complete feeds the same XP/unlock/confetti pipeline as the rest
+ * by `PathPresenter` so that Mark-complete feeds the same XP/advance/confetti pipeline as the rest
  * of the journey — the whole reason the sheet is hosted by the path Screen.
  *
  * @param completed whether this node is marked done (flips the CTA to "Revisit lesson").

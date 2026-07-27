@@ -34,7 +34,7 @@ import com.example.grasp.ui.theme.PathNodeDone
  * In add mode it also draws an amber dotted wire out to each [addSlots] ghost, so a "+" reads as
  * "this lesson's next section" rather than as a marker floating loose on the board.
  *
- * When a completion unlocks the next node, [fillIntoId] names that newly-current node and the
+ * When a completion advances the marker, [fillIntoId] names that newly-current node and the
  * edges arriving into it animate their colored stroke in over the grey base — the "connector
  * fills" moment.
  */
@@ -48,7 +48,7 @@ fun TreeCanvas(
 ) {
     val byId = remember(nodes) { nodes.associateBy { it.id } }
 
-    // 0→1 reveal for the edges arriving into the newly-unlocked node.
+    // 0→1 reveal for the edges arriving into the newly-current node.
     val fillProgress = remember { Animatable(1f) }
     LaunchedEffect(fillIntoId) {
         if (fillIntoId != null) {

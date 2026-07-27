@@ -5,14 +5,15 @@ package com.example.grasp.ui.feature.path
  *
  * These are PLAIN Kotlin types with NO Compose/Android imports, on purpose: [PathPresenter]
  * builds a [PathUiState] and hands it to the View, so all of the interesting logic
- * (which node is current, what's locked, XP → level, region grouping) is unit-testable with
- * a fake View and plain JUnit. The Composable only reads these fields and paints them.
+ * (which node is current, XP → level, region grouping) is unit-testable with a fake View and
+ * plain JUnit. The Composable only reads these fields and paints them.
  */
 
 /**
  * Visual state of one node on the journey (README §"Node states & styling").
  *
- * Derived per render from the completed-set + the parent rule — never stored.
+ * Derived per render from the completed-set — never stored. Nothing on the board is ever gated:
+ * every lesson is open from the start, so a node is only ever done, the one you're on, or waiting.
  */
 enum class PathNodeState {
     /** Finished — green with a white check. */
@@ -21,11 +22,8 @@ enum class PathNodeState {
     /** The single "you are here" node — indigo, pulsing ring, star. */
     CURRENT,
 
-    /** Available to start (all parents done) but not the current one — white w/ indigo border. */
+    /** Not started and not the current one — white w/ indigo border. */
     OPEN,
-
-    /** Blocked because something upstream is unfinished — grey with a lock. */
-    LOCKED,
 
     /** The amber "grow your path" affordance — white with a dashed amber border + plus. */
     BRANCH,

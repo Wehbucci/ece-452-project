@@ -59,7 +59,7 @@ internal fun parseGeneratedNodes(json: JSONObject): List<GeneratedNode> =
 /**
  * Turns whatever the model produced into a roadmap the rest of the app can trust.
  *
- * The presenter's locking, row and connector logic all assume a well-formed single-parent tree
+ * The presenter's ordering, row and connector logic all assume a well-formed single-parent tree
  * rooted at [pathId], so this is where that gets enforced rather than hoped for:
  *  1. duplicate ids collapse, the first node becomes the root (renamed to [pathId]);
  *  2. child references that dangle, point at self, repeat, or steal an already-claimed node are

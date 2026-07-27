@@ -10,8 +10,8 @@ import com.example.grasp.data.model.Subtopic
  * The split is strict so the Presenter stays unit-testable:
  *  - The [Presenter] owns ALL logic — current-node derivation, per-node state, XP/level,
  *    marking complete, and branch insertion — and pushes a fully-resolved [PathUiState] to the
- *    View. Transient, one-shot effects (unlock, confetti, level-up, toast, shake) are separate
- *    View calls so the Composable can fire an animation exactly once.
+ *    View. Transient, one-shot effects (advance, confetti, level-up, toast) are separate View
+ *    calls so the Composable can fire an animation exactly once.
  *  - The [View] only renders state and plays those effects; it holds no business logic.
  */
 interface PathContract {
@@ -45,8 +45,8 @@ interface PathContract {
         /** Close whichever bottom sheet is open. */
         fun dismissSheet()
 
-        /** A node just became reachable — play its unlock/bounce animation. */
-        fun playUnlock(nodeId: String)
+        /** The "you are here" marker moved to [nodeId] — play its bounce/spotlight animation. */
+        fun playAdvance(nodeId: String)
 
         /** A brand-new topic node was inserted — play its pop-in animation. */
         fun playPopIn(nodeId: String)
@@ -57,11 +57,8 @@ interface PathContract {
         /** A 200-XP multiple was crossed — cross a "LEVEL UP" ribbon for [level]. */
         fun showLevelUp(level: Int)
 
-        /** Non-blocking transient message (locked tap, branch added, …). */
+        /** Non-blocking transient message (branch added, lesson failed to open, …). */
         fun showToast(message: String)
-
-        /** Nudge a node left-right to signal "can't do that yet" (locked tap). */
-        fun shakeNode(nodeId: String)
 
         /**
          * Route to the existing AI chat feature for this subtopic.
@@ -71,7 +68,7 @@ interface PathContract {
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** A node was tapped: opens its sheet, or shakes+toasts if locked, or opens branch. */
+        /** A node was tapped: opens its lesson sheet, or — in add mode — the branch sheet. */
         fun onNodeTapped(nodeId: String)
 
         /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
@@ -86,7 +83,7 @@ interface PathContract {
         /** A "+" slot (or, in add mode, a node) was picked — open the sheet for that spot. */
         fun onAddSlotTapped(anchorId: String)
 
-        /** Mark [nodeId] complete: +XP, unlock the next node, celebrate, maybe level up. */
+        /** Mark [nodeId] complete: +XP, advance to the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)
 
         /**
