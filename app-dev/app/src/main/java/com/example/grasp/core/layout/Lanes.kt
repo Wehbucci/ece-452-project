@@ -27,7 +27,7 @@ internal const val LANE_MAX = 284
 internal const val LANE_SEPARATION = 112
 
 /** Step used when searching outward for a free lane. Slightly over [LANE_SEPARATION]. */
-private const val LANE_STEP = 114
+internal const val LANE_STEP = 114
 
 /** How far out [freeLane] will look; two steps already spans the whole canvas. */
 private const val MAX_LANE_PROBES = 3
@@ -48,9 +48,33 @@ internal fun freeLane(wanted: Int, occupied: List<Int>): Int {
         if (outwardIsRight) sequenceOf(start + offset, start - offset)
         else sequenceOf(start - offset, start + offset)
     }
-    // The three canonical lanes are always worth considering as a last resort, since on a crowded
-    // row the best remaining spot is usually an edge rather than anything near `wanted`.
-    val candidates = (sequenceOf(start) + probes + sequenceOf(LANE_MIN, TreeNode.LANE_CENTER, LANE_MAX))
+    return pickLane(sequenceOf(start) + probes, occupied)
+}
+
+/**
+ * As [freeLane], but exhausts every lane to the RIGHT of [wanted] before looking left.
+ *
+ * Used when placing a new child beside the ones a node already has: the roadmap reads left to
+ * right, so a newly added branch belongs on the right of its siblings unless the canvas has run
+ * out of room over there.
+ */
+internal fun freeLaneRightOf(wanted: Int, occupied: List<Int>): Int {
+    val start = wanted.coerceIn(LANE_MIN, LANE_MAX)
+    val rightward = (0..MAX_LANE_PROBES).asSequence().map { start + it * LANE_STEP }
+    val leftward = (1..MAX_LANE_PROBES).asSequence().map { start - it * LANE_STEP }
+    return pickLane(rightward + leftward, occupied)
+}
+
+/**
+ * The first candidate that is on-canvas and clears every lane in [occupied].
+ *
+ * The canvas only fits three nodes across, so a crowded row can leave no fully clear lane at all.
+ * Rather than stacking the new node on a neighbour, that case falls back to whichever candidate
+ * leaves the most room — including the three canonical lanes, since on a crowded row the roomiest
+ * spot left is usually an edge rather than anything near where the caller asked.
+ */
+private fun pickLane(preferred: Sequence<Int>, occupied: List<Int>): Int {
+    val candidates = (preferred + sequenceOf(LANE_MIN, TreeNode.LANE_CENTER, LANE_MAX))
         .filter { it in LANE_MIN..LANE_MAX }
         .distinct()
         .toList()
@@ -58,7 +82,7 @@ internal fun freeLane(wanted: Int, occupied: List<Int>): Int {
     fun clearance(lane: Int) = occupied.minOfOrNull { abs(it - lane) } ?: Int.MAX_VALUE
     return candidates.firstOrNull { clearance(it) >= LANE_SEPARATION }
         ?: candidates.maxByOrNull(::clearance)
-        ?: start
+        ?: TreeNode.LANE_CENTER
 }
 
 /**

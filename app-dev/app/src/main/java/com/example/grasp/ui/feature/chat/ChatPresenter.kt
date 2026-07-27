@@ -141,6 +141,7 @@ class ChatPresenter(
                 when (block) {
                     is LessonBlock.Heading -> appendLine().appendLine("## ${block.text}")
                     is LessonBlock.Paragraph -> appendLine(block.text)
+                    is LessonBlock.Code -> appendLine("```${block.language}\n${block.text}\n```")
                     // Visuals are described, not reproduced — the user can see them, and the tutor
                     // needs to know what they are looking at when they ask about one.
                     is LessonBlock.Diagram -> appendLine(

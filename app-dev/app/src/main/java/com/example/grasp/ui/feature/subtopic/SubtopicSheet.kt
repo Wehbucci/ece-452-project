@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.LessonCode
 import com.example.grasp.ui.components.LessonDiagram
 import com.example.grasp.ui.components.LessonImage
 import com.example.grasp.ui.theme.FredokaFamily
@@ -149,6 +150,7 @@ fun SubtopicSheetContent(
                     is LessonBlock.Heading -> LessonHeading(block)
                     is LessonBlock.Paragraph ->
                         ParagraphBlock(block.text, onClick = { onAskAboutBlock(index, block.text) })
+                    is LessonBlock.Code -> LessonCode(block)
                     is LessonBlock.Diagram -> LessonDiagram(block)
                     is LessonBlock.Image -> LessonImage(block, onOpenSource = onOpenResource)
                 }
@@ -223,21 +225,26 @@ fun SubtopicSheetContent(
 }
 
 /**
- * What the detail sheet shows while a node's lesson is being written.
+ * What the detail sheet shows before a lesson is on screen.
  *
- * A node's content is generated the first time it is opened, so this state is real (a few
- * seconds) rather than decorative — naming the subtopic makes the wait feel like progress on the
- * thing the user tapped.
+ * Two different waits, told apart honestly: [generating] is a real multi-second AI call, which
+ * only happens for a node the roadmap's up-front pass failed to write. Everything else is just
+ * reading the stored lesson, and claiming to be "writing" it there would be a lie the user can
+ * measure.
  */
 @Composable
-fun SubtopicLoadingContent(title: String, modifier: Modifier = Modifier) {
+fun SubtopicLoadingContent(
+    title: String,
+    generating: Boolean,
+    modifier: Modifier = Modifier,
+) {
     Column(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 22.dp, end = 22.dp, top = 6.dp, bottom = 40.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        SheetChip("✧ WRITING YOUR LESSON", PathNodeCurrentTint, PathNodeCurrent)
+        if (generating) SheetChip("✧ WRITING YOUR LESSON", PathNodeCurrentTint, PathNodeCurrent)
         Text(
             text = title,
             fontFamily = FredokaFamily,
@@ -248,7 +255,7 @@ fun SubtopicLoadingContent(title: String, modifier: Modifier = Modifier) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = PathNodeCurrent)
             Text(
-                text = "Putting this lesson together for you…",
+                text = if (generating) "This one still needs writing — hang tight…" else "Opening…",
                 fontFamily = NunitoFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,

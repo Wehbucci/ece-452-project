@@ -24,6 +24,16 @@ sealed interface LessonBlock {
     data class Paragraph(override val text: String) : LessonBlock
 
     /**
+     * A short code or command sample, shown monospaced.
+     *
+     * Its own kind rather than a paragraph because code has to keep its line breaks and spacing —
+     * for a topic like Python, indentation IS the syntax, and prose styling destroys it.
+     *
+     * @property language what it's written in, for the little corner label; may be empty.
+     */
+    data class Code(override val text: String, val language: String = "") : LessonBlock
+
+    /**
      * A diagram the app DRAWS from a spec the AI wrote (FR4.4).
      *
      * Deliberately a small vocabulary of shapes rather than free-form image generation: the app

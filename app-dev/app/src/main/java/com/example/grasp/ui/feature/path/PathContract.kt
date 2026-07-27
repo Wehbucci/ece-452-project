@@ -24,10 +24,11 @@ interface PathContract {
         fun showNotFound()
 
         /**
-         * Open the detail sheet for a node titled [title] while its lesson is being written.
+         * Open the detail sheet for a node titled [title] while its lesson is fetched, or — when
+         * [generating] — written from scratch, which takes far longer and is worth saying.
          * Always followed by [showSubtopicSheet] or [dismissSheet].
          */
-        fun showSubtopicLoading(title: String)
+        fun showSubtopicLoading(title: String, generating: Boolean)
 
         /** Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA. */
         fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean)
@@ -72,9 +73,6 @@ interface PathContract {
     interface Presenter : MvpPresenter<View> {
         /** A node was tapped: opens its sheet, or shakes+toasts if locked, or opens branch. */
         fun onNodeTapped(nodeId: String)
-
-        /** Explicit "grow your path" request (e.g. from the branch node). */
-        fun onBranchRequested()
 
         /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
         fun onBranchFromNode(nodeId: String)

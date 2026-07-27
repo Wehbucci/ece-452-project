@@ -33,7 +33,7 @@ private const val MAX_EST_MINUTES = 120
  * roadmap opens.
  *
  * Never throws. If the call or the parse fails the user still gets a one-node starter roadmap
- * with a branch-out affordance, so the path is grow-able by hand (NFR 3.1).
+ * they can grow by hand (NFR 3.1).
  */
 suspend fun buildLearnerTree(pathId: String, title: String): List<TreeNode> {
     val generated = geminiJson(SYSTEM_INSTRUCTION, treePrompt(title))
@@ -67,8 +67,10 @@ internal fun parseGeneratedNodes(json: JSONObject): List<GeneratedNode> =
  *  3. nodes unreachable from the root are discarded;
  *  4. nodes are re-ordered depth-first so the main line comes before any detour — the presenter
  *     picks the "current" node by list order, so the spine should win ties;
- *  5. one branch-out affordance is appended under the deepest leaf (FR: expand the tree);
- *  6. lanes are assigned so the spine runs straight down the middle and detours sit to one side.
+ *  5. lanes are assigned so the spine runs straight down the middle and detours sit to one side.
+ *
+ * The roadmap holds lessons only. Where a user can GROW it is worked out on demand by the
+ * presenter when they turn on add mode, so the board is never cluttered with placeholders.
  *
  * Pure: same input, same output, no I/O.
  */
@@ -76,17 +78,10 @@ internal fun normalizeTree(pathId: String, generated: List<GeneratedNode>): List
     val usable = generated.filter { it.id.isNotBlank() && it.title.isNotBlank() }.distinctBy { it.id }
     if (usable.isEmpty()) return emptyList()
 
-    val ordered = depthFirstOrder(pathId, singleParentTree(withRootId(pathId, usable)))
-    if (ordered.isEmpty()) return emptyList()
+    val lessons = depthFirstOrder(pathId, singleParentTree(withRootId(pathId, usable)))
+    if (lessons.isEmpty()) return emptyList()
 
-    // The affordance hangs off the end of the longest line — the natural "what's after this?" spot.
-    val branchParent = deepestLeaf(pathId, ordered)
-    val branchId = uniqueId(BRANCH_OUT_ID, ordered.map { it.id }.toSet())
-    val lessons = ordered.map { node ->
-        if (node.id == branchParent.id) node.copy(children = listOf(branchId)) else node
-    }
-
-    val lanes = laneByNode(lessons + GeneratedNode(branchId, BRANCH_OUT_TITLE, emptyList()))
+    val lanes = laneByNode(lessons)
     val parents = lessons.flatMap { node -> node.children.map { it to node.id } }.toMap()
 
     return lessons.map { node ->
@@ -99,13 +94,7 @@ internal fun normalizeTree(pathId: String, generated: List<GeneratedNode>): List
             contentRef = "content/$pathId/${node.id}.md",
             lane = lanes[node.id] ?: TreeNode.LANE_CENTER,
         )
-    } + TreeNode(
-        id = branchId,
-        title = BRANCH_OUT_TITLE,
-        parentId = branchParent.id,
-        isBranchOut = true,
-        lane = lanes[branchId] ?: TreeNode.LANE_CENTER,
-    )
+    }
 }
 
 // ── Structural clean-up steps (all pure) ───────────────────────────────────────────────────
@@ -158,25 +147,6 @@ private fun depthFirstOrder(rootId: String, nodes: List<GeneratedNode>): List<Ge
 
     visit(rootId)
     return ordered
-}
-
-/** The leaf furthest from the root (ties → the later one in depth-first order). */
-private fun deepestLeaf(rootId: String, nodes: List<GeneratedNode>): GeneratedNode {
-    val byId = nodes.associateBy { it.id }
-    val depths = mutableMapOf(rootId to 0)
-
-    fun walk(id: String) {
-        val depth = depths.getValue(id)
-        byId[id]?.children?.forEach { childId ->
-            if (childId !in depths) {
-                depths[childId] = depth + 1
-                walk(childId)
-            }
-        }
-    }
-
-    walk(rootId)
-    return nodes.filter { it.children.isEmpty() }.maxByOrNull { depths[it.id] ?: 0 } ?: nodes.last()
 }
 
 /**
@@ -292,20 +262,13 @@ private fun treePrompt(title: String) = """
 """.trimIndent()
 
 /**
- * What the user gets when generation fails: the topic itself plus a branch-out node, so the
- * roadmap is still usable and can be grown by hand once the network comes back.
+ * What the user gets when generation fails: the topic itself, as a single node. Add mode can grow
+ * it from there once the network comes back.
  */
 private fun fallbackTree(pathId: String, title: String): List<TreeNode> = listOf(
     TreeNode(
         id = pathId,
         title = "Introduction to $title",
-        children = listOf(BRANCH_OUT_ID),
         contentRef = "content/$pathId/$pathId.md",
-    ),
-    TreeNode(
-        id = BRANCH_OUT_ID,
-        title = BRANCH_OUT_TITLE,
-        parentId = pathId,
-        isBranchOut = true,
     ),
 )

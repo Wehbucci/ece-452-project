@@ -190,45 +190,29 @@ object FakePathRepository : PathRepository {
     }
 
     /**
-     * Grows a branch WITHOUT calling the AI: one node named after what was asked for, capped by a
-     * fresh affordance. Same shape as the real thing, so presenter tests exercise the real
-     * splice/render path offline and deterministically.
+     * Grows a branch WITHOUT calling the AI: a single node named after what was asked for. Same
+     * shape as the real thing, so presenter tests exercise the real splice/render path offline and
+     * deterministically.
      *
      * Unlike the real repository this keeps no state, so it can't see previously grown nodes: an
-     * unknown [fromNodeId] is tolerated (it's an affordance this object never stored) and ids stay
-     * unique only as far as the topic names differ.
+     * unknown [fromNodeId] is tolerated and ids stay unique only as far as the topic names differ.
      */
     override suspend fun growBranch(pathId: String, fromNodeId: String, topic: String): List<TreeNode> {
         val path = learningPath(pathId) ?: return emptyList()
-        val target = path.nodes.firstOrNull { it.id == fromNodeId }
+        val from = path.nodes.firstOrNull { it.id == fromNodeId }
         val taken = path.nodes.mapTo(mutableSetOf()) { it.id }
         val title = topic.trim().ifEmpty { "New branch" }
         val topicId = uniqueId(slugify(title), taken)
-        val branchId = uniqueId(BRANCH_OUT_ID, taken + topicId)
-        // Consuming an affordance reuses its lane; a detour off a lesson has to find a free one.
-        val lane = when {
-            target == null -> TreeNode.LANE_CENTER
-            target.isBranchOut -> target.lane
-            // One lesson plus the affordance capping it, so two rows.
-            else -> laneForBranch(path.nodes, target.id, branchLength = 2)
-        }
         return listOf(
             TreeNode(
                 id = topicId,
                 title = title,
                 estMinutes = 12,
-                children = listOf(branchId),
-                parentId = if (target?.isBranchOut == true) null else target?.id,
+                parentId = from?.id,
                 contentRef = "content/$pathId/$topicId.md",
-                lane = lane,
+                lane = from?.let { laneForBranch(path.nodes, it.id, branchLength = 1) }
+                    ?: TreeNode.LANE_CENTER,
                 tier = BRANCH_TIER,
-            ),
-            TreeNode(
-                id = branchId,
-                title = BRANCH_OUT_TITLE,
-                parentId = topicId,
-                isBranchOut = true,
-                lane = lane,
             ),
         )
     }

@@ -197,25 +197,20 @@ class FirebasePathRepository : PathRepository {
         topic: String,
     ): List<TreeNode> = withContext(Dispatchers.IO) {
         val path = learningPath(pathId) ?: return@withContext emptyList()
-        val target = path.nodes.firstOrNull { it.id == fromNodeId } ?: return@withContext emptyList()
-        // Two ways in. Tapping the dashed affordance CONSUMES it, so the branch takes its place and
-        // the node above it re-points at the branch. Branching from an ordinary lesson instead ADDS
-        // a detour beside whatever that lesson already leads to, leaving the main line untouched.
-        val consumed = target.takeIf { it.isBranchOut }
-        val from = if (consumed != null) path.nodes.firstOrNull { fromNodeId in it.children } else target
+        val from = path.nodes.firstOrNull { it.id == fromNodeId } ?: return@withContext emptyList()
 
         val generated = buildBranch(
             pathId = pathId,
             pathTitle = path.title,
-            fromTitle = from?.title ?: path.title,
+            fromTitle = from.title,
             topic = topic,
             takenIds = path.nodes.mapTo(mutableSetOf()) { it.id },
         )
-        // A consumed affordance already holds a clear lane. A detour has to find its own, and it
-        // can only do that once the branch exists, since the lane has to clear every row it spans.
-        val lane = consumed?.lane ?: laneForBranch(path.nodes, target.id, generated.size)
+        // The lane can only be picked once the branch exists, since it has to clear every row the
+        // branch will span. To the right of what [from] already leads to, matching the board.
+        val lane = laneForBranch(path.nodes, from.id, generated.size)
         val branch = generated.mapIndexed { index, node ->
-            node.copy(lane = lane, parentId = if (index == 0) from?.id else node.parentId)
+            node.copy(lane = lane, parentId = if (index == 0) from.id else node.parentId)
         }
 
         // Same deal as a new topic: the branch's lessons are written now, not on first open.
@@ -235,22 +230,14 @@ class FirebasePathRepository : PathRepository {
                     )
                     .await()
             }
-            // 2) Point the node above at the branch. Consuming an affordance swaps it out; a
-            // detour is appended, so the node keeps the child it already had.
-            if (from != null) {
-                val children =
-                    if (consumed != null) from.children.map { if (it == fromNodeId) grown.first().id else it }
-                    else from.children + grown.first().id
-                nodesRef(uid, pathId).document(from.id).set(
-                    mapOf(
-                        "children" to children,
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                    ),
-                    SetOptions.merge(),
-                ).await()
-            }
-            // 3) Retire the consumed affordance — the one ending the new branch replaces it.
-            if (consumed != null) nodesRef(uid, pathId).document(fromNodeId).delete().await()
+            // 2) Hang the branch off the node the user picked, keeping everything it already led to.
+            nodesRef(uid, pathId).document(from.id).set(
+                mapOf(
+                    "children" to from.children + grown.first().id,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                SetOptions.merge(),
+            ).await()
             topicsRef(uid).document(pathId)
                 .set(mapOf("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
                 .await()
@@ -263,14 +250,7 @@ class FirebasePathRepository : PathRepository {
     override suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String> =
         withContext(Dispatchers.IO) {
             val path = learningPath(pathId) ?: return@withContext emptyList()
-            val target = path.nodes.firstOrNull { it.id == fromNodeId }
-            // Ideas continue from the lesson the branch hangs off, which for the dashed affordance
-            // is the node above it and otherwise is the tapped node itself.
-            val from = if (target?.isBranchOut == true) {
-                path.nodes.firstOrNull { fromNodeId in it.children }
-            } else {
-                target
-            }
+            val from = path.nodes.firstOrNull { it.id == fromNodeId }
             suggestBranchTopics(
                 pathTitle = path.title,
                 fromTitle = from?.title ?: path.title,
@@ -430,6 +410,7 @@ class FirebasePathRepository : PathRepository {
             children = children,
             parentId = getString("parentId"),
             contentRef = getString("contentRef"),
+            contentReady = getString("contentStatus") == CONTENT_GENERATED,
             isBranchOut = (getString("state") ?: "").equals("branch-out", ignoreCase = true),
             lane = getLong("lane")?.toInt() ?: TreeNode.LANE_CENTER,
             tier = getString("tier"),

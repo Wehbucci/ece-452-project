@@ -132,6 +132,16 @@ private fun parseBodyBlock(json: JSONObject): ParsedBlock? {
             if (query.isEmpty()) null else ParsedBlock.WantsImage(query, text)
         }
 
+        "code" -> lessonBlocks(
+            listOf(
+                mapOf(
+                    "type" to "code",
+                    "text" to json.optString("text"),
+                    "language" to json.optString("language"),
+                ),
+            ),
+        ).firstOrNull()?.let(ParsedBlock::Ready)
+
         "diagram" -> {
             val items = json.objectList("items").mapNotNull { item ->
                 val label = item.optString("label").trim()
@@ -187,7 +197,8 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
     when (entry) {
         is String -> entry.trim().ifBlank { null }?.let(LessonBlock::Paragraph)
         is Map<*, *> -> {
-            val text = (entry["text"] as? String)?.trim().orEmpty()
+            val raw = (entry["text"] as? String).orEmpty()
+            val text = raw.trim()
             when ((entry["type"] as? String)?.lowercase()) {
                 "heading" -> text.ifEmpty { null }?.let {
                     LessonBlock.Heading(
@@ -215,6 +226,12 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
                     else LessonBlock.Diagram(text, kind, items)
                 }
 
+                // Blank lines around it go, but the inner layout is untouched — for a language
+                // like Python the indentation IS the syntax.
+                "code" -> raw.trim('\n', '\r').trimEnd().ifBlank { null }?.let {
+                    LessonBlock.Code(it, (entry["language"] as? String)?.trim().orEmpty())
+                }
+
                 "image" -> {
                     val url = (entry["url"] as? String)?.trim().orEmpty()
                     if (!url.startsWith("http")) null
@@ -238,6 +255,7 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
 internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
     is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
     is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
+    is LessonBlock.Code -> mapOf("type" to "code", "text" to text, "language" to language)
     is LessonBlock.Diagram -> mapOf(
         "type" to "diagram",
         "text" to text,
@@ -298,10 +316,19 @@ private fun contentPrompt(
       two contrasting approaches or a worked example inside a longer explanation. Most sections
       need none, and a section must never have exactly one subheading.
       · Under the headings, write 5 to 8 substantial paragraphs in total. Introduce each term the
-      first time you use it. Ground every idea in a concrete example, a worked case, or a number
-      the learner can picture. Where something is commonly misunderstood, say so and correct it.
+      first time you use it. Where something is commonly misunderstood, say so and correct it.
       Someone who reads only this and nothing else should come away actually understanding
       "$nodeTitle" and able to use it.
+      · EXAMPLES ARE NOT OPTIONAL. Every idea you introduce gets something concrete attached to
+      it, and the lesson as a whole must contain at least one fully worked example that runs from
+      a specific starting point through to its result, showing the intermediate steps rather than
+      asserting the answer. Use real specifics — actual numbers, actual values, an actual named
+      case — never "for example, imagine a situation where...". A learner should be able to follow
+      your example on their own and get the same result.
+      · When the subject involves code, syntax, commands or configuration, show it as a "code"
+      block right after the paragraph that sets it up: 3-12 lines, complete enough to run or type
+      as-is, with realistic names rather than foo and bar. Set "language" to the language or shell.
+      Use code blocks ONLY for real code — never for prose you want to look technical.
       · Each paragraph covers one idea and stands on its own, because the app shows paragraphs as
       separate blocks the learner can tap to ask questions about. 4-7 sentences per paragraph.
       · Headings are short label text, no numbering and no trailing punctuation. Paragraphs are
@@ -342,7 +369,8 @@ private fun contentPrompt(
     "body": [
         { "type": "heading", "text": "What a perceptron actually does", "level": 1 },
         { "type": "paragraph", "text": "First teaching paragraph." },
-        { "type": "paragraph", "text": "Second teaching paragraph." },
+        { "type": "paragraph", "text": "Second teaching paragraph, setting up the example below." },
+        { "type": "code", "language": "python", "text": "weights = [0.5, -0.2]\ntotal = sum(w * x for w, x in zip(weights, inputs))" },
         {
         "type": "diagram",
         "kind": "flow",

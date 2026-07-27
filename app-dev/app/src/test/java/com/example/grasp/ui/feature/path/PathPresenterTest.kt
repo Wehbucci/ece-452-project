@@ -33,6 +33,7 @@ class PathPresenterTest {
         var dismissCount = 0
         var confetti = 0
         val loadingTitles = mutableListOf<String>()
+        val loadingSaidGenerating = mutableListOf<Boolean>()
         val branchSuggestions = mutableListOf<List<String>>()
         val generatingStates = mutableListOf<Boolean>()
         val unlocks = mutableListOf<String>()
@@ -45,7 +46,10 @@ class PathPresenterTest {
 
         override fun showPath(state: PathUiState) { lastState = state }
         override fun showNotFound() { notFound = true }
-        override fun showSubtopicLoading(title: String) { loadingTitles += title }
+        override fun showSubtopicLoading(title: String, generating: Boolean) {
+            loadingTitles += title
+            loadingSaidGenerating += generating
+        }
         override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
             subtopicSheet = subtopic; subtopicCompleted = completed
         }
@@ -98,7 +102,9 @@ class PathPresenterTest {
         assertEquals(PathNodeState.OPEN, state.node("unsupervised").state)
         // Downstream of an incomplete node is locked.
         assertEquals(PathNodeState.LOCKED, state.node("regression").state)
-        assertEquals(PathNodeState.BRANCH, state.node("branch-1").state)
+        // The old standing "Branch out" placeholder is not part of the board any more.
+        assertNull(state.nodes.firstOrNull { it.id == "branch-1" })
+        assertTrue(state.nodes.none { it.state == PathNodeState.BRANCH })
     }
 
     @Test
@@ -106,7 +112,7 @@ class PathPresenterTest {
         val (_, view) = attach()
         val state = view.lastState!!
         assertEquals(3, state.masteredCount)
-        assertEquals(9, state.totalLessons) // 10 nodes minus the branch affordance
+        assertEquals(9, state.totalLessons) // 10 nodes minus the legacy branch placeholder
         assertEquals(1, state.level)        // 3 × 40 = 120 XP → level 1
         assertEquals(120, state.xpInLevel)
     }
@@ -182,21 +188,20 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `tapping the branch node opens the branch sheet and asks for starter ideas`() {
+    fun `branching off a node asks for starter ideas for that node`() {
         val (presenter, view) = attach()
 
-        presenter.onNodeTapped("branch-1")
+        presenter.onBranchFromNode("neural-networks")
 
         assertTrue(view.branchSheetShown)
         assertNull(view.subtopicSheet)
-        // The affordance is a placeholder, so the sheet names the lesson above it.
         assertEquals(listOf("Neural Networks"), view.branchFromTitles)
         // The fake repository has no AI, so the chips come back empty rather than hardcoded.
         assertEquals(listOf(emptyList<String>()), view.branchSuggestions)
     }
 
     @Test
-    fun `add mode offers a slot under every lesson and clears when cancelled`() {
+    fun `add mode offers exactly one slot per lesson and clears when cancelled`() {
         val (presenter, view) = attach()
 
         assertTrue("no slots until asked for", view.lastState!!.addSlots.isEmpty())
@@ -204,17 +209,59 @@ class PathPresenterTest {
         presenter.onAddNodeRequested()
 
         val slots = view.lastState!!.addSlots
-        // One per lesson; the dashed affordance is skipped because it already is an add slot.
-        assertEquals(9, slots.size)
-        assertTrue(slots.none { it.anchorId == "branch-1" })
+        val nodes = view.lastState!!.nodes
+        assertEquals("one per lesson, no more", nodes.size, slots.size)
+        assertEquals(nodes.map { it.id }.toSet(), slots.map { it.anchorId }.toSet())
         // Each slot sits directly under the node it would grow from.
-        val rows = view.lastState!!.nodes.associate { it.id to it.row }
+        val rows = nodes.associate { it.id to it.row }
         slots.forEach { slot ->
             assertEquals(rows.getValue(slot.anchorId) + 1, slot.row)
         }
 
         presenter.onAddModeCancelled()
         assertTrue(view.lastState!!.addSlots.isEmpty())
+    }
+
+    @Test
+    fun `a leaf's slot continues straight down and a parent's goes to the right`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+
+        val state = view.lastState!!
+        val slots = state.addSlots.associateBy { it.anchorId }
+        val nodes = state.nodes.associateBy { it.id }
+
+        // "neural-networks" ends the roadmap, so its new section carries straight on below it.
+        val leaf = nodes.getValue("neural-networks")
+        assertEquals(leaf.lane, slots.getValue("neural-networks").lane)
+
+        // "what-is-ml" already leads to "types-of-learning", so its new section goes to the right
+        // of that, not on top of it.
+        val existingChild = nodes.getValue("types-of-learning")
+        val beside = slots.getValue("what-is-ml")
+        assertEquals("the slot shares its child's row", existingChild.row, beside.row)
+        assertTrue(
+            "expected a lane right of ${existingChild.lane}, got ${beside.lane}",
+            beside.lane > existingChild.lane,
+        )
+    }
+
+    @Test
+    fun `no slot is ever drawn on top of an existing node`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+
+        val state = view.lastState!!
+        state.addSlots.forEach { slot ->
+            state.nodes.filter { it.row == slot.row }.forEach { neighbour ->
+                assertTrue(
+                    "slot for ${slot.anchorId} at ${slot.lane} sits on ${neighbour.id}",
+                    neighbour.lane != slot.lane,
+                )
+            }
+        }
     }
 
     @Test
@@ -275,9 +322,8 @@ class PathPresenterTest {
         // Everything data-basics already led to is still hanging off it.
         assertEquals(listOf("data-basics"), state.node("supervised").parentIds)
         assertEquals(listOf("data-basics"), state.node("unsupervised").parentIds)
-        // The affordance at the end of the roadmap is untouched, and the branch brought its own.
-        assertNotNull(state.nodes.firstOrNull { it.id == "branch-1" })
-        assertEquals(2, state.nodes.count { it.state == PathNodeState.BRANCH })
+        // Nothing placeholder-ish is added to the board along with it.
+        assertTrue(state.nodes.none { it.state == PathNodeState.BRANCH })
     }
 
     @Test
@@ -305,19 +351,12 @@ class PathPresenterTest {
     fun `generating a branch inserts the generated nodes and pops the first one in`() {
         val (presenter, view) = attach()
 
-        presenter.onNodeTapped("branch-1")
+        presenter.onBranchFromNode("neural-networks")
         presenter.onGenerateBranch("Deep Learning")
 
         val state = view.lastState!!
         val topic = state.nodes.firstOrNull { it.title == "Deep Learning" }
         assertNotNull("a new topic node should be inserted", topic)
-        assertNull("the consumed affordance is gone", state.nodes.firstOrNull { it.id == "branch-1" })
-        assertEquals(
-            "exactly one affordance remains, at the end of the new branch",
-            1,
-            state.nodes.count { it.state == PathNodeState.BRANCH },
-        )
-        // The node that pointed at the affordance now points at the branch.
         assertEquals(listOf("neural-networks"), topic!!.parentIds)
         assertTrue("YOUR BRANCHES region should appear", state.regions.any { it.label == "YOUR BRANCHES" })
         assertEquals(listOf(topic.id), view.popIns)
@@ -327,18 +366,19 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `a second branch grows from the new affordance, not the consumed one`() {
+    fun `a branch can be grown from the node a previous branch just added`() {
         val (presenter, view) = attach()
 
-        presenter.onNodeTapped("branch-1")
+        presenter.onBranchFromNode("neural-networks")
         presenter.onGenerateBranch("Deep Learning")
+        presenter.onBranchFromNode("deep-learning")
         presenter.onGenerateBranch("Transformers")
 
         val state = view.lastState!!
-        val transformers = state.nodes.first { it.title == "Transformers" }
-        // Chained onto the previous branch — the old code always regrew from the first affordance.
-        assertEquals(listOf("deep-learning"), transformers.parentIds)
-        assertEquals(1, state.nodes.count { it.state == PathNodeState.BRANCH })
+        assertEquals(
+            listOf("deep-learning"),
+            state.nodes.first { it.title == "Transformers" }.parentIds,
+        )
     }
 
     @Test

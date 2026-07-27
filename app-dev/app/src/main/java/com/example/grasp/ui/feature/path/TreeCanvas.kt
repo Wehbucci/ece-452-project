@@ -29,7 +29,10 @@ import com.example.grasp.ui.theme.PathNodeDone
  * [PathLayout] with the node layer so a wire always meets a node's exact center.
  *
  * Edges are colored by the two endpoints' states (README §"Node states"):
- *  - both DONE → green · parent DONE → indigo · edge into a BRANCH node → amber dotted · else grey.
+ *  - both DONE → green · parent DONE → indigo · else grey.
+ *
+ * In add mode it also draws an amber dotted wire out to each [addSlots] ghost, so a "+" reads as
+ * "this lesson's next section" rather than as a marker floating loose on the board.
  *
  * When a completion unlocks the next node, [fillIntoId] names that newly-current node and the
  * edges arriving into it animate their colored stroke in over the grey base — the "connector
@@ -41,6 +44,7 @@ fun TreeCanvas(
     regionRows: Set<Int>,
     fillIntoId: String?,
     modifier: Modifier = Modifier,
+    addSlots: List<AddSlotUi> = emptyList(),
 ) {
     val byId = remember(nodes) { nodes.associateBy { it.id } }
 
@@ -75,10 +79,6 @@ fun TreeCanvas(
                 val parent = byId[pid] ?: return@forEach
                 val parentCenter = centerOf(parent)
 
-                if (child.state == PathNodeState.BRANCH) {
-                    drawConnector(parentCenter, childCenter, PathNodeBranch, 4f, dotted = true)
-                    return@forEach
-                }
                 val color = when {
                     parent.state == PathNodeState.DONE && child.state == PathNodeState.DONE -> PathNodeDone
                     parent.state == PathNodeState.DONE -> PathNodeCurrent
@@ -88,6 +88,16 @@ fun TreeCanvas(
                 val alpha = if (child.id == fillIntoId) fillProgress.value else 1f
                 drawConnector(parentCenter, childCenter, color, 6f, dotted = false, alpha = alpha)
             }
+        }
+
+        // Pass 3: the amber dotted wire out to each add-mode ghost.
+        addSlots.forEach { slot ->
+            val anchor = byId[slot.anchorId] ?: return@forEach
+            val slotCenter = Offset(
+                x = PathLayout.centerX(slot.lane).toPx(),
+                y = PathLayout.centerY(slot.row, regionRows).toPx(),
+            )
+            drawConnector(centerOf(anchor), slotCenter, PathNodeBranch, 4f, dotted = true)
         }
     }
 }

@@ -1,7 +1,9 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
+import com.example.grasp.core.layout.LANE_STEP
 import com.example.grasp.core.layout.freeLane
+import com.example.grasp.core.layout.freeLaneRightOf
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -55,7 +57,9 @@ class PathPresenter(
                 return@launch
             }
             title = path.title
-            nodes = path.nodes
+            // Roadmaps saved before add mode existed carry standing "Branch out" placeholder nodes.
+            // Growing the path is an add-mode action now, so the board shows lessons only.
+            nodes = path.nodes.filterNot { it.isBranchOut }
             completed.clear()
             completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
             emit()
@@ -77,10 +81,6 @@ class PathPresenter(
             onAddSlotTapped(nodeId)
             return
         }
-        if (node.isBranchOut) {
-            openBranchSheet(nodeId)
-            return
-        }
         when (stateOf(node)) {
             // Locked: don't navigate — nudge and explain what's blocking it.
             PathNodeState.LOCKED -> {
@@ -90,12 +90,6 @@ class PathPresenter(
             // Done / current / open all open the detail sheet.
             else -> openSubtopic(node)
         }
-    }
-
-    override fun onBranchRequested() {
-        // The newest affordance sits at the end of the board — grow from there.
-        val branch = nodes.lastOrNull { it.isBranchOut } ?: return
-        openBranchSheet(branch.id)
     }
 
     override fun onBranchFromNode(nodeId: String) {
@@ -128,7 +122,9 @@ class PathPresenter(
      */
     private fun openSubtopic(node: TreeNode) {
         openingNodeId = node.id
-        view?.showSubtopicLoading(node.title)
+        // Nearly always a fetch of an already-written lesson. It only says "writing" for a node the
+        // up-front pass failed on, which is a real multi-second wait and worth naming.
+        view?.showSubtopicLoading(node.title, generating = !node.contentReady)
         scope.launch {
             val subtopic = repo.subtopic(pathId, node.id)
             // The user may have dismissed the sheet, or opened another node, while we waited.
@@ -152,13 +148,7 @@ class PathPresenter(
         val anchor = nodes.firstOrNull { it.id == anchorId } ?: return
         pendingBranchId = anchorId
         openingNodeId = null
-        // The affordance is a placeholder, so name the lesson ABOVE it as what we're growing from.
-        val fromTitle = if (anchor.isBranchOut) {
-            nodes.firstOrNull { anchorId in it.children }?.title ?: title
-        } else {
-            anchor.title
-        }
-        view?.showBranchSheet(fromTitle)
+        view?.showBranchSheet(anchor.title)
         scope.launch {
             val ideas = repo.branchSuggestions(pathId, anchorId)
             // Ignore suggestions that arrive after the user moved on to a different anchor.
@@ -200,7 +190,7 @@ class PathPresenter(
     }
 
     override fun onGenerateBranch(name: String) {
-        val branchId = pendingBranchId ?: nodes.lastOrNull { it.isBranchOut }?.id ?: return
+        val branchId = pendingBranchId ?: return
         if (growing) return
         growing = true
         view?.showBranchGenerating(true)
@@ -226,30 +216,14 @@ class PathPresenter(
     }
 
     /**
-     * Grafts [grown] onto the board at [anchorId], mirroring what the repository just persisted.
-     *
-     * An affordance anchor is CONSUMED: it disappears and whatever pointed at it now points at the
-     * first new node. Any other anchor keeps everything it had and simply gains another child, so
-     * the branch appears beside the existing path rather than replacing it.
+     * Grafts [grown] onto the board at [anchorId], mirroring what the repository just persisted:
+     * the anchor keeps everything it already led to and gains one more child.
      */
     private fun spliceBranch(anchorId: String, grown: List<TreeNode>) {
         val firstId = grown.first().id
-        val anchor = nodes.firstOrNull { it.id == anchorId }
-        nodes = if (anchor?.isBranchOut == true) {
-            nodes
-                .filterNot { it.id == anchorId }
-                .map { node ->
-                    if (anchorId in node.children) {
-                        node.copy(children = node.children.map { if (it == anchorId) firstId else it })
-                    } else {
-                        node
-                    }
-                } + grown
-        } else {
-            nodes.map { node ->
-                if (node.id == anchorId) node.copy(children = node.children + firstId) else node
-            } + grown
-        }
+        nodes = nodes.map { node ->
+            if (node.id == anchorId) node.copy(children = node.children + firstId) else node
+        } + grown
     }
 
     override fun onAskAi(nodeId: String) {
@@ -317,23 +291,31 @@ class PathPresenter(
     private fun levelFor(xp: Int): Int = xp / XP_PER_LEVEL + 1
 
     /**
-     * A "+" ghost under every lesson, marking where a new section could go.
+     * Exactly one "+" ghost per lesson, marking where that lesson's next section would go.
      *
-     * Each ghost is placed the way the real branch will be — in its anchor's lane if that row is
-     * free, pushed aside if the anchor already leads somewhere. Ghosts are placed one after another
-     * and count as occupying their row, so two of them can't land on the same spot either.
+     * Placed the way the real branch will be, so the ghost is a preview and not just a marker:
+     *  - a lesson with nothing after it continues STRAIGHT DOWN, in its own lane;
+     *  - a lesson that already leads somewhere gets its new child to the RIGHT of the ones it has,
+     *    because the board reads left to right.
      *
-     * The branch-out affordances are skipped: they already ARE an add slot.
+     * Ghosts are placed in board order and count as occupying their row once placed, so they can
+     * never land on each other or on an existing node.
      */
     private fun addSlots(rows: Map<String, Int>): List<AddSlotUi> {
         if (!addMode) return emptyList()
         val lanesByRow = HashMap<Int, MutableList<Int>>()
         nodes.forEach { lanesByRow.getOrPut(rows.getValue(it.id)) { mutableListOf() } += it.lane }
+        val byId = nodes.associateBy { it.id }
 
-        return nodes.filterNot { it.isBranchOut }.map { node ->
+        return nodes.map { node ->
             val row = rows.getValue(node.id) + 1
             val occupied = lanesByRow.getOrPut(row) { mutableListOf() }
-            val lane = freeLane(node.lane, occupied)
+            val rightmostChild = node.children.mapNotNull { byId[it] }.maxOfOrNull { it.lane }
+            val lane = if (rightmostChild == null) {
+                freeLane(node.lane, occupied)
+            } else {
+                freeLaneRightOf(rightmostChild + LANE_STEP, occupied)
+            }
             occupied += lane
             AddSlotUi(anchorId = node.id, lane = lane, row = row)
         }

@@ -17,6 +17,11 @@ package com.example.grasp.data.model
  *           (two parents → one child) is expressed by two nodes listing the same child.
  * @property contentRef path/URL to the separate content file (resolved lazily); null if
  *           content has not been generated yet
+ * @property contentReady whether this node's lesson has already been written and stored. Opening a
+ *           ready node is a fetch; opening one that isn't has to generate first, which is slow
+ *           enough that the UI says so. Defaults to true because a node only reaches the board
+ *           after the repository has generated the whole roadmap — the stored flag is what
+ *           actually decides, and it only reads false for a node whose generation failed.
  * @property isBranchOut true if this node is a "branch out" affordance — a spot where the
  *           user can expand a brand-new branch (rendered with a dashed amber outline)
  * @property lane OPTIONAL layout hint: the node's horizontal position (in the design's
@@ -35,6 +40,7 @@ data class TreeNode(
     val children: List<String> = emptyList(),
     val parentId: String? = null,
     val contentRef: String? = null,
+    val contentReady: Boolean = true,
     val isBranchOut: Boolean = false,
     val lane: Int = LANE_CENTER,
     val tier: String? = null,

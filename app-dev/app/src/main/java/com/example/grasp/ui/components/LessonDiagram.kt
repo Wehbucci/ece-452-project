@@ -2,6 +2,8 @@ package com.example.grasp.ui.components
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +22,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -244,6 +247,43 @@ private fun formatValue(value: Float): String =
 
 /** Distinct hues for compare columns, drawn from the roadmap's own node palette. */
 private val COMPARE_ACCENTS = listOf(PathNodeCurrent, PathNodeDone, PathNodeBranch)
+
+/**
+ * A code sample, monospaced and horizontally scrollable.
+ *
+ * Scrolls rather than wraps: a wrapped line of code reads as two statements, which is worse than
+ * having to swipe. The language sits in the corner so it never competes with the code itself.
+ */
+@Composable
+fun LessonCode(code: LessonBlock.Code, modifier: Modifier = Modifier) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = PathInk,
+        modifier = modifier.fillMaxWidth(),
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (code.language.isNotBlank()) {
+                Text(
+                    text = code.language.uppercase(),
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 10.sp,
+                    letterSpacing = 1.sp,
+                    color = Color.White.copy(alpha = 0.5f),
+                )
+            }
+            Text(
+                text = code.text,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                color = Color.White.copy(alpha = 0.92f),
+                softWrap = false,
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+            )
+        }
+    }
+}
 
 /** Centred caption styling shared by diagrams and images. */
 @Composable

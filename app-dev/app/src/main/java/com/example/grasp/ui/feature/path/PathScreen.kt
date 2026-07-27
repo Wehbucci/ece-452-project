@@ -90,6 +90,7 @@ fun PathScreen(
     // Sheets. `sheetLoadingTitle` holds the detail sheet open, showing a spinner, while the node's
     // lesson is generated; `sheetSubtopic` replaces it once the content arrives.
     var sheetLoadingTitle by remember { mutableStateOf<String?>(null) }
+    var sheetGenerating by remember { mutableStateOf(false) }
     var sheetSubtopic by remember { mutableStateOf<Subtopic?>(null) }
     var sheetCompleted by remember { mutableStateOf(false) }
     var branchSheet by remember { mutableStateOf(false) }
@@ -117,9 +118,10 @@ fun PathScreen(
         object : PathContract.View {
             override fun showPath(s: PathUiState) { state = s; notFound = false }
             override fun showNotFound() { notFound = true }
-            override fun showSubtopicLoading(title: String) {
+            override fun showSubtopicLoading(title: String, generating: Boolean) {
                 branchSheet = false
                 sheetSubtopic = null
+                sheetGenerating = generating
                 sheetLoadingTitle = title
             }
             override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
@@ -251,7 +253,7 @@ fun PathScreen(
                     onOpenResource = { url -> uriHandler.openUri(url) },
                 )
             } else {
-                SubtopicLoadingContent(title = loadingTitle!!)
+                SubtopicLoadingContent(title = loadingTitle!!, generating = sheetGenerating)
             }
         }
     }
@@ -309,6 +311,7 @@ private fun JourneyBoard(
                     regionRows = regionRows,
                     fillIntoId = fillIntoId,
                     modifier = Modifier.fillMaxSize(),
+                    addSlots = state.addSlots,
                 )
 
                 // 2) Region pills, centered in the RegionGap band above their first row.

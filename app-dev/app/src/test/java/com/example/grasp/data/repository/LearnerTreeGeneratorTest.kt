@@ -36,29 +36,14 @@ class LearnerTreeGeneratorTest {
     }
 
     @Test
-    fun `always ends in a branch-out affordance hanging off the deepest leaf`() {
-        val tree = normalizeTree(
-            "root",
-            listOf(
-                node("root", "a", "detour"),
-                node("a", "b"),
-                node("b"),
-                node("detour"), // shallower leaf — should NOT get the affordance
-            ),
-        )
+    fun `holds lessons only, with no standing branch-out placeholder`() {
+        val tree = normalizeTree("root", listOf(node("root", "a", "detour"), node("a"), node("detour")))
 
-        val branch = tree.single { it.isBranchOut }
-        assertEquals(listOf(branch.id), tree.byId("b")!!.children)
-        assertEquals("b", branch.parentId)
-        assertTrue("the affordance is not a lesson", tree.byId("detour")!!.children.isEmpty())
-    }
-
-    @Test
-    fun `gives the branch-out node a free id when the model already used that id`() {
-        val tree = normalizeTree("root", listOf(node("root", BRANCH_OUT_ID), node(BRANCH_OUT_ID)))
-
-        val branch = tree.single { it.isBranchOut }
-        assertEquals("$BRANCH_OUT_ID-2", branch.id)
+        // Where the roadmap can be grown is worked out by the presenter in add mode, so nothing
+        // on the board is a placeholder.
+        assertTrue(tree.none { it.isBranchOut })
+        assertEquals(listOf("root", "a", "detour"), tree.map { it.id })
+        assertTrue("a leaf leads nowhere", tree.byId("a")!!.children.isEmpty())
     }
 
     @Test
@@ -92,10 +77,7 @@ class LearnerTreeGeneratorTest {
         )
 
         // The presenter picks the "current" node by list order, so the spine must win ties.
-        assertEquals(
-            listOf("root", "main-1", "main-2", "detour"),
-            tree.filterNot { it.isBranchOut }.map { it.id },
-        )
+        assertEquals(listOf("root", "main-1", "main-2", "detour"), tree.map { it.id })
     }
 
     @Test
@@ -120,8 +102,8 @@ class LearnerTreeGeneratorTest {
         val tree = normalizeTree("root", listOf(node("root", "a", estMinutes = 7), node("a", estMinutes = 12)))
 
         assertEquals(7, tree.byId("root")!!.estMinutes)
+        assertEquals(12, tree.byId("a")!!.estMinutes)
         assertEquals("content/root/a.md", tree.byId("a")!!.contentRef)
-        assertNotNull(tree.single { it.isBranchOut })
     }
 
     @Test

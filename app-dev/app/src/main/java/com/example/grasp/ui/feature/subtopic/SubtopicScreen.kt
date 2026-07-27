@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.LessonCode
 import com.example.grasp.ui.components.LessonDiagram
 import com.example.grasp.ui.components.LessonImage
 import com.example.grasp.ui.components.SectionHeader
@@ -175,6 +176,8 @@ fun SubtopicScreen(
                             hasHistory = index in blocksWithHistory,
                             onClick = { presenter.onBlockClicked(block.text, index) },
                         )
+
+                        is LessonBlock.Code -> LessonCode(block)
 
                         is LessonBlock.Diagram -> LessonDiagram(block)
 

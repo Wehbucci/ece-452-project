@@ -2,12 +2,6 @@ package com.example.grasp.data.repository
 
 import com.example.grasp.data.model.TreeNode
 
-/** Id of the branch-out affordance a freshly generated roadmap ends with. */
-internal const val BRANCH_OUT_ID = "branch-out"
-
-/** Label drawn under the dashed amber node. */
-internal const val BRANCH_OUT_TITLE = "Branch out"
-
 /** Region pill carried by every user-grown node, so the journey groups them under one header. */
 internal const val BRANCH_TIER = "YOUR BRANCHES"
 
@@ -32,9 +26,8 @@ private const val SYSTEM_INSTRUCTION = """
  * @param lane horizontal position to grow in. Callers that need the branch to clear existing nodes
  *        leave this alone and re-lane the result once they know how long the branch turned out.
  *
- * Returns the chain of new lesson nodes FOLLOWED BY a fresh branch-out affordance, so the user
- * can keep growing from the end of what they just added. Never empty: if generation fails they
- * still get a single node named after what they asked for (NFR 3.1).
+ * Returns the new lessons as a straight chain. Never empty: if generation fails they still get a
+ * single node named after what they asked for (NFR 3.1).
  */
 suspend fun buildBranch(
     pathId: String,
@@ -75,7 +68,7 @@ suspend fun suggestBranchTopics(
 
 // ── Node assembly (pure) ───────────────────────────────────────────────────────────────────
 
-/** Links [titles] into a straight chain of nodes, capped by a fresh branch-out affordance. */
+/** Links [titles] into a straight chain of nodes, each leading to the next. */
 private fun chain(
     pathId: String,
     titles: List<String>,
@@ -85,14 +78,13 @@ private fun chain(
 ): List<TreeNode> {
     val taken = takenIds.toMutableSet()
     val ids = titles.map { title -> uniqueId(slugify(title), taken).also { taken += it } }
-    val branchId = uniqueId(BRANCH_OUT_ID, taken)
 
-    val lessons = titles.mapIndexed { index, title ->
+    return titles.mapIndexed { index, title ->
         TreeNode(
             id = ids[index],
             title = title,
             estMinutes = estMinutes.getOrElse(index) { 0 },
-            children = listOf(ids.getOrNull(index + 1) ?: branchId),
+            children = listOfNotNull(ids.getOrNull(index + 1)),
             parentId = ids.getOrNull(index - 1),
             contentRef = "content/$pathId/${ids[index]}.md",
             lane = lane,
@@ -100,13 +92,6 @@ private fun chain(
             tier = BRANCH_TIER.takeIf { index == 0 },
         )
     }
-    return lessons + TreeNode(
-        id = branchId,
-        title = BRANCH_OUT_TITLE,
-        parentId = ids.last(),
-        isBranchOut = true,
-        lane = lane,
-    )
 }
 
 /** "Deep Learning Basics!" → "deep-learning-basics". */
