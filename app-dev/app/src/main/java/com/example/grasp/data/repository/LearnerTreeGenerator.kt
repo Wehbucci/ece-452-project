@@ -1,6 +1,5 @@
 package com.example.grasp.data.repository
 
-import com.example.grasp.core.layout.freeLane
 import com.example.grasp.data.model.TreeNode
 import org.json.JSONObject
 
@@ -65,12 +64,15 @@ internal fun parseGeneratedNodes(json: JSONObject): List<GeneratedNode> =
  *  2. child references that dangle, point at self, repeat, or steal an already-claimed node are
  *     dropped, leaving every node with exactly one parent;
  *  3. nodes unreachable from the root are discarded;
- *  4. nodes are re-ordered depth-first so the main line comes before any detour — the presenter
- *     picks the "current" node by list order, so the spine should win ties;
- *  5. lanes are assigned so the spine runs straight down the middle and detours sit to one side.
+ *  4. nodes are re-ordered depth-first, so each strand is contiguous and the first strand comes
+ *     first — the presenter picks the "current" node by list order and the board lays strands out
+ *     left to right in this order, so both follow the model's own ordering.
  *
- * The roadmap holds lessons only. Where a user can GROW it is worked out on demand by the
- * presenter when they turn on add mode, so the board is never cluttered with placeholders.
+ * Where each node ends up on screen is NOT decided here: `core.layout.layoutBoard` derives that
+ * from the shape of the tree every time the board renders.
+ *
+ * The roadmap holds lessons only. Where a user can GROW it is decided by the user — they pick a
+ * node to branch from — so the board is never cluttered with placeholders.
  *
  * Pure: same input, same output, no I/O.
  */
@@ -81,7 +83,6 @@ internal fun normalizeTree(pathId: String, generated: List<GeneratedNode>): List
     val lessons = depthFirstOrder(pathId, singleParentTree(withRootId(pathId, usable)))
     if (lessons.isEmpty()) return emptyList()
 
-    val lanes = laneByNode(lessons)
     val parents = lessons.flatMap { node -> node.children.map { it to node.id } }.toMap()
 
     return lessons.map { node ->
@@ -92,7 +93,6 @@ internal fun normalizeTree(pathId: String, generated: List<GeneratedNode>): List
             children = node.children,
             parentId = parents[node.id],
             contentRef = "content/$pathId/${node.id}.md",
-            lane = lanes[node.id] ?: TreeNode.LANE_CENTER,
         )
     }
 }
@@ -132,7 +132,7 @@ private fun singleParentTree(nodes: List<GeneratedNode>): List<GeneratedNode> {
     }
 }
 
-/** Depth-first from the root: main line first, detours after. Unreachable nodes are dropped. */
+/** Depth-first from the root: each strand contiguous, in order. Unreachable nodes are dropped. */
 private fun depthFirstOrder(rootId: String, nodes: List<GeneratedNode>): List<GeneratedNode> {
     val byId = nodes.associateBy { it.id }
     val ordered = mutableListOf<GeneratedNode>()
@@ -149,34 +149,6 @@ private fun depthFirstOrder(rootId: String, nodes: List<GeneratedNode>): List<Ge
     return ordered
 }
 
-/**
- * Horizontal position for every node.
- *
- * Every node simply WANTS its parent's lane, which makes an unbranched roadmap a straight spine
- * down the middle. Siblings therefore collide, and the collision is what pushes a detour aside:
- * [freeLane] searches outward from the wanted lane until it finds one that clears every node
- * already placed on that row, so two nodes on a row can never overlap.
- *
- * Rows here are tree depth, which for a single-parent tree is exactly the depth the presenter
- * derives — so these lanes describe the layout that actually gets drawn.
- */
-internal fun laneByNode(nodes: List<GeneratedNode>): Map<String, Int> {
-    val byId = nodes.associateBy { it.id }
-    val lanes = mutableMapOf<String, Int>()
-    val lanesByRow = mutableMapOf<Int, MutableList<Int>>()
-
-    fun walk(id: String, wanted: Int, row: Int) {
-        if (id in lanes) return
-        val lane = freeLane(wanted, lanesByRow.getOrPut(row) { mutableListOf() })
-        lanes[id] = lane
-        lanesByRow.getValue(row) += lane
-        byId[id]?.children?.forEach { childId -> walk(childId, lane, row + 1) }
-    }
-
-    walk(nodes.first().id, TreeNode.LANE_CENTER, row = 0)
-    return lanes
-}
-
 // ── Prompt & fallback ──────────────────────────────────────────────────────────────────────
 
 private fun treePrompt(title: String) = """
@@ -185,57 +157,55 @@ private fun treePrompt(title: String) = """
     Topic: $title
 
     Shape you are building:
-    This is a guided path through the topic, not a wide taxonomy of
-    independent categories. Most of the roadmap should read as a single
-    line of concepts, each building on the last, from foundational to
-    advanced (or chronological order, for historical/narrative topics).
-    At one or two points where the topic genuinely contains a short,
-    self-contained detour — something worth knowing but not essential to
-    the main line of progression — the path can branch off into a short
-    side node. That side branch stays short (usually just 1 node) and
-    ends there. It does NOT reconnect to the main path or to any other
-    branch later. Every node has exactly one parent.
+    Wide at the top, then deep. The root is the entry point to the topic. It
+    fans out into 2-3 STRANDS — the genuinely distinct areas someone has to
+    cover to know this topic. Each strand then runs DEEP on its own: a
+    mostly-straight chain of 3-5 lessons, each building on the last, from
+    foundational to advanced (or chronological, for historical topics).
+
+    The breadth belongs at the root and almost nowhere else. Below the root a
+    node normally has exactly one child, continuing its own strand. Strands
+    stay separate for good: they never rejoin each other and never rejoin the
+    root. Every node has exactly one parent.
 
     Step 1 — Think before structuring (do not output this step):
-    Lay out the topic as a rough sequence from first-principles to advanced,
-    or chronologically for historical topics. Identify at most 1-2 points
-    where a short, self-contained detour makes sense as a side node.
-    Everywhere else, keep it a single path forward.
+    Pick the 2-3 strands. They must partition the topic, not overlap: each one
+    is a different aspect of it, and a lesson belongs in exactly one of them.
+    Prefer strands that each genuinely support 3-5 lessons — if the topic only
+    really splits two ways, use 2 strands and make them deeper rather than
+    inventing a thin third. Then order the lessons inside each strand from
+    first-principles to advanced.
 
-    A detour must be specifically motivated by the node it branches from —
-    not just any independent topic that happens to fit somewhere in that
-    general era or category. Ask: "is this detour a defining, characteristic
-    feature of THIS SPECIFIC node's content, not just something loosely
-    adjacent to it?" For example, off a node about a particular cultural
-    golden age, a detour into that era's defining art form is well-motivated.
-    A detour into something merely from the same rough time period, without
-    a direct thematic tie to what that specific node is actually about, is
-    NOT well-motivated — pick a different, more specifically-tied detour
-    instead, or skip the detour for that point entirely if none fits.
+    Optionally identify ONE point, on a strand rather than at the root, where
+    the topic contains a short self-contained detour — something worth knowing
+    but not needed by the lessons after it. A detour must be specifically
+    motivated by the node it hangs off: ask "is this a defining, characteristic
+    feature of THIS SPECIFIC lesson's content, not just something loosely
+    adjacent to it?" If nothing fits that test, use no detour at all.
 
     Step 2 — Build the tree from that reasoning:
     - Create exactly one root node: the entry point / introduction to the
-    topic. It must be the first node in the output.
-    - Most nodes should have exactly one child, continuing the roadmap
-    forward as a single path.
-    - At a detour point, a node's "children" list may contain 2 ids: the
-    FIRST id continues the main path, the SECOND starts a short side branch
-    that ends on its own (empty "children" list) within 1-2 nodes. Title that
-    side node starting with "Explore: " followed by its specific topic
+    topic. It must be the first node in the output, and its "children" list
+    holds the first lesson of each strand (2-3 ids).
+    - Every other node has exactly one child, continuing its strand, or an
+    empty "children" list if it ends the strand.
+    - The one exception is the optional detour: a single node somewhere on a
+    strand may list 2 ids, where the FIRST continues its strand and the SECOND
+    is the detour, which ends immediately (1 node, empty "children"). Title a
+    detour starting with "Explore: " followed by its specific topic
     (e.g. "Explore: The Panhellenic Games").
-    - Do not use more than 2 detour points in the entire roadmap. Most
-    topics should have 0 or 1.
-    - Never split the root itself into more than 2 immediate children.
+    - Never more than one detour in the whole roadmap, and never one hanging
+    off the root.
     - Every node id must appear in exactly one other node's "children"
     list (except the root, which appears in none). Never list the same
     node id as a child of two different nodes.
-    - Order everything along the main path from foundational to advanced,
-    or chronologically for historical topics.
+    - Order the strands themselves so the one a beginner should start with
+    comes first.
 
     Size guidance (soft, not a target to hit exactly):
-    - Total nodes, including root: roughly 6-12 depending on topic breadth.
-    A focused topic might be 6-8 nodes in a near-straight line. A
-    broader topic might be 9-12 with one short detour.
+    - Total nodes, including root: roughly 8-14. Two strands of four lessons
+    is a good focused roadmap; three strands of four or five suits a broad
+    topic. Depth inside a strand matters more than adding another strand.
 
     Each node must contain:
     - id: lowercase hyphen-separated string

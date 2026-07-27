@@ -6,14 +6,13 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.abs
 
 /**
  * Plain-JUnit tests for the roadmap's STRUCTURE — [normalizeTree] and the branch-id helpers.
  *
  * These deliberately don't touch Gemini: what the model writes is non-deterministic and changes
  * with the prompt, but what the app does with that answer must not. [normalizeTree] is the
- * guarantee the presenter's row/lock/connector logic is built on, so it's pinned here.
+ * guarantee the board's layout and connector logic is built on, so it's pinned here.
  */
 class LearnerTreeGeneratorTest {
 
@@ -39,8 +38,7 @@ class LearnerTreeGeneratorTest {
     fun `holds lessons only, with no standing branch-out placeholder`() {
         val tree = normalizeTree("root", listOf(node("root", "a", "detour"), node("a"), node("detour")))
 
-        // Where the roadmap can be grown is worked out by the presenter in add mode, so nothing
-        // on the board is a placeholder.
+        // The user picks a real lesson to branch from, so nothing on the board is a placeholder.
         assertTrue(tree.none { it.isBranchOut })
         assertEquals(listOf("root", "a", "detour"), tree.map { it.id })
         assertTrue("a leaf leads nowhere", tree.byId("a")!!.children.isEmpty())
@@ -65,36 +63,24 @@ class LearnerTreeGeneratorTest {
     }
 
     @Test
-    fun `orders nodes depth-first so the main line comes before a detour`() {
+    fun `orders nodes depth-first so each strand is contiguous, first strand first`() {
         val tree = normalizeTree(
             "root",
             listOf(
-                node("root", "main-1", "detour"),
-                node("detour"),
-                node("main-1", "main-2"),
-                node("main-2"),
+                node("root", "strand-1", "strand-2"),
+                node("strand-2", "strand-2b"),
+                node("strand-1", "strand-1b"),
+                node("strand-1b"),
+                node("strand-2b"),
             ),
         )
 
-        // The presenter picks the "current" node by list order, so the spine must win ties.
-        assertEquals(listOf("root", "main-1", "main-2", "detour"), tree.map { it.id })
-    }
-
-    @Test
-    fun `keeps the spine centered and pushes a detour to one side`() {
-        val tree = normalizeTree(
-            "root",
-            listOf(node("root", "main", "detour"), node("main"), node("detour")),
+        // The presenter picks the "current" node by list order and the board lays strands out left
+        // to right in this order, so a strand must never be interleaved with another.
+        assertEquals(
+            listOf("root", "strand-1", "strand-1b", "strand-2", "strand-2b"),
+            tree.map { it.id },
         )
-
-        assertEquals(TreeNode.LANE_CENTER, tree.byId("root")!!.lane)
-        assertEquals("the first child continues straight down", TreeNode.LANE_CENTER, tree.byId("main")!!.lane)
-        val detourLane = tree.byId("detour")!!.lane
-        assertTrue(
-            "a detour must clear the 112dp slot width, but sat at lane $detourLane",
-            abs(detourLane - TreeNode.LANE_CENTER) >= 112,
-        )
-        assertTrue("and stay on the canvas", detourLane in 56..284)
     }
 
     @Test
