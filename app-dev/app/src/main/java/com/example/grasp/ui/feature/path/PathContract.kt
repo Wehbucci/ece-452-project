@@ -68,20 +68,20 @@ interface PathContract {
     }
 
     interface Presenter : MvpPresenter<View> {
-        /** A node was tapped: opens its lesson sheet, or — in add mode — the branch sheet. */
+        /**
+         * A node was tapped: opens its lesson sheet — or, while picking a branch anchor, becomes
+         * the section the new branch grows from.
+         */
         fun onNodeTapped(nodeId: String)
 
         /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
         fun onBranchFromNode(nodeId: String)
 
-        /** Toggle add mode: show a "+" at every spot a new section could go, or hide them again. */
+        /** Start (or abandon) picking the section a new branch should grow from. */
         fun onAddNodeRequested()
 
-        /** Leave add mode without picking a spot. */
+        /** Stop picking a branch anchor, leaving the board untouched. */
         fun onAddModeCancelled()
-
-        /** A "+" slot (or, in add mode, a node) was picked — open the sheet for that spot. */
-        fun onAddSlotTapped(anchorId: String)
 
         /** Mark [nodeId] complete: +XP, advance to the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)

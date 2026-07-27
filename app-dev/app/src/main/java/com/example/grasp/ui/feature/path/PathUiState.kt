@@ -32,9 +32,13 @@ enum class PathNodeState {
 /**
  * One node, fully resolved for rendering.
  *
- * @property lane horizontal position in the design's 340-wide canvas (see [TreeNode.lane]).
- * @property row vertical row index (graph depth); the View multiplies this by a fixed row
- *           spacing to get a y — so inserted branch nodes place themselves automatically.
+ * Both coordinates are in GRID UNITS, not dp: the View multiplies them by a slot width and a row
+ * spacing. Everything is derived from the shape of the tree on every frame, so a node the user just
+ * added slots into place and its neighbours shift to make room for it.
+ *
+ * @property column horizontal position, in slot widths from the left edge of the board.
+ *           Fractional — a parent sits at the midpoint of the children below it.
+ * @property row vertical position, in rows (graph depth).
  * @property parentIds ids of this node's parents, used to draw the incoming connectors.
  * @property estMinutes shown as the "12 min" sub-label (0 → hidden, e.g. for the branch node).
  */
@@ -43,7 +47,7 @@ data class PathNodeUi(
     val title: String,
     val estMinutes: Int,
     val state: PathNodeState,
-    val lane: Int,
+    val column: Float,
     val row: Int,
     val parentIds: List<String>,
 )
@@ -52,29 +56,22 @@ data class PathNodeUi(
 data class RegionUi(val label: String, val row: Int)
 
 /**
- * A small ghost "+" marking a spot where a new section could be added, shown only while the board
- * is in add mode.
- *
- * @property anchorId the node a branch started here would grow out of.
- * @property lane/[row] where the ghost sits — pre-resolved so it previews roughly where the new
- *           nodes will actually land.
- */
-data class AddSlotUi(val anchorId: String, val lane: Int, val row: Int)
-
-/**
  * Everything the journey screen needs for one frame: the HUD numbers and the laid-out nodes.
  *
  * @property xpInLevel XP earned within the current level, 0..[xpPerLevel].
  * @property xpFraction [xpInLevel] / [xpPerLevel], clamped 0f..1f, drives the XP bar width.
- * @property rowCount total rows (used to size the scroll canvas height).
- * @property addSlots the "+" spots offered while adding a node; empty when not in add mode, which
- *           is also how the View knows whether to show the add-mode banner.
+ * @property rowCount total rows, used to size the board.
+ * @property columnSpan columns from the leftmost node to the rightmost, used to size the board.
+ *           The board is centered in the viewport at this width, which is what puts a narrow
+ *           roadmap down the middle of the screen.
+ * @property pickingBranchAnchor true while the user is being asked to tap the section a new branch
+ *           should grow from — the View shows its banner and nothing else changes.
  */
 data class PathUiState(
     val title: String,
     val nodes: List<PathNodeUi>,
     val regions: List<RegionUi>,
-    val addSlots: List<AddSlotUi> = emptyList(),
+    val pickingBranchAnchor: Boolean = false,
     val masteredCount: Int,
     val totalLessons: Int,
     val streak: Int,
@@ -83,4 +80,5 @@ data class PathUiState(
     val xpPerLevel: Int,
     val xpFraction: Float,
     val rowCount: Int,
+    val columnSpan: Float,
 )

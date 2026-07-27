@@ -5,11 +5,13 @@ import com.example.grasp.data.repository.FakePathRepository
 import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import kotlin.coroutines.CoroutineContext
+import kotlin.math.abs
 
 /**
  * Plain-JUnit tests for [PathPresenter] — the whole reason the presenter has NO Compose/Android
@@ -17,7 +19,8 @@ import kotlin.coroutines.CoroutineContext
  * `FakePathRepository`; no emulator, no Compose runtime.
  *
  * They pin the behaviour the redesign depends on: state derivation (current/open/done), XP →
- * level, the completion→advance→confetti→level-up pipeline, and branch insertion.
+ * level, the completion→advance→confetti→level-up pipeline, and branch insertion re-laying the
+ * board out.
  */
 class PathPresenterTest {
 
@@ -77,9 +80,6 @@ class PathPresenterTest {
     private class DirectDispatcher : CoroutineDispatcher() {
         override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
     }
-
-    /** The only lanes anything on the board may occupy: left, middle, right. */
-    private val COLUMNS = listOf(56, 170, 284)
 
     private fun PathUiState.node(id: String) = nodes.first { it.id == id }
 
@@ -201,116 +201,31 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `add mode offers exactly one slot per lesson and clears when cancelled`() {
+    fun `the picker turns on and off without touching the board`() {
         val (presenter, view) = attach()
 
-        assertTrue("no slots until asked for", view.lastState!!.addSlots.isEmpty())
+        val before = view.lastState!!
+        assertFalse("not picking until asked", before.pickingBranchAnchor)
 
         presenter.onAddNodeRequested()
-
-        val slots = view.lastState!!.addSlots
-        val nodes = view.lastState!!.nodes
-        assertEquals("one per lesson, no more", nodes.size, slots.size)
-        assertEquals(nodes.map { it.id }.toSet(), slots.map { it.anchorId }.toSet())
-        // Always below its lesson, and never more than a row past it.
-        val rows = nodes.associate { it.id to it.row }
-        slots.forEach { slot ->
-            val anchorRow = rows.getValue(slot.anchorId)
-            assertTrue(
-                "slot for ${slot.anchorId} on row ${slot.row}, anchor on $anchorRow",
-                slot.row in (anchorRow + 1)..(anchorRow + 2),
-            )
-        }
+        val picking = view.lastState!!
+        assertTrue(picking.pickingBranchAnchor)
+        // Nothing is added to or moved on the board — the whole board just becomes the target.
+        assertEquals(before.nodes, picking.nodes)
 
         presenter.onAddModeCancelled()
-        assertTrue(view.lastState!!.addSlots.isEmpty())
+        assertFalse(view.lastState!!.pickingBranchAnchor)
+        assertEquals(before.nodes, view.lastState!!.nodes)
     }
 
     @Test
-    fun `a leaf's slot continues straight down and a parent's goes to the right`() {
+    fun `picking a section leaves the picker and opens the sheet for it`() {
         val (presenter, view) = attach()
 
         presenter.onAddNodeRequested()
+        presenter.onNodeTapped("data-basics")
 
-        val state = view.lastState!!
-        val slots = state.addSlots.associateBy { it.anchorId }
-        val nodes = state.nodes.associateBy { it.id }
-
-        // "neural-networks" ends the roadmap, so its new section carries straight on below it.
-        val leaf = nodes.getValue("neural-networks")
-        assertEquals(leaf.lane, slots.getValue("neural-networks").lane)
-
-        // "what-is-ml" already leads to "types-of-learning", so its new section goes to the right
-        // of that, not on top of it.
-        val existingChild = nodes.getValue("types-of-learning")
-        val beside = slots.getValue("what-is-ml")
-        assertEquals("the slot shares its child's row", existingChild.row, beside.row)
-        assertTrue(
-            "expected a lane right of ${existingChild.lane}, got ${beside.lane}",
-            beside.lane > existingChild.lane,
-        )
-    }
-
-    @Test
-    fun `everything on the board sits on the three-column grid`() {
-        val (presenter, view) = attach()
-
-        presenter.onAddNodeRequested()
-
-        // Zig-zag was slots landing at arbitrary lanes between the nodes. Both nodes and slots now
-        // occupy the same three columns, which is what makes a row read as an ordered grid.
-        val state = view.lastState!!
-        state.nodes.forEach { node ->
-            assertTrue("${node.id} is off-grid at ${node.lane}", node.lane in COLUMNS)
-        }
-        state.addSlots.forEach { slot ->
-            assertTrue("slot for ${slot.anchorId} is off-grid at ${slot.lane}", slot.lane in COLUMNS)
-        }
-    }
-
-    @Test
-    fun `no slot is drawn on top of a node or another slot`() {
-        val (presenter, view) = attach()
-
-        presenter.onAddNodeRequested()
-
-        val state = view.lastState!!
-        state.addSlots.forEach { slot ->
-            state.nodes.filter { it.row == slot.row }.forEach { neighbour ->
-                assertTrue(
-                    "slot for ${slot.anchorId} shares a cell with ${neighbour.id} at ${slot.lane}",
-                    neighbour.lane != slot.lane,
-                )
-            }
-            state.addSlots.filter { it.row == slot.row && it.anchorId != slot.anchorId }.forEach { other ->
-                assertTrue(
-                    "slots for ${slot.anchorId} and ${other.anchorId} share a cell at ${slot.lane}",
-                    other.lane != slot.lane,
-                )
-            }
-        }
-    }
-
-    @Test
-    fun `slots on the same row never land on the same lane`() {
-        val (presenter, view) = attach()
-
-        presenter.onAddNodeRequested()
-
-        view.lastState!!.addSlots.groupBy { it.row }.forEach { (row, sameRow) ->
-            val lanes = sameRow.map { it.lane }
-            assertEquals("two slots stacked on row $row", lanes.size, lanes.distinct().size)
-        }
-    }
-
-    @Test
-    fun `picking a slot leaves add mode and opens the sheet for that spot`() {
-        val (presenter, view) = attach()
-
-        presenter.onAddNodeRequested()
-        presenter.onAddSlotTapped("data-basics")
-
-        assertTrue(view.lastState!!.addSlots.isEmpty())
+        assertFalse(view.lastState!!.pickingBranchAnchor)
         assertTrue(view.branchSheetShown)
         assertEquals(listOf("Data Basics"), view.branchFromTitles)
 
@@ -322,11 +237,11 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `tapping a node in add mode picks it instead of opening its lesson`() {
+    fun `tapping a node while picking an anchor picks it instead of opening its lesson`() {
         val (presenter, view) = attach()
 
         presenter.onAddNodeRequested()
-        presenter.onNodeTapped("regression") // outside add mode this would open its lesson
+        presenter.onNodeTapped("regression") // outside the picker this would open its lesson
 
         assertNull(view.subtopicSheet)
         assertTrue(view.branchSheetShown)
@@ -353,8 +268,9 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `a detour is laid out beside its row neighbours, not on top of them`() {
+    fun `adding a detour re-lays the whole board out around it`() {
         val (presenter, view) = attach()
+        val before = view.lastState!!
 
         presenter.onBranchFromNode("data-basics")
         presenter.onGenerateBranch("Feature engineering")
@@ -364,18 +280,45 @@ class PathPresenterTest {
         val neighbours = state.nodes.filter { it.row == detour.row && it.id != detour.id }
 
         assertTrue("the detour shares a row with the existing branches", neighbours.isNotEmpty())
-        assertTrue("stays on the 340dp canvas", detour.lane in 56..284)
         neighbours.forEach { neighbour ->
             assertTrue(
-                "${neighbour.id} at lane ${neighbour.lane} is stacked on the detour at ${detour.lane}",
-                neighbour.lane != detour.lane,
+                "${neighbour.id} at column ${neighbour.column} overlaps the detour at ${detour.column}",
+                abs(neighbour.column - detour.column) >= 1f,
             )
         }
+        // The board got wider and the nodes above the split shifted to stay centered over it —
+        // that re-centering is the whole point of deriving positions instead of storing them.
+        assertTrue("the board should widen", state.columnSpan > before.columnSpan)
+        assertNotEquals(before.node("what-is-ml").column, state.node("what-is-ml").column)
+    }
+
+    @Test
+    fun `every node on the board is centered over the children below it`() {
+        val (_, view) = attach()
+        val state = view.lastState!!
+        val byId = state.nodes.associateBy { it.id }
+
+        // What a "centered" roadmap means concretely: no node is off to the side of its own subtree.
+        state.nodes.forEach { node ->
+            val kids = state.nodes.filter { node.id in it.parentIds }.map(PathNodeUi::column)
+            if (kids.size < 2) return@forEach
+            assertEquals(
+                "${node.id} is not centered over its children",
+                (kids.min() + kids.max()) / 2f,
+                node.column,
+                0.001f,
+            )
+        }
+        // And the leftmost node anchors column 0, so the View can center the board as one block.
+        assertEquals(0f, state.nodes.minOf { it.column }, 0.001f)
+        assertEquals(state.columnSpan, state.nodes.maxOf { it.column }, 0.001f)
+        assertTrue(byId.isNotEmpty())
     }
 
     @Test
     fun `generating a branch inserts the generated nodes and pops the first one in`() {
         val (presenter, view) = attach()
+        val before = view.lastState!!
 
         presenter.onBranchFromNode("neural-networks")
         presenter.onGenerateBranch("Deep Learning")
@@ -384,7 +327,8 @@ class PathPresenterTest {
         val topic = state.nodes.firstOrNull { it.title == "Deep Learning" }
         assertNotNull("a new topic node should be inserted", topic)
         assertEquals(listOf("neural-networks"), topic!!.parentIds)
-        assertTrue("YOUR BRANCHES region should appear", state.regions.any { it.label == "YOUR BRANCHES" })
+        // A grown branch adds no region pill — it's just more roadmap.
+        assertEquals(before.regions, state.regions)
         assertEquals(listOf(topic.id), view.popIns)
         assertEquals(1, view.dismissCount)
         assertEquals("the button locks while generating", listOf(true, false), view.generatingStates)

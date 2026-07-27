@@ -1,7 +1,7 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
-import com.example.grasp.core.layout.LANE_GRID
+import com.example.grasp.core.layout.layoutBoard
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -44,8 +44,8 @@ class PathPresenter(
     /** Guards against a second "generate" tap while the AI is still building the first branch. */
     private var growing = false
 
-    /** True while the board is showing "+" slots and waiting for the user to pick one. */
-    private var addMode = false
+    /** True while the board is waiting for the user to tap the section to branch from. */
+    private var pickingAnchor = false
 
     override fun onViewAttached() {
         scope.launch {
@@ -55,8 +55,8 @@ class PathPresenter(
                 return@launch
             }
             title = path.title
-            // Roadmaps saved before add mode existed carry standing "Branch out" placeholder nodes.
-            // Growing the path is an add-mode action now, so the board shows lessons only.
+            // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.
+            // Growing the path starts from a real lesson now, so the board shows lessons only.
             nodes = path.nodes.filterNot { it.isBranchOut }
             completed.clear()
             completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
@@ -73,10 +73,12 @@ class PathPresenter(
 
     override fun onNodeTapped(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
-        // In add mode the whole board is a picker, so tapping a node means "put it here" — the
-        // same thing its "+" slot means.
-        if (addMode) {
-            onAddSlotTapped(nodeId)
+        // While picking an anchor the whole board is the picker: the tapped lesson is what the new
+        // branch grows out of, rather than opening.
+        if (pickingAnchor) {
+            pickingAnchor = false
+            emit() // drop the banner first, so the board behind the sheet is back to normal
+            openBranchSheet(node.id)
             return
         }
         // Every lesson is open: the roadmap suggests an order, it doesn't enforce one.
@@ -84,26 +86,21 @@ class PathPresenter(
     }
 
     override fun onBranchFromNode(nodeId: String) {
-        // Any lesson can sprout a detour, not just the dashed affordance at the end.
+        // Any lesson can sprout a detour — this is the same thing the picker does, reached from
+        // inside a lesson the user already has open.
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
         openBranchSheet(node.id)
     }
 
     override fun onAddNodeRequested() {
-        addMode = !addMode
+        pickingAnchor = !pickingAnchor
         emit()
     }
 
     override fun onAddModeCancelled() {
-        if (!addMode) return
-        addMode = false
+        if (!pickingAnchor) return
+        pickingAnchor = false
         emit()
-    }
-
-    override fun onAddSlotTapped(anchorId: String) {
-        addMode = false
-        emit() // clear the slots first, so the board behind the sheet is back to normal
-        openBranchSheet(anchorId)
     }
 
     /**
@@ -242,16 +239,6 @@ class PathPresenter(
         return map
     }
 
-    /** Row of every node = longest path from a root, so a node always sits below its parents. */
-    private fun rowsMap(parents: Map<String, List<String>>): Map<String, Int> {
-        val cache = HashMap<String, Int>()
-        fun depth(id: String): Int = cache.getOrPut(id) {
-            val ps = parents[id]
-            if (ps.isNullOrEmpty()) 0 else ps.maxOf { depth(it) } + 1
-        }
-        return nodes.associate { it.id to depth(it.id) }
-    }
-
     /**
      * The current node = the first non-branch, not-yet-complete node in order.
      *
@@ -272,86 +259,17 @@ class PathPresenter(
     private fun levelFor(xp: Int): Int = xp / XP_PER_LEVEL + 1
 
     /**
-     * Exactly one "+" ghost per lesson, marking where that lesson's next section would go.
+     * Assemble the immutable snapshot the View renders.
      *
-     * Placed the way the real branch will be, so a ghost previews the result rather than just
-     * marking a target:
-     *  - a lesson with nothing after it continues STRAIGHT DOWN, in its own lane;
-     *  - a lesson that already leads somewhere gets its ghost to the RIGHT of the children it has,
-     *    because the board reads left to right.
-     *
-     * Ghosts only ever move rightward and downward, never back to the left — bouncing side to side
-     * to find room is what made a column of them zig-zag. When the row beside the children is
-     * full, the ghost drops a row and tries again from beside its own lesson instead, which draws
-     * as the dotted wire sweeping down past the children.
+     * The board's geometry is re-derived here on every frame by [layoutBoard] rather than stored on
+     * the nodes, which is what lets a freshly grown branch slot in and its neighbours shift aside
+     * to make room without anybody having to pick coordinates.
      */
-    private fun addSlots(
-        rows: Map<String, Int>,
-        columns: Map<String, Int>,
-    ): List<AddSlotUi> {
-        if (!addMode) return emptyList()
-        val taken = HashMap<Int, MutableSet<Int>>()
-        nodes.forEach { taken.getOrPut(rows.getValue(it.id)) { mutableSetOf() } += columns.getValue(it.id) }
-
-        return nodes.map { node ->
-            val anchorRow = rows.getValue(node.id)
-            val anchorColumn = columns.getValue(node.id)
-
-            // Same left-first rule the nodes follow: keep going straight down when that column is
-            // free — which is what a lesson with nothing after it does — and otherwise take the
-            // leftmost column still open on the row. Dropping a row is the last resort, for the
-            // rare row that is already three wide.
-            val placement = (1..SLOT_ROW_SEARCH).firstNotNullOfOrNull { drop ->
-                val row = anchorRow + drop
-                val used = taken.getOrPut(row) { mutableSetOf() }
-                val column = anchorColumn.takeIf { it !in used }
-                    ?: LANE_GRID.indices.firstOrNull { it !in used }
-                column?.let { row to it }
-            } ?: (anchorRow + 1 to anchorColumn)
-
-            val (row, column) = placement
-            taken.getOrPut(row) { mutableSetOf() } += column
-            AddSlotUi(anchorId = node.id, lane = LANE_GRID[column], row = row)
-        }
-    }
-
-    /**
-     * Which of the board's three columns each lesson sits in, derived from the graph rather than
-     * read off the stored lane.
-     *
-     * Left-first, in board order: a lesson keeps its parent's column so an unbranched run reads as
-     * one straight line, and anything that can't (a second child, a detour running alongside the
-     * main line) takes the leftmost column still free on its row. Because [nodes] is in
-     * depth-first order the main line always claims its column before any detour, so the spine
-     * stays put and branches fan out to the right of it.
-     *
-     * Deriving it here rather than trusting `TreeNode.lane` means roadmaps generated before this
-     * layout existed lay out the same way as new ones, with no migration.
-     */
-    private fun columnsOf(rows: Map<String, Int>, parents: Map<String, List<String>>): Map<String, Int> {
-        val taken = HashMap<Int, MutableSet<Int>>()
-        val columns = HashMap<String, Int>()
-
-        nodes.forEach { node ->
-            val used = taken.getOrPut(rows.getValue(node.id)) { mutableSetOf() }
-            val parentColumn = parents[node.id].orEmpty().firstNotNullOfOrNull { columns[it] }
-            val column = parentColumn?.takeIf { it !in used }
-                ?: LANE_GRID.indices.firstOrNull { it !in used }
-                ?: 0
-            columns[node.id] = column
-            used += column
-        }
-        return columns
-    }
-
-    /** Assemble the immutable snapshot the View renders. */
     private fun emit() {
         val parents = parentsMap()
-        val rows = rowsMap(parents)
+        val layout = layoutBoard(nodes)
         val current = currentId()
         val xp = xp()
-
-        val columns = columnsOf(rows, parents)
 
         val nodeUis = nodes.map { n ->
             PathNodeUi(
@@ -359,28 +277,27 @@ class PathPresenter(
                 title = n.title,
                 estMinutes = n.estMinutes,
                 state = stateOf(n, current),
-                lane = LANE_GRID[columns.getValue(n.id)],
-                row = rows.getValue(n.id),
+                column = layout.columns.getValue(n.id),
+                row = layout.rows.getValue(n.id),
                 parentIds = parents[n.id].orEmpty(),
             )
         }
         // One pill per tier, anchored at the tier's first (shallowest) row — several nodes may
-        // declare the same tier (e.g. every grown topic is "YOUR BRANCHES").
+        // declare the same tier. Only hand-authored roadmaps set one; nothing generated or grown
+        // does, so in practice the board carries no pills.
         val regions = nodes
             .filter { !it.tier.isNullOrBlank() }
-            .map { RegionUi(it.tier!!, rows.getValue(it.id)) }
+            .map { RegionUi(it.tier!!, layout.rows.getValue(it.id)) }
             .groupBy { it.label }
             .map { (_, group) -> group.minBy { it.row } }
             .sortedBy { it.row }
-
-        val slots = addSlots(rows, columns)
 
         view?.showPath(
             PathUiState(
                 title = title,
                 nodes = nodeUis,
                 regions = regions,
-                addSlots = slots,
+                pickingBranchAnchor = pickingAnchor,
                 masteredCount = completed.size,
                 totalLessons = nodes.count { !it.isBranchOut },
                 streak = STREAK,
@@ -388,9 +305,8 @@ class PathPresenter(
                 xpInLevel = xp % XP_PER_LEVEL,
                 xpPerLevel = XP_PER_LEVEL,
                 xpFraction = (xp % XP_PER_LEVEL).toFloat() / XP_PER_LEVEL,
-                // Slots sit a row below their anchor, so they can extend the canvas past the
-                // deepest node.
-                rowCount = maxOf(rows.values.maxOrNull() ?: 0, slots.maxOfOrNull { it.row } ?: 0) + 1,
+                rowCount = (layout.rows.values.maxOrNull() ?: 0) + 1,
+                columnSpan = layout.columnSpan,
             ),
         )
     }
@@ -401,9 +317,6 @@ class PathPresenter(
 
         /** XP needed to advance a level. Level = xp / this + 1 (README §Interactions). */
         const val XP_PER_LEVEL = 200
-
-        /** How many rows down a "+" ghost may look for a free column before giving up. */
-        const val SLOT_ROW_SEARCH = 3
 
         /** Demo streak count shown in the HUD (real value would come from UserRepository). */
         const val STREAK = 6
