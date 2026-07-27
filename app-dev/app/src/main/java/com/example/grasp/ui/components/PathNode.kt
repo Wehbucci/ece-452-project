@@ -6,6 +6,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.StartOffset
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -17,9 +18,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -62,6 +65,7 @@ import com.example.grasp.ui.theme.PathNodeDone
 import com.example.grasp.ui.theme.PathNodeDoneBevel
 import com.example.grasp.ui.theme.PathNodeOpenBevel
 import com.example.grasp.ui.theme.PathScreenBg
+import kotlin.math.abs
 
 /**
  * Fixed geometry shared by the node layer ([PathNode]), the connector layer (TreeCanvas) and
@@ -71,11 +75,11 @@ import com.example.grasp.ui.theme.PathScreenBg
  * the circle sitting in a [CircleBand] band below a [TagZone] (which holds the "YOU'RE HERE"
  * tag), so the center is a constant offset from the slot's top-left — see [circleCenterXInSlot]
  * / [circleCenterYInSlot]. The Screen offsets each slot by `center - thatConstant`.
+ *
+ * The board has no fixed width: it is exactly as wide as the tree it holds ([boardWidth]) and the
+ * Screen centers that inside the viewport, panning and zooming it as one piece.
  */
 object PathLayout {
-    /** Design canvas is 340 wide; lanes are expressed in this same coordinate space. */
-    val CanvasWidth: Dp = 340.dp
-
     /** Y of the first row's node center, before any [RegionGap] a row-0 region adds. */
     val TopPadding: Dp = 78.dp
 
@@ -92,7 +96,11 @@ object PathLayout {
     /** Slack below the last row so its label and any trailing branch node aren't clipped. */
     val BottomPadding: Dp = 110.dp
 
-    /** Footprint of one node (tag + circle + label share this width). */
+    /**
+     * Footprint of one node (tag + circle + label share this width), and therefore the width of
+     * one layout column. Two nodes on a row are never less than one column apart, so this is also
+     * the closest any two nodes can get.
+     */
     val SlotWidth: Dp = 112.dp
 
     /** Vertical band reserved for the circle (fits the largest, 82.dp, current node). */
@@ -104,8 +112,11 @@ object PathLayout {
     val circleCenterXInSlot: Dp = SlotWidth / 2
     val circleCenterYInSlot: Dp = TagZone + CircleBand / 2
 
-    /** Node center X for a given lane (lanes are already in the 340-wide space). */
-    fun centerX(lane: Int): Dp = lane.dp
+    /** Node center X for a layout column — the middle of that column's slot. */
+    fun centerX(column: Float): Dp = SlotWidth * (column + 0.5f)
+
+    /** Width of a board whose nodes span [columnSpan] columns from leftmost to rightmost. */
+    fun boardWidth(columnSpan: Float): Dp = SlotWidth * (columnSpan + 1f)
 
     /**
      * Node center Y for a given row (graph depth). [regionRows] is the set of rows that start a
@@ -114,12 +125,12 @@ object PathLayout {
     fun centerY(row: Int, regionRows: Set<Int>): Dp =
         TopPadding + RowSpacing * row + RegionGap * regionRows.count { it <= row }
 
-    /** Total height of the scroll canvas for [rowCount] rows. */
-    fun canvasHeight(rowCount: Int, regionRows: Set<Int>): Dp =
+    /** Total height of the board for [rowCount] rows. */
+    fun boardHeight(rowCount: Int, regionRows: Set<Int>): Dp =
         centerY((rowCount - 1).coerceAtLeast(0), regionRows) + BottomPadding
 
-    /** Diameter of an add-mode "+" ghost — well under a node so it never competes with one. */
-    val AddSlotSize: Dp = 40.dp
+    /** Diameter of the amber "+" badge a node wears while the board is a picker. */
+    val PickBadgeSize: Dp = 24.dp
 
     /** Circle diameter for each visual state (the "chunky game button" sizes). */
     fun circleSize(state: PathNodeState): Dp = when (state) {
@@ -133,10 +144,13 @@ object PathLayout {
 /**
  * A single tappable node on the journey — the chunky, bevelled "game button".
  *
- * Stateless: everything visual is a function of [node]. The only motion it owns is transient
- * and driven by a key the Screen bumps:
+ * Stateless: everything visual is a function of [node] and [picking]. The only motion it owns is
+ * transient and driven by a key the Screen bumps:
  *  - [enterKey]  — bump to pop/bounce this node in (the marker advancing onto it, or a
  *    freshly-grown branch node).
+ *
+ * While [picking] the node wears an amber "+" and wobbles in place, so the board reads as a set of
+ * targets rather than as lessons waiting to be opened.
  *
  * The current node additionally shows an infinitely pulsing ring and a bobbing "YOU'RE HERE"
  * tag. Placement (absolute offset by circle center) is the Screen's job via [PathLayout].
@@ -147,6 +161,7 @@ fun PathNode(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enterKey: Int = 0,
+    picking: Boolean = false,
 ) {
     // Pop/bounce when the marker advances onto this node, or when it is inserted.
     val enterScale = remember { Animatable(1f) }
@@ -155,6 +170,22 @@ fun PathNode(
             enterScale.snapTo(0.4f)
             enterScale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = Spring.StiffnessMedium))
         }
+    }
+
+    // The picker wobble. Only exists while picking, so nothing animates on the resting board. Each
+    // node starts at its own point in the cycle — in lockstep the whole board looks like one
+    // shuddering object instead of a set of individually pickable ones.
+    val wobble = if (!picking) null else {
+        rememberInfiniteTransition(label = "pick").animateFloat(
+            initialValue = -PickWobbleDegrees,
+            targetValue = PickWobbleDegrees,
+            animationSpec = infiniteRepeatable(
+                animation = tween(PickWobbleMillis, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse,
+                initialStartOffset = StartOffset(abs(node.id.hashCode()) % PickWobbleMillis),
+            ),
+            label = "pick-wobble",
+        )
     }
 
     Column(
@@ -175,9 +206,12 @@ fun PathNode(
         Box(
             modifier = Modifier
                 .size(PathLayout.CircleBand)
+                // Both animations are read here, inside the layer block, so they only ever cost a
+                // redraw — never a recomposition or a re-layout of the board.
                 .graphicsLayer {
                     scaleX = enterScale.value
                     scaleY = enterScale.value
+                    rotationZ = wobble?.value ?: 0f
                 }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
@@ -191,6 +225,13 @@ fun PathNode(
             }
             NodeCircle(node.state)
             NodeGlyph(node.state)
+            if (picking) {
+                // Sat on the rim at roughly 45°, so it reads as a badge on the node rather than as
+                // a separate thing floating beside it. Derived from this state's diameter, which is
+                // why a bigger CURRENT node still wears it on the edge.
+                val rim = PathLayout.circleSize(node.state) * RIM_FRACTION
+                PickBadge(Modifier.align(Alignment.Center).offset(x = rim, y = -rim))
+            }
         }
 
         Spacer(Modifier.height(6.dp))
@@ -237,6 +278,31 @@ fun PathNode(
     }
 }
 
+/**
+ * The amber "+" a node wears while the board is a picker.
+ *
+ * Ringed in the screen background rather than sitting flush on the node, so it stays legible on a
+ * green DONE node and an indigo CURRENT one as readily as on a white OPEN one.
+ */
+@Composable
+private fun PickBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .size(PathLayout.PickBadgeSize)
+            .background(PathScreenBg, CircleShape)
+            .padding(2.dp)
+            .background(PathNodeBranch, CircleShape),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            Icons.Filled.Add,
+            contentDescription = "Branch from here",
+            tint = Color.White,
+            modifier = Modifier.size(PathLayout.PickBadgeSize * 0.62f),
+        )
+    }
+}
+
 /** The "YOU'RE HERE" pill above the current node, gently bobbing. */
 @Composable
 private fun YoureHereTag() {
@@ -278,62 +344,6 @@ private fun PulseRing(diameter: Dp) {
 }
 
 /** Draws the state's fill, hard "game bevel", optional border and soft glow. */
-/**
- * A small dashed "+" ghost marking a spot where a new section can be added, shown only while the
- * board is in add mode.
- *
- * Deliberately smaller and lighter than a real node ([PathLayout.AddSlotSize] against a 60-82dp
- * node) so a board full of them still reads as the roadmap with options laid over it, rather than
- * as a board full of new lessons. Occupies a full slot so the Screen can position it with the same
- * [PathLayout] maths as a node.
- */
-@Composable
-fun AddSlotNode(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    // Gentle pulse so the slots read as live targets rather than part of the roadmap.
-    val transition = rememberInfiniteTransition(label = "add-slot")
-    val scale by transition.animateFloat(
-        initialValue = 0.9f,
-        targetValue = 1.05f,
-        animationSpec = infiniteRepeatable(tween(900), RepeatMode.Reverse),
-        label = "add-slot-scale",
-    )
-
-    Box(
-        modifier = modifier
-            .width(PathLayout.SlotWidth)
-            .height(PathLayout.TagZone + PathLayout.CircleBand),
-        contentAlignment = Alignment.Center,
-    ) {
-        Box(
-            modifier = Modifier
-                .size(PathLayout.CircleBand)
-                .graphicsLayer { scaleX = scale; scaleY = scale }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    onClick = onClick,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            Canvas(Modifier.size(PathLayout.CircleBand)) {
-                val r = PathLayout.AddSlotSize.toPx() / 2f
-                val center = Offset(size.width / 2f, size.height / 2f)
-                drawCircle(PathCard.copy(alpha = 0.9f), radius = r, center = center)
-                drawCircle(
-                    PathNodeBranch, radius = r, center = center,
-                    style = Stroke(2.5.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(7f, 7f))),
-                )
-            }
-            Icon(
-                Icons.Filled.Add,
-                contentDescription = "Add a section here",
-                tint = PathNodeBranch,
-                modifier = Modifier.size(PathLayout.AddSlotSize * 0.5f),
-            )
-        }
-    }
-}
-
 @Composable
 private fun NodeCircle(state: PathNodeState) {
     val diameter = PathLayout.circleSize(state)
@@ -412,6 +422,15 @@ private fun LessonBookGlyph(modifier: Modifier = Modifier) {
         )
     }
 }
+
+/** How far the picker wobble swings, in degrees either side of upright. Small on purpose. */
+private const val PickWobbleDegrees = 4f
+
+/** One half-swing of the picker wobble. Doubles as the spread the per-node phase is drawn from. */
+private const val PickWobbleMillis = 620
+
+/** Badge centre as a fraction of the node's diameter — ~1/√2 of the radius, i.e. 45° on the rim. */
+private const val RIM_FRACTION = 0.35f
 
 // ── tiny infinite-transition helper so the call sites above stay readable ──────────────────
 @Composable
