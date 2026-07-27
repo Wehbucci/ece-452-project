@@ -1,9 +1,8 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
-import com.example.grasp.core.layout.LANE_STEP
-import com.example.grasp.core.layout.freeLane
-import com.example.grasp.core.layout.freeLaneRightOf
+import com.example.grasp.core.layout.LANE_GRID
+import com.example.grasp.core.layout.gridColumnOf
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -293,31 +292,49 @@ class PathPresenter(
     /**
      * Exactly one "+" ghost per lesson, marking where that lesson's next section would go.
      *
-     * Placed the way the real branch will be, so the ghost is a preview and not just a marker:
+     * Placed the way the real branch will be, so a ghost previews the result rather than just
+     * marking a target:
      *  - a lesson with nothing after it continues STRAIGHT DOWN, in its own lane;
-     *  - a lesson that already leads somewhere gets its new child to the RIGHT of the ones it has,
+     *  - a lesson that already leads somewhere gets its ghost to the RIGHT of the children it has,
      *    because the board reads left to right.
      *
-     * Ghosts are placed in board order and count as occupying their row once placed, so they can
-     * never land on each other or on an existing node.
+     * Ghosts only ever move rightward and downward, never back to the left — bouncing side to side
+     * to find room is what made a column of them zig-zag. When the row beside the children is
+     * full, the ghost drops a row and tries again from beside its own lesson instead, which draws
+     * as the dotted wire sweeping down past the children.
      */
     private fun addSlots(rows: Map<String, Int>): List<AddSlotUi> {
         if (!addMode) return emptyList()
-        val lanesByRow = HashMap<Int, MutableList<Int>>()
-        nodes.forEach { lanesByRow.getOrPut(rows.getValue(it.id)) { mutableListOf() } += it.lane }
+        val usedColumns = HashMap<Int, MutableSet<Int>>()
+        nodes.forEach { node ->
+            usedColumns.getOrPut(rows.getValue(node.id)) { mutableSetOf() } += gridColumnOf(node.lane)
+        }
         val byId = nodes.associateBy { it.id }
 
         return nodes.map { node ->
-            val row = rows.getValue(node.id) + 1
-            val occupied = lanesByRow.getOrPut(row) { mutableListOf() }
-            val rightmostChild = node.children.mapNotNull { byId[it] }.maxOfOrNull { it.lane }
-            val lane = if (rightmostChild == null) {
-                freeLane(node.lane, occupied)
-            } else {
-                freeLaneRightOf(rightmostChild + LANE_STEP, occupied)
-            }
-            occupied += lane
-            AddSlotUi(anchorId = node.id, lane = lane, row = row)
+            val anchorRow = rows.getValue(node.id)
+            // A lesson with nothing after it continues in its own column; one that already leads
+            // somewhere takes the next column along from its right-most child, so the row stays in
+            // left-to-right order.
+            val rightmostChild = node.children.mapNotNull { byId[it] }
+                .maxOfOrNull { gridColumnOf(it.lane) }
+            val wanted = rightmostChild?.plus(1)?.coerceAtMost(LANE_GRID.lastIndex)
+                ?: gridColumnOf(node.lane)
+
+            // Try the preferred side of each row first, then the rest of that same row, before
+            // dropping to the next one. Staying on the nearest row keeps a ghost next to the
+            // lesson it belongs to; the columns are what stop it from wandering.
+            val placement = (1..SLOT_ROW_SEARCH).firstNotNullOfOrNull { drop ->
+                val row = anchorRow + drop
+                val taken = usedColumns.getOrPut(row) { mutableSetOf() }
+                val rightward = (wanted..LANE_GRID.lastIndex).asSequence()
+                val leftward = (wanted - 1 downTo 0).asSequence()
+                (rightward + leftward).firstOrNull { it !in taken }?.let { row to it }
+            } ?: (anchorRow + 1 to wanted)
+
+            val (row, column) = placement
+            usedColumns.getOrPut(row) { mutableSetOf() } += column
+            AddSlotUi(anchorId = node.id, lane = LANE_GRID[column], row = row)
         }
     }
 
@@ -334,7 +351,10 @@ class PathPresenter(
                 title = n.title,
                 estMinutes = n.estMinutes,
                 state = stateOf(n, parents, current),
-                lane = n.lane,
+                // Snapped to the grid so the board reads as ordered columns. Generated roadmaps
+                // already land on these lanes; this only pulls in hand-authored or older ones,
+                // and it is what lets the add-mode ghosts share the same three columns.
+                lane = LANE_GRID[gridColumnOf(n.lane)],
                 row = rows.getValue(n.id),
                 parentIds = parents[n.id].orEmpty(),
             )
@@ -376,6 +396,9 @@ class PathPresenter(
 
         /** XP needed to advance a level. Level = xp / this + 1 (README §Interactions). */
         const val XP_PER_LEVEL = 200
+
+        /** How many rows down a "+" ghost may look for a free column before giving up. */
+        const val SLOT_ROW_SEARCH = 3
 
         /** Demo streak count shown in the HUD (real value would come from UserRepository). */
         const val STREAK = 6

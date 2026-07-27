@@ -85,6 +85,34 @@ private fun pickLane(preferred: Sequence<Int>, occupied: List<Int>): Int {
         ?: TreeNode.LANE_CENTER
 }
 
+// ── The lane grid ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * The lanes a row is built from: left, middle, right.
+ *
+ * A 340dp canvas divided by a 112dp slot gives three columns and no more, so this is the whole
+ * vocabulary of horizontal positions — a row holds at most [MAX_PER_ROW] items. Generated
+ * roadmaps already land on these, and add-mode ghosts snap to them too, which is what keeps a
+ * column of ghosts reading as an ordered grid instead of wandering across the board.
+ */
+internal val LANE_GRID = listOf(LANE_MIN, TreeNode.LANE_CENTER, LANE_MAX)
+
+/** How many items one row can hold. */
+internal const val MAX_PER_ROW = 3
+
+/** Which grid column [lane] belongs to. Hand-authored lanes sit off-grid and get rounded in. */
+internal fun gridColumnOf(lane: Int): Int =
+    LANE_GRID.indices.minByOrNull { abs(LANE_GRID[it] - lane) } ?: 1
+
+/**
+ * Ghost-to-node clearance: the largest node's radius (41) plus a ghost's (20).
+ *
+ * Ghosts are small circles with no title under them, so they may sit closer to a node than two
+ * labelled nodes ever could. That is checked separately from the grid because a roadmap built
+ * before the grid existed can hold lanes that don't sit on it.
+ */
+internal const val SLOT_NODE_CLEARANCE = 62
+
 /**
  * Row of every node, matching how the presenter lays the board out: the longest path from a root,
  * so a node always sits below all of its parents.
@@ -105,16 +133,25 @@ internal fun rowsOf(nodes: List<TreeNode>): Map<String, Int> {
 /**
  * Lane for a branch of [branchLength] nodes growing under [anchorId].
  *
- * Branching off a node that already has a child puts the new nodes alongside the existing path
- * rather than under it, so this clears every row the branch will occupy — not just the first —
- * before settling on a lane. It starts from the anchor's own lane, so a branch off the end of the
- * roadmap simply continues straight down.
+ * Follows the same rule the add-mode ghosts preview, so a branch lands where the "+" the user
+ * tapped was sitting: straight down from a lesson with nothing after it, and to the RIGHT of the
+ * children of one that already leads somewhere. Unlike a ghost these are full labelled nodes, so
+ * they need real node clearance, and across every row the branch will span rather than just the
+ * first.
  */
 internal fun laneForBranch(nodes: List<TreeNode>, anchorId: String, branchLength: Int): Int {
     val rows = rowsOf(nodes)
-    val wanted = nodes.firstOrNull { it.id == anchorId }?.lane ?: TreeNode.LANE_CENTER
+    val anchor = nodes.firstOrNull { it.id == anchorId }
+    val byId = nodes.associateBy { it.id }
+    val rightmostChild = anchor?.children?.mapNotNull { byId[it]?.lane }?.maxOrNull()
+
     val anchorRow = rows[anchorId] ?: 0
     val span = (anchorRow + 1)..(anchorRow + branchLength.coerceAtLeast(1))
     val occupied = nodes.filter { (rows[it.id] ?: -1) in span }.map { it.lane }
-    return freeLane(wanted, occupied)
+
+    return if (rightmostChild == null) {
+        freeLane(anchor?.lane ?: TreeNode.LANE_CENTER, occupied)
+    } else {
+        freeLaneRightOf(rightmostChild + LANE_STEP, occupied)
+    }
 }

@@ -81,6 +81,9 @@ class PathPresenterTest {
         override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
     }
 
+    /** The only lanes anything on the board may occupy: left, middle, right. */
+    private val COLUMNS = listOf(56, 170, 284)
+
     private fun PathUiState.node(id: String) = nodes.first { it.id == id }
 
     private fun attach(pathId: String = "ml-101"): Pair<PathPresenter, FakeView> {
@@ -212,10 +215,14 @@ class PathPresenterTest {
         val nodes = view.lastState!!.nodes
         assertEquals("one per lesson, no more", nodes.size, slots.size)
         assertEquals(nodes.map { it.id }.toSet(), slots.map { it.anchorId }.toSet())
-        // Each slot sits directly under the node it would grow from.
+        // Always below its lesson, and never more than a row past it.
         val rows = nodes.associate { it.id to it.row }
         slots.forEach { slot ->
-            assertEquals(rows.getValue(slot.anchorId) + 1, slot.row)
+            val anchorRow = rows.getValue(slot.anchorId)
+            assertTrue(
+                "slot for ${slot.anchorId} on row ${slot.row}, anchor on $anchorRow",
+                slot.row in (anchorRow + 1)..(anchorRow + 2),
+            )
         }
 
         presenter.onAddModeCancelled()
@@ -248,7 +255,24 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `no slot is ever drawn on top of an existing node`() {
+    fun `everything on the board sits on the three-column grid`() {
+        val (presenter, view) = attach()
+
+        presenter.onAddNodeRequested()
+
+        // Zig-zag was slots landing at arbitrary lanes between the nodes. Both nodes and slots now
+        // occupy the same three columns, which is what makes a row read as an ordered grid.
+        val state = view.lastState!!
+        state.nodes.forEach { node ->
+            assertTrue("${node.id} is off-grid at ${node.lane}", node.lane in COLUMNS)
+        }
+        state.addSlots.forEach { slot ->
+            assertTrue("slot for ${slot.anchorId} is off-grid at ${slot.lane}", slot.lane in COLUMNS)
+        }
+    }
+
+    @Test
+    fun `no slot is drawn on top of a node or another slot`() {
         val (presenter, view) = attach()
 
         presenter.onAddNodeRequested()
@@ -257,8 +281,14 @@ class PathPresenterTest {
         state.addSlots.forEach { slot ->
             state.nodes.filter { it.row == slot.row }.forEach { neighbour ->
                 assertTrue(
-                    "slot for ${slot.anchorId} at ${slot.lane} sits on ${neighbour.id}",
+                    "slot for ${slot.anchorId} shares a cell with ${neighbour.id} at ${slot.lane}",
                     neighbour.lane != slot.lane,
+                )
+            }
+            state.addSlots.filter { it.row == slot.row && it.anchorId != slot.anchorId }.forEach { other ->
+                assertTrue(
+                    "slots for ${slot.anchorId} and ${other.anchorId} share a cell at ${slot.lane}",
+                    other.lane != slot.lane,
                 )
             }
         }
