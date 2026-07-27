@@ -344,7 +344,10 @@ private fun JourneyBoard(
                     )
                 },
                 marginPx = with(density) { BoardMargin.toPx() },
-                focusInsetPx = with(density) { FocusTopInset.toPx() },
+                // A share of the visible board rather than a fixed distance, so the focused node
+                // lands well down the screen on any device instead of tucked against the header.
+                focusInsetPx = (viewport.height * FocusViewportFraction)
+                    .coerceAtLeast(with(density) { FocusMinInset.toPx() }),
                 minZoom = MinFitZoom,
             ),
         )
@@ -452,12 +455,16 @@ private const val MinFitZoom = 0.7f
 private val BoardMargin = 24.dp
 
 /**
- * Where the focused node's centre sits below the top of the board area when the board frames itself.
+ * How far down the visible board the focused node sits when the board frames itself.
  *
- * Enough to clear its "YOU'RE HERE" tag and leave a hint of the wire arriving from above, without
- * spending screen on empty board.
+ * Roughly a quarter of the way, which puts it clear of the HUD above the board and leaves its
+ * "YOU'RE HERE" tag and the wire arriving from above room to breathe, while still showing what comes
+ * next below it.
  */
-private val FocusTopInset = 108.dp
+private const val FocusViewportFraction = 0.26f
+
+/** Floor for the above, for a board area too short for a quarter of it to be much. */
+private val FocusMinInset = 108.dp
 
 /**
  * How much of the board must stay in view, and therefore how far it can be dragged.
