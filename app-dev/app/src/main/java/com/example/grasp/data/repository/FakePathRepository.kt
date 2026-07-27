@@ -1,6 +1,5 @@
 package com.example.grasp.data.repository
 
-import com.example.grasp.core.layout.laneForBranch
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonBlock
@@ -52,22 +51,19 @@ object FakePathRepository : PathRepository {
         title = "Cooking for beginners",
         nodes = listOf(
             TreeNode("kitchen-basics", "Kitchen Basics", completed = true, estMinutes = 8,
-                children = listOf("knife-skills"), contentRef = "content/cooking-101/kitchen-basics.md",
-                lane = 170, tier = "FOUNDATIONS"),
+                children = listOf("knife-skills"), contentRef = "content/cooking-101/kitchen-basics.md", tier = "FOUNDATIONS"),
             TreeNode("knife-skills", "Knife Skills", completed = true, estMinutes = 12,
                 children = listOf("simple-techniques", "reading-recipe"),
-                contentRef = "content/cooking-101/knife-skills.md", lane = 170),
+                contentRef = "content/cooking-101/knife-skills.md"),
             TreeNode("simple-techniques", "Simple Techniques", estMinutes = 15,
-                children = listOf("building-flavor"), contentRef = "content/cooking-101/simple-techniques.md",
-                lane = 100, tier = "TECHNIQUE · PICK A TRACK"),
+                children = listOf("building-flavor"), contentRef = "content/cooking-101/simple-techniques.md", tier = "TECHNIQUE · PICK A TRACK"),
             TreeNode("reading-recipe", "Reading a Recipe", estMinutes = 6,
-                children = listOf("plating"), contentRef = "content/cooking-101/reading-recipe.md",
-                lane = 240, tier = "TECHNIQUE · PICK A TRACK"),
+                children = listOf("plating"), contentRef = "content/cooking-101/reading-recipe.md", tier = "TECHNIQUE · PICK A TRACK"),
             TreeNode("building-flavor", "Building Flavor", estMinutes = 18,
-                children = listOf("plating"), lane = 100),
+                children = listOf("plating")),
             TreeNode("plating", "Plating & Presentation", estMinutes = 10,
-                children = listOf("add-branch"), lane = 170, tier = "MASTERY"),
-            TreeNode("add-branch", "Add a branch", isBranchOut = true, lane = 170),
+                children = listOf("add-branch"), tier = "MASTERY"),
+            TreeNode("add-branch", "Add a branch", isBranchOut = true),
         ),
     )
 
@@ -75,35 +71,31 @@ object FakePathRepository : PathRepository {
      * The Machine Learning journey — the hero graph for the gamified roadmap. Its shape is the
      * whole point of the redesign: it SPLITS (data → supervised + unsupervised) and later
      * CONVERGES (regression + clustering → model evaluation), which the winding Duolingo-style
-     * path draws as clear forks and merges. Lanes/tiers match the design handoff exactly.
+     * path draws as clear forks and merges.
      */
     private fun machineLearningPath() = LearningPath(
         id = "ml-101",
         title = "Machine Learning",
         nodes = listOf(
             TreeNode("what-is-ml", "What is ML?", completed = true, estMinutes = 5,
-                children = listOf("types-of-learning"), contentRef = "content/ml-101/what-is-ml.md",
-                lane = 170, tier = "FOUNDATIONS"),
+                children = listOf("types-of-learning"), contentRef = "content/ml-101/what-is-ml.md", tier = "FOUNDATIONS"),
             TreeNode("types-of-learning", "Types of Learning", completed = true, estMinutes = 8,
-                children = listOf("data-basics"), contentRef = "content/ml-101/types-of-learning.md",
-                lane = 108),
+                children = listOf("data-basics"), contentRef = "content/ml-101/types-of-learning.md"),
             TreeNode("data-basics", "Data Basics", completed = true, estMinutes = 10,
-                children = listOf("supervised", "unsupervised"), contentRef = "content/ml-101/data-basics.md",
-                lane = 230),
+                children = listOf("supervised", "unsupervised"), contentRef = "content/ml-101/data-basics.md"),
             TreeNode("supervised", "Supervised", estMinutes = 12, children = listOf("regression"),
-                contentRef = "content/ml-101/supervised.md", lane = 96, tier = "CORE ML · PICK A TRACK"),
+                contentRef = "content/ml-101/supervised.md", tier = "CORE ML · PICK A TRACK"),
             TreeNode("unsupervised", "Unsupervised", estMinutes = 12, children = listOf("clustering"),
-                contentRef = "content/ml-101/unsupervised.md", lane = 244),
+                contentRef = "content/ml-101/unsupervised.md"),
             TreeNode("regression", "Regression", estMinutes = 10, children = listOf("model-evaluation"),
-                contentRef = "content/ml-101/regression.md", lane = 96),
+                contentRef = "content/ml-101/regression.md"),
             TreeNode("clustering", "Clustering", estMinutes = 10, children = listOf("model-evaluation"),
-                contentRef = "content/ml-101/clustering.md", lane = 244),
+                contentRef = "content/ml-101/clustering.md"),
             TreeNode("model-evaluation", "Model Evaluation", estMinutes = 9,
-                children = listOf("neural-networks"), contentRef = "content/ml-101/model-evaluation.md",
-                lane = 170, tier = "MASTERY"),
+                children = listOf("neural-networks"), contentRef = "content/ml-101/model-evaluation.md", tier = "MASTERY"),
             TreeNode("neural-networks", "Neural Networks", estMinutes = 15, children = listOf("branch-1"),
-                contentRef = "content/ml-101/neural-networks.md", lane = 170),
-            TreeNode("branch-1", "Branch out", isBranchOut = true, lane = 170),
+                contentRef = "content/ml-101/neural-networks.md"),
+            TreeNode("branch-1", "Branch out", isBranchOut = true),
         ),
     )
 
@@ -210,9 +202,7 @@ object FakePathRepository : PathRepository {
                 estMinutes = 12,
                 parentId = from?.id,
                 contentRef = "content/$pathId/$topicId.md",
-                lane = from?.let { laneForBranch(path.nodes, it.id, branchLength = 1) }
-                    ?: TreeNode.LANE_CENTER,
-                tier = BRANCH_TIER,
+                // No position and no region pill: the board re-lays itself out around the new node.
             ),
         )
     }

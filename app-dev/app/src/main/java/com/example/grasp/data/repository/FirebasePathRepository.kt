@@ -1,7 +1,6 @@
 package com.example.grasp.data.repository
 
 import android.util.Log
-import com.example.grasp.core.layout.laneForBranch
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
@@ -206,11 +205,8 @@ class FirebasePathRepository : PathRepository {
             topic = topic,
             takenIds = path.nodes.mapTo(mutableSetOf()) { it.id },
         )
-        // The lane can only be picked once the branch exists, since it has to clear every row the
-        // branch will span. To the right of what [from] already leads to, matching the board.
-        val lane = laneForBranch(path.nodes, from.id, generated.size)
         val branch = generated.mapIndexed { index, node ->
-            node.copy(lane = lane, parentId = if (index == 0) from.id else node.parentId)
+            if (index == 0) node.copy(parentId = from.id) else node
         }
 
         // Same deal as a new topic: the branch's lessons are written now, not on first open.
@@ -383,7 +379,6 @@ class FirebasePathRepository : PathRepository {
         },
         "contentStatus" to "not_generated",
         "tier" to node.tier,
-        "lane" to node.lane,
     ) + (content?.let(::contentFields) ?: emptyMap())
 
     /** The generated-lesson half of a node document, shared by the up-front and lazy writers. */
@@ -412,7 +407,8 @@ class FirebasePathRepository : PathRepository {
             contentRef = getString("contentRef"),
             contentReady = getString("contentStatus") == CONTENT_GENERATED,
             isBranchOut = (getString("state") ?: "").equals("branch-out", ignoreCase = true),
-            lane = getLong("lane")?.toInt() ?: TreeNode.LANE_CENTER,
+            // A stored "lane" on an older document is ignored: the board derives every position
+            // from the shape of the tree now, so a saved coordinate would only fight it.
             tier = getString("tier"),
         )
     }

@@ -2,9 +2,6 @@ package com.example.grasp.data.repository
 
 import com.example.grasp.data.model.TreeNode
 
-/** Region pill carried by every user-grown node, so the journey groups them under one header. */
-internal const val BRANCH_TIER = "YOUR BRANCHES"
-
 /** A grown branch stays short — it's a detour, not a second roadmap. */
 private const val MAX_BRANCH_NODES = 4
 
@@ -23,11 +20,10 @@ private const val SYSTEM_INSTRUCTION = """
  *        finished instead of restarting the subject.
  * @param topic what the user asked for, typed or picked from [suggestBranchTopics].
  * @param takenIds ids already on the path; new ids are made unique against these.
- * @param lane horizontal position to grow in. Callers that need the branch to clear existing nodes
- *        leave this alone and re-lane the result once they know how long the branch turned out.
  *
  * Returns the new lessons as a straight chain. Never empty: if generation fails they still get a
- * single node named after what they asked for (NFR 3.1).
+ * single node named after what they asked for (NFR 3.1). Where the chain lands on screen isn't
+ * decided here — the board re-derives its whole layout once the branch is attached.
  */
 suspend fun buildBranch(
     pathId: String,
@@ -35,7 +31,6 @@ suspend fun buildBranch(
     fromTitle: String,
     topic: String,
     takenIds: Set<String>,
-    lane: Int = TreeNode.LANE_CENTER,
 ): List<TreeNode> {
     val wanted = topic.trim().ifEmpty { "New branch" }
     val generated = geminiJson(SYSTEM_INSTRUCTION, branchPrompt(pathTitle, fromTitle, wanted))
@@ -47,7 +42,7 @@ suspend fun buildBranch(
     // that assigning them here is simpler than reconciling them. Its `children` are ignored too —
     // a branch is deliberately a straight chain, which is what [chain] builds below.
     val titles = generated.map { it.title }.ifEmpty { listOf(wanted) }
-    return chain(pathId, titles, generated.map { it.estMinutes }, takenIds, lane)
+    return chain(pathId, titles, generated.map { it.estMinutes }, takenIds)
 }
 
 /**
@@ -74,7 +69,6 @@ private fun chain(
     titles: List<String>,
     estMinutes: List<Int>,
     takenIds: Set<String>,
-    lane: Int,
 ): List<TreeNode> {
     val taken = takenIds.toMutableSet()
     val ids = titles.map { title -> uniqueId(slugify(title), taken).also { taken += it } }
@@ -87,9 +81,8 @@ private fun chain(
             children = listOfNotNull(ids.getOrNull(index + 1)),
             parentId = ids.getOrNull(index - 1),
             contentRef = "content/$pathId/${ids[index]}.md",
-            lane = lane,
-            // Only the first node carries the pill; the presenter anchors one pill per tier.
-            tier = BRANCH_TIER.takeIf { index == 0 },
+            // No region pill: a grown branch is just more roadmap, and a header announcing it only
+            // added a banner across the middle of the board.
         )
     }
 }
