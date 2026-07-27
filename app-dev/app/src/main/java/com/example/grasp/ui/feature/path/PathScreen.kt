@@ -280,14 +280,19 @@ fun PathScreen(
  * pinches to zoom and drags to move around. Pure rendering of [state].
  *
  * The board is a single transformed layer rather than a scrolling list, so zoom applies to the
- * connectors, pills and nodes together and nothing has to be re-laid-out mid-gesture. It is
- * TopCenter-aligned and scaled about its own top-center, so its horizontal centre is the screen's
- * whenever the camera is at rest.
+ * connectors, pills and nodes together and nothing has to be re-laid-out mid-gesture.
  *
- * Until the board is touched it frames itself: zoomed to fit the widest row within [BoardMargin]
- * either side, with the ROOT in view at the top. That frame is derived, not stored, so no measure
- * pass can leave a stale one behind. The first gesture takes ownership, after which growing a
- * branch, opening a lesson or any other state change never moves the camera, and it may travel in
+ * The camera is a plain `screen = offset + scale × board` mapping: the board is pinned at the
+ * viewport's top-left and scaled about that same corner, so [BoardCamera.offset] is literally where
+ * the board's origin lands on screen. Every earlier attempt at framing the root failed because it
+ * leaned on something implicit instead — Box alignment centring an oversized child, a pivot in the
+ * middle of the layer — and one wrong assumption in that chain put the root off screen with nothing
+ * in the arithmetic to show it. With the corner as the origin there is nothing left to assume:
+ * [openingCamera] solves the offset directly from the root's own position.
+ *
+ * Until the board is touched it frames itself, and that frame is derived rather than stored, so no
+ * measure pass can leave a stale one behind. The first gesture takes ownership, after which growing
+ * a branch, opening a lesson or any other state change never moves the camera, and it may travel in
  * every direction until only [KeepOnScreen] of the board is left in view.
  */
 @Composable
@@ -317,46 +322,31 @@ private fun JourneyBoard(
         )
 
         /**
-         * Where the camera may sit: anywhere that still leaves [KeepOnScreen] of the board in view.
+         * The frame the board opens on: aimed at the node the learner is actually on — the one
+         * wearing "YOU'RE HERE" — falling back to the top of the tree if nothing is current, which
+         * on an untouched roadmap is the same node anyway.
          *
-         * Deliberately loose. A clamp tight to the board's edges pins a board that already fits dead
-         * centre — every drag then does nothing — and any asymmetry in it shows up as one direction
-         * that mysteriously refuses to move. This keeps all four directions live at every zoom, and
-         * only stops the board being flung off screen entirely.
+         * RE-DERIVED every composition rather than remembered. That matters: `BoxWithConstraints`
+         * composes during measure, so a first pass whose height isn't final yet computes a bad frame
+         * — and freezing that pass's answer in a `remember` froze the mistake. Deriving it means a
+         * bad measure cannot outlive itself.
          */
-        fun clampOffset(candidate: Offset, atScale: Float): Offset {
-            val halfWidth = content.width * atScale / 2f
-            val height = content.height * atScale
-            val reachX = viewport.width / 2f + halfWidth - keepOnScreen
-            return Offset(
-                x = candidate.x.coerceIn(-reachX, reachX),
-                y = candidate.y.coerceIn(keepOnScreen - height, viewport.height - keepOnScreen),
-            )
-        }
-
-        /**
-         * The frame the board opens on, RE-DERIVED every composition rather than remembered.
-         *
-         * Nothing here is stored and nothing here is clamped, because both are how the root ended up
-         * off screen before: `BoxWithConstraints` composes during measure, and a first pass whose
-         * height isn't final yet makes the clamp's own bounds nonsense. Freezing that pass's answer
-         * froze the mistake. Deriving it instead means a bad measure simply can't outlive itself.
-         *
-         * A zero translation already puts the board's top edge at the top of the viewport, and the
-         * root sits one [PathLayout] top-padding below that — so the root is visible with no viewport
-         * arithmetic to get wrong. Only the horizontal is solved, to centre the ROOT rather than the
-         * board, which is what keeps a lopsided tree from opening off to one side.
-         */
-        val root = state.nodes.minByOrNull { it.row }
+        val focus = state.nodes.firstOrNull { it.state == PathNodeState.CURRENT }
+            ?: state.nodes.minByOrNull { it.row }
         val opening = rememberUpdatedState(
-            run {
-                val margin = with(density) { BoardMargin.toPx() }
-                val fitted = if (viewport.width <= 0f || content.width <= 0f) 1f else {
-                    ((viewport.width - 2f * margin) / content.width).coerceIn(MinFitZoom, 1f)
-                }
-                val rootX = with(density) { PathLayout.centerX(root?.column ?: 0f).toPx() }
-                BoardCamera(fitted, Offset(fitted * (content.width / 2f - rootX), 0f))
-            },
+            openingCamera(
+                viewport = viewport,
+                content = content,
+                focusCentre = with(density) {
+                    Offset(
+                        PathLayout.centerX(focus?.column ?: 0f).toPx(),
+                        PathLayout.centerY(focus?.row ?: 0, regionRows).toPx(),
+                    )
+                },
+                marginPx = with(density) { BoardMargin.toPx() },
+                focusInsetPx = with(density) { FocusTopInset.toPx() },
+                minZoom = MinFitZoom,
+            ),
         )
 
         // The moment the user touches the board the camera becomes theirs, and from then on nothing
@@ -370,20 +360,21 @@ private fun JourneyBoard(
                     detectTransformGestures { centroid, pan, zoom, _ ->
                         val camera = moved.value ?: opening.value
                         val next = (camera.scale * zoom).coerceIn(MinZoom, MaxZoom)
-                        // Keep whatever is under the fingers under the fingers: the pinch centroid,
-                        // measured from the transform origin, is the one point that must not move.
+                        // Keep whatever is under the fingers under the fingers. With the corner as
+                        // the origin, holding the centroid still is just this — no pivot to subtract.
                         val factor = next / camera.scale
-                        val fromOrigin = centroid - Offset(viewport.width / 2f, 0f)
                         moved.value = BoardCamera(
                             scale = next,
                             offset = clampOffset(
-                                fromOrigin * (1f - factor) + camera.offset * factor + pan,
-                                next,
+                                candidate = centroid * (1f - factor) + camera.offset * factor + pan,
+                                scale = next,
+                                viewport = viewport,
+                                content = content,
+                                keepOnScreenPx = keepOnScreen,
                             ),
                         )
                     }
                 },
-            contentAlignment = Alignment.TopCenter,
         ) {
             Box(
                 modifier = Modifier
@@ -400,7 +391,9 @@ private fun JourneyBoard(
                         scaleY = camera.scale
                         translationX = camera.offset.x
                         translationY = camera.offset.y
-                        transformOrigin = TransformOrigin(0.5f, 0f)
+                        // Top-LEFT corner, so the offset above is exactly where the board's origin
+                        // lands on screen and the framing maths has no pivot term to get wrong.
+                        transformOrigin = TransformOrigin(0f, 0f)
                     },
             ) {
                 // 1) Connectors behind everything.
@@ -458,8 +451,13 @@ private const val MinFitZoom = 0.7f
 /** Breathing room left either side of the widest row when the board is first fitted to the screen. */
 private val BoardMargin = 24.dp
 
-/** Where the board is being looked at from: how far it is zoomed, and how far it is shifted. */
-private data class BoardCamera(val scale: Float, val offset: Offset)
+/**
+ * Where the focused node's centre sits below the top of the board area when the board frames itself.
+ *
+ * Enough to clear its "YOU'RE HERE" tag and leave a hint of the wire arriving from above, without
+ * spending screen on empty board.
+ */
+private val FocusTopInset = 108.dp
 
 /**
  * How much of the board must stay in view, and therefore how far it can be dragged.
