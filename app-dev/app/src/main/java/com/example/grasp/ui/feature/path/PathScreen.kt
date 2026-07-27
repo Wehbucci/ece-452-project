@@ -3,21 +3,21 @@
 package com.example.grasp.ui.feature.path
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredHeight
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.CircularProgressIndicator
@@ -33,17 +33,24 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.Subtopic
-import com.example.grasp.ui.components.AddSlotNode
 import com.example.grasp.ui.components.ConfettiBurst
 import com.example.grasp.ui.components.LevelUpRibbon
 import com.example.grasp.ui.components.PathHud
@@ -195,16 +202,15 @@ fun PathScreen(
                             enterId = enterId,
                             enterNonce = enterNonce,
                             onNodeTapped = presenter::onNodeTapped,
-                            onSlotTapped = presenter::onAddSlotTapped,
                         )
                         // Non-scrolling celebratory overlays.
                         ConfettiBurst(confettiTrigger, Modifier.fillMaxSize())
                         LevelUpRibbon(levelUp, onFinished = { levelUp = null })
                         PathToast(toast, onFinished = { toast = null })
 
-                        // Add mode: a banner explaining the "+" ghosts, or the button that shows them.
-                        if (s.addSlots.isNotEmpty()) {
-                            AddModeBanner(
+                        // Either we're asking which section to branch from, or offering to ask.
+                        if (s.pickingBranchAnchor) {
+                            PickAnchorBanner(
                                 onCancel = presenter::onAddModeCancelled,
                                 modifier = Modifier.align(Alignment.TopCenter),
                             )
@@ -270,8 +276,19 @@ fun PathScreen(
 }
 
 /**
- * The scrolling journey itself: a fixed-width (340dp) canvas with the connector layer behind
- * absolutely-positioned region pills and node buttons. Pure rendering of [state].
+ * The journey itself: one board, exactly as wide and tall as the roadmap needs, which the user
+ * pinches to zoom and drags to move around. Pure rendering of [state].
+ *
+ * The board is a single transformed layer rather than a scrolling list, so zoom applies to the
+ * connectors, pills and nodes together and nothing has to be re-laid-out mid-gesture. It is
+ * TopCenter-aligned and scaled about its own top-center, so its horizontal centre is the screen's
+ * whenever the camera is at rest.
+ *
+ * Until the board is touched it frames itself: zoomed to fit the widest row within [BoardMargin]
+ * either side, with the ROOT in view at the top. That frame is derived, not stored, so no measure
+ * pass can leave a stale one behind. The first gesture takes ownership, after which growing a
+ * branch, opening a lesson or any other state change never moves the camera, and it may travel in
+ * every direction until only [KeepOnScreen] of the board is left in view.
  */
 @Composable
 private fun JourneyBoard(
@@ -280,31 +297,118 @@ private fun JourneyBoard(
     enterId: String?,
     enterNonce: Int,
     onNodeTapped: (String) -> Unit,
-    onSlotTapped: (String) -> Unit,
 ) {
     val regionRows = remember(state.regions) { state.regions.map { it.row }.toSet() }
-    val canvasHeight = PathLayout.canvasHeight(state.rowCount, regionRows)
-    Box(
-        Modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    val boardWidth = PathLayout.boardWidth(state.columnSpan)
+    val boardHeight = PathLayout.boardHeight(state.rowCount, regionRows)
+
+    BoxWithConstraints(Modifier.fillMaxSize().clipToBounds()) {
+        val density = LocalDensity.current
+        val keepOnScreen = with(density) { KeepOnScreen.toPx() }
+
+        // Live geometry. Read through `rememberUpdatedState` so the gesture handler below can be
+        // started once and never restarted: re-keying `pointerInput` every time the board grew was
+        // tearing the detector down mid-drag, which is what made panning feel like it seized up.
+        val viewport by rememberUpdatedState(
+            Size(constraints.maxWidth.toFloat(), constraints.maxHeight.toFloat()),
+        )
+        val content by rememberUpdatedState(
+            with(density) { Size(boardWidth.toPx(), boardHeight.toPx()) },
+        )
+
+        /**
+         * Where the camera may sit: anywhere that still leaves [KeepOnScreen] of the board in view.
+         *
+         * Deliberately loose. A clamp tight to the board's edges pins a board that already fits dead
+         * centre — every drag then does nothing — and any asymmetry in it shows up as one direction
+         * that mysteriously refuses to move. This keeps all four directions live at every zoom, and
+         * only stops the board being flung off screen entirely.
+         */
+        fun clampOffset(candidate: Offset, atScale: Float): Offset {
+            val halfWidth = content.width * atScale / 2f
+            val height = content.height * atScale
+            val reachX = viewport.width / 2f + halfWidth - keepOnScreen
+            return Offset(
+                x = candidate.x.coerceIn(-reachX, reachX),
+                y = candidate.y.coerceIn(keepOnScreen - height, viewport.height - keepOnScreen),
+            )
+        }
+
+        /**
+         * The frame the board opens on, RE-DERIVED every composition rather than remembered.
+         *
+         * Nothing here is stored and nothing here is clamped, because both are how the root ended up
+         * off screen before: `BoxWithConstraints` composes during measure, and a first pass whose
+         * height isn't final yet makes the clamp's own bounds nonsense. Freezing that pass's answer
+         * froze the mistake. Deriving it instead means a bad measure simply can't outlive itself.
+         *
+         * A zero translation already puts the board's top edge at the top of the viewport, and the
+         * root sits one [PathLayout] top-padding below that — so the root is visible with no viewport
+         * arithmetic to get wrong. Only the horizontal is solved, to centre the ROOT rather than the
+         * board, which is what keeps a lopsided tree from opening off to one side.
+         */
+        val root = state.nodes.minByOrNull { it.row }
+        val opening = rememberUpdatedState(
+            run {
+                val margin = with(density) { BoardMargin.toPx() }
+                val fitted = if (viewport.width <= 0f || content.width <= 0f) 1f else {
+                    ((viewport.width - 2f * margin) / content.width).coerceIn(MinFitZoom, 1f)
+                }
+                val rootX = with(density) { PathLayout.centerX(root?.column ?: 0f).toPx() }
+                BoardCamera(fitted, Offset(fitted * (content.width / 2f - rootX), 0f))
+            },
+        )
+
+        // The moment the user touches the board the camera becomes theirs, and from then on nothing
+        // — a grown branch, an opened lesson, a re-measure — is allowed to move it.
+        val moved = remember { mutableStateOf<BoardCamera?>(null) }
+
         Box(
             modifier = Modifier
-                .fillMaxWidth()
-                // Keep the last node's label clear of the system navigation bar / home bar.
-                .navigationBarsPadding()
-                .height(canvasHeight),
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectTransformGestures { centroid, pan, zoom, _ ->
+                        val camera = moved.value ?: opening.value
+                        val next = (camera.scale * zoom).coerceIn(MinZoom, MaxZoom)
+                        // Keep whatever is under the fingers under the fingers: the pinch centroid,
+                        // measured from the transform origin, is the one point that must not move.
+                        val factor = next / camera.scale
+                        val fromOrigin = centroid - Offset(viewport.width / 2f, 0f)
+                        moved.value = BoardCamera(
+                            scale = next,
+                            offset = clampOffset(
+                                fromOrigin * (1f - factor) + camera.offset * factor + pan,
+                                next,
+                            ),
+                        )
+                    }
+                },
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(Modifier.width(PathLayout.CanvasWidth).height(canvasHeight)) {
+            Box(
+                modifier = Modifier
+                    // REQUIRED, not `width`/`height`: a board wider than the screen must keep its
+                    // real width. `width` is clamped by the parent's constraints, which squashed a
+                    // wide roadmap to viewport width and put its centre in the wrong place.
+                    .requiredWidth(boardWidth)
+                    .requiredHeight(boardHeight)
+                    // Both cameras are read HERE, inside the layer block, so panning and zooming
+                    // cost a redraw and never a recomposition of the board.
+                    .graphicsLayer {
+                        val camera = moved.value ?: opening.value
+                        scaleX = camera.scale
+                        scaleY = camera.scale
+                        translationX = camera.offset.x
+                        translationY = camera.offset.y
+                        transformOrigin = TransformOrigin(0.5f, 0f)
+                    },
+            ) {
                 // 1) Connectors behind everything.
                 TreeCanvas(
                     nodes = state.nodes,
                     regionRows = regionRows,
                     fillIntoId = fillIntoId,
                     modifier = Modifier.fillMaxSize(),
-                    addSlots = state.addSlots,
                 )
 
                 // 2) Region pills, centered in the RegionGap band above their first row.
@@ -325,20 +429,10 @@ private fun JourneyBoard(
                         node = node,
                         onClick = { onNodeTapped(node.id) },
                         enterKey = if (node.id == enterId) enterNonce else 0,
+                        picking = state.pickingBranchAnchor,
                         modifier = Modifier.offset(
-                            x = PathLayout.centerX(node.lane) - PathLayout.circleCenterXInSlot,
+                            x = PathLayout.centerX(node.column) - PathLayout.circleCenterXInSlot,
                             y = PathLayout.centerY(node.row, regionRows) - PathLayout.circleCenterYInSlot,
-                        ),
-                    )
-                }
-
-                // 4) Add-mode "+" ghosts, on top so they're always the easiest thing to hit.
-                state.addSlots.forEach { slot ->
-                    AddSlotNode(
-                        onClick = { onSlotTapped(slot.anchorId) },
-                        modifier = Modifier.offset(
-                            x = PathLayout.centerX(slot.lane) - PathLayout.circleCenterXInSlot,
-                            y = PathLayout.centerY(slot.row, regionRows) - PathLayout.circleCenterYInSlot,
                         ),
                     )
                 }
@@ -347,7 +441,36 @@ private fun JourneyBoard(
     }
 }
 
-/** The floating "add a section" button that puts the board into add mode. */
+/** How far the board may be pinched by hand. Out far enough for an overview of a wide tree. */
+private const val MinZoom = 0.35f
+private const val MaxZoom = 2.5f
+
+/**
+ * The furthest the board will zoom out ON ITS OWN to fit the screen.
+ *
+ * A roadmap several branches wide is far wider than a phone, and fitting all of it would shrink the
+ * 13sp node titles to nothing — which reads as the titles having vanished rather than as a board
+ * that needs panning. So a wide board opens readable and overhanging, and the user pinches out to
+ * [MinZoom] for the overview if they want it.
+ */
+private const val MinFitZoom = 0.7f
+
+/** Breathing room left either side of the widest row when the board is first fitted to the screen. */
+private val BoardMargin = 24.dp
+
+/** Where the board is being looked at from: how far it is zoomed, and how far it is shifted. */
+private data class BoardCamera(val scale: Float, val offset: Offset)
+
+/**
+ * How much of the board must stay in view, and therefore how far it can be dragged.
+ *
+ * The only thing panning is stopped from doing is losing the board altogether. Anything tighter
+ * either pins a small board in place or leaves one direction dead, both of which read as the drag
+ * being broken rather than as a limit.
+ */
+private val KeepOnScreen = 120.dp
+
+/** The floating "add a section" button that starts the pick-a-section-to-branch-from flow. */
 @Composable
 private fun AddNodeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
@@ -375,11 +498,11 @@ private fun AddNodeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
 }
 
 /**
- * Replaces the add button while the "+" ghosts are up: says what to do next, and gives a way out
- * that isn't "pick a spot you didn't want".
+ * Replaces the add button while the board is a picker: says what to tap, and gives a way out that
+ * isn't "pick a section you didn't want".
  */
 @Composable
-private fun AddModeBanner(onCancel: () -> Unit, modifier: Modifier = Modifier) {
+private fun PickAnchorBanner(onCancel: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         shape = RoundedCornerShape(percent = 50),
         color = PathNodeBranch,
@@ -393,7 +516,7 @@ private fun AddModeBanner(onCancel: () -> Unit, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Pick where it goes",
+                text = "Tap a section to branch from",
                 fontFamily = FredokaFamily,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 15.sp,
@@ -428,33 +551,37 @@ private val REGION_PILL_GAP = 100.dp
 @Preview(showBackground = true, heightDp = 900)
 @Composable
 private fun PathScreenPreview() {
-    fun n(id: String, title: String, est: Int, st: PathNodeState, lane: Int, row: Int, parents: List<String>) =
-        PathNodeUi(id, title, est, st, lane, row, parents)
+    fun n(id: String, title: String, est: Int, st: PathNodeState, column: Float, row: Int, parents: List<String>) =
+        PathNodeUi(id, title, est, st, column, row, parents)
 
+    // Three strands off the root, laid out the way `layoutBoard` would: leaves take consecutive
+    // columns and each parent sits at the midpoint of its own children.
     val sample = PathUiState(
         title = "Machine Learning",
         nodes = listOf(
-            n("a", "What is ML?", 5, PathNodeState.DONE, 170, 0, emptyList()),
-            n("b", "Types of Learning", 8, PathNodeState.DONE, 108, 1, listOf("a")),
-            n("c", "Data Basics", 10, PathNodeState.DONE, 230, 2, listOf("b")),
-            n("d", "Supervised", 12, PathNodeState.CURRENT, 96, 3, listOf("c")),
-            n("e", "Unsupervised", 12, PathNodeState.OPEN, 244, 3, listOf("c")),
-            n("f", "Regression", 10, PathNodeState.OPEN, 96, 4, listOf("d")),
-            n("g", "Clustering", 10, PathNodeState.OPEN, 244, 4, listOf("e")),
-            n("h", "Branch out", 0, PathNodeState.BRANCH, 170, 5, listOf("f")),
+            n("a", "What is ML?", 5, PathNodeState.DONE, 1f, 0, emptyList()),
+            n("b", "Supervised", 12, PathNodeState.DONE, 0f, 1, listOf("a")),
+            n("e", "Regression", 10, PathNodeState.CURRENT, 0f, 2, listOf("b")),
+            n("h", "Overfitting", 9, PathNodeState.OPEN, 0f, 3, listOf("e")),
+            n("c", "Unsupervised", 12, PathNodeState.OPEN, 1f, 1, listOf("a")),
+            n("f", "Clustering", 10, PathNodeState.OPEN, 1f, 2, listOf("c")),
+            n("d", "Model Evaluation", 9, PathNodeState.OPEN, 2f, 1, listOf("a")),
+            n("g", "Cross-validation", 11, PathNodeState.OPEN, 2f, 2, listOf("d")),
+            n("i", "Neural Networks", 15, PathNodeState.OPEN, 2f, 3, listOf("g")),
         ),
         regions = listOf(
             RegionUi("FOUNDATIONS", 0),
-            RegionUi("CORE ML · PICK A TRACK", 3),
+            RegionUi("CORE ML · PICK A TRACK", 1),
         ),
-        masteredCount = 3,
-        totalLessons = 7,
+        masteredCount = 2,
+        totalLessons = 9,
         streak = 6,
         level = 1,
-        xpInLevel = 120,
+        xpInLevel = 80,
         xpPerLevel = 200,
-        xpFraction = 0.6f,
-        rowCount = 6,
+        xpFraction = 0.4f,
+        rowCount = 4,
+        columnSpan = 2f,
     )
 
     GraspTheme {
@@ -477,7 +604,6 @@ private fun PathScreenPreview() {
                     enterId = null,
                     enterNonce = 0,
                     onNodeTapped = {},
-                    onSlotTapped = {},
                 )
             }
         }
