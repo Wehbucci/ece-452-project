@@ -5,6 +5,7 @@ import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.PathRepository
 import kotlinx.coroutines.CoroutineScope
@@ -15,7 +16,7 @@ import kotlinx.coroutines.launch
 
 class TinkerPresenter(
     private val guideId: String,
-    private val repo: PathRepository = FakePathRepository,
+    private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
 ) : BasePresenter<TinkerContract.View>(), TinkerContract.Presenter {
 

@@ -11,6 +11,7 @@ import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
+import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.model.TopicSuggestion
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
@@ -86,7 +87,35 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    override fun tinkerGuide(id: String): TinkerGuide? = null
+    override fun tinkerGuide(id: String): TinkerGuide? {
+        val uid = uid ?: return null
+        return try {
+            runBlocking {
+                val doc = topicsRef(uid).document(id).get().await()
+                if (!doc.exists()) return@runBlocking null
+                val title = doc.getString("title")
+                    ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                val steps = (doc.get("steps") as? List<*>).orEmpty()
+                    .filterIsInstance<Map<*, *>>()
+                    .mapIndexedNotNull { index, raw ->
+                        val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
+                        TinkerStep(
+                            id = raw["id"] as? String ?: "step-${index + 1}",
+                            order = (raw["order"] as? Long)?.toInt() ?: index + 1,
+                            instruction = instruction,
+                            detail = raw["detail"] as? String ?: "",
+                            estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
+                            done = raw["done"] as? Boolean ?: false,
+                        )
+                    }
+                    .sortedBy { it.order }
+                TinkerGuide(id = id, title = title, steps = steps)
+            }
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "tinkerGuide failed for $id", e)
+            null
+        }
+    }
 
     /**
      * Resolves a node's lesson, reading the copy [createTopic] cached on the node document.
@@ -263,55 +292,86 @@ class FirebasePathRepository : PathRepository {
                 .replace(Regex("[^a-z0-9]+"), "-").trim('-').ifEmpty { "topic" }
             val title = query.trim().replaceFirstChar { it.uppercase() }
 
-            val nodes = when (mode) {
-                Mode.LEARNER -> buildLearnerTree(normalizedId, title)
-                Mode.TINKERER -> buildTinkerTree(normalizedId, title)
-            }
-            // Every lesson is written NOW, so the roadmap is complete and readable (and offline)
-            // the moment it opens. [subtopic] still generates on demand for anything missing here.
-            val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
-
-            try {
-                topicsRef(uid).document(normalizedId).set(
-                    mapOf(
-                        "title" to title,
-                        "mode" to mode.name.lowercase(),
-                        "createdAt" to FieldValue.serverTimestamp(),
-                        "updatedAt" to FieldValue.serverTimestamp(),
-                        "status" to "active",
-                        "preferences" to mapOf(
-                            "difficulty" to "beginner",
-                            "length" to "standard",
-                            "format" to "text",
-                        ),
-                    ),
-                    SetOptions.merge(),
-                ).await()
-
-                val parentByNodeId = linkedMapOf<String, String?>()
-                nodes.forEach { parentByNodeId[it.id] = null }
-                nodes.forEach { node ->
-                    node.children.forEach { childId -> parentByNodeId[childId] = node.id }
-                }
-
-                nodes.forEachIndexed { index, node ->
-                    nodesRef(uid, normalizedId).document(node.id)
-                        .set(
-                            nodeDoc(node, index, parentByNodeId[node.id], content[node.id]),
-                            SetOptions.merge(),
-                        )
-                        .await()
-                }
-                // Reading time comes from the generated lesson, so the board shows it immediately.
-                val withTimes = nodes.map { node ->
-                    content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
-                }
-                LearningPath(id = normalizedId, title = title, nodes = withTimes)
-            } catch (e: Exception) {
-                Log.e("FirebasePathRepo", "createTopic failed for $query", e)
-                FakePathRepository.createTopic(query, mode)
+            when (mode) {
+                Mode.LEARNER -> createLearnerTopic(uid, normalizedId, title)
+                Mode.TINKERER -> createTinkerTopic(uid, normalizedId, title)
             }
         }
+
+    private suspend fun createLearnerTopic(uid: String, normalizedId: String, title: String): LearningPath? {
+        val nodes = buildLearnerTree(normalizedId, title)
+        val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
+        return try {
+            topicsRef(uid).document(normalizedId).set(
+                mapOf(
+                    "title" to title,
+                    "mode" to "learner",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "status" to "active",
+                    "preferences" to mapOf(
+                        "difficulty" to "beginner",
+                        "length" to "standard",
+                        "format" to "text",
+                    ),
+                ),
+                SetOptions.merge(),
+            ).await()
+
+            val parentByNodeId = linkedMapOf<String, String?>()
+            nodes.forEach { parentByNodeId[it.id] = null }
+            nodes.forEach { node -> node.children.forEach { childId -> parentByNodeId[childId] = node.id } }
+
+            nodes.forEachIndexed { index, node ->
+                nodesRef(uid, normalizedId).document(node.id)
+                    .set(nodeDoc(node, index, parentByNodeId[node.id], content[node.id]), SetOptions.merge())
+                    .await()
+            }
+            val withTimes = nodes.map { node -> content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node }
+            LearningPath(id = normalizedId, title = title, nodes = withTimes)
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "createLearnerTopic failed for $title", e)
+            FakePathRepository.createTopic(title, Mode.LEARNER)
+        }
+    }
+
+    /**
+    * Tinker steps carry their content inline (no lazy contentRef), so this doesn't touch the
+    * node generation at all, the whole guide is a single document write.
+    *
+    * Returns a [LearningPath] with empty nodes purely to satisfy the shared return type; only its
+    * `id` gets read by [HomePresenter] before routing to `openTinker(id)`. The real guide is
+    * fetched via [tinkerGuide].
+    */
+    private suspend fun createTinkerTopic(uid: String, normalizedId: String, title: String): LearningPath? {
+        val guide = buildTinkerGuide(normalizedId, title)
+        return try {
+            topicsRef(uid).document(normalizedId).set(
+                mapOf(
+                    "title" to title,
+                    "mode" to "tinker",
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                    "status" to "active",
+                    "steps" to guide.steps.map { step ->
+                        mapOf(
+                            "id" to step.id,
+                            "order" to step.order,
+                            "instruction" to step.instruction,
+                            "detail" to step.detail,
+                            "estMinutes" to step.estMinutes,
+                            "done" to step.done,
+                        )
+                    },
+                ),
+                SetOptions.merge(),
+            ).await()
+            LearningPath(id = normalizedId, title = title, nodes = emptyList())
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "createTinkerTopic failed for $title", e)
+            null
+        }
+    }
 
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
