@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -382,6 +383,13 @@ private fun JourneyBoard(
         ) {
             Box(
                 modifier = Modifier
+                    // Measured UNBOUNDED and pinned to the viewport's top-left corner. Without
+                    // this, a board bigger than the viewport violates its incoming constraints,
+                    // and Compose responds by silently CENTRING the oversized child — an implicit
+                    // translation of (viewport - board)/2 the camera arithmetic knew nothing
+                    // about, growing with the board, which is exactly what shoved the root of
+                    // every large roadmap off the top of the screen.
+                    .wrapContentSize(align = Alignment.TopStart, unbounded = true)
                     // REQUIRED, not `width`/`height`: a board wider than the screen must keep its
                     // real width. `width` is clamped by the parent's constraints, which squashed a
                     // wide roadmap to viewport width and put its centre in the wrong place.
