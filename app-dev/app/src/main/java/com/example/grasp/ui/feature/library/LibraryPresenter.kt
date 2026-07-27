@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * Logic for the Library screen. Loads saved items on attach and routes a tapped item to the
@@ -25,8 +26,12 @@ class LibraryPresenter(
 
     override fun onViewAttached() {
         scope.launch {
+            // The repository's reads still block (see PathRepository's NOTE) and the Firebase
+            // implementation waits on network inside them, so they run off the main thread —
+            // otherwise the Library stutters every time it loads or a delete refreshes it.
+            val saved = withContext(Dispatchers.IO) { repo.savedItems() }
             items.clear()
-            items.addAll(repo.savedItems())
+            items.addAll(saved)
             view?.showSaved(items.toList())
         }
     }
