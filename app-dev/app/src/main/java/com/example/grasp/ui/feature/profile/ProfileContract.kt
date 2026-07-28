@@ -16,11 +16,17 @@ interface ProfileContract {
         /** Render the level / XP / totals card once the saved paths have been read. */
         fun showStats(stats: ProfileStats)
 
+        /** Navigate to the detailed preferences screen. */
+        fun openPreferences()
+
         /** Auth session ended — the nav layer should return to login. */
         fun onLoggedOut()
     }
 
     interface Presenter : MvpPresenter<View> {
+        /** User wants to edit their learning style/pace. */
+        fun onPreferencesClicked()
+
         fun onLogout()
     }
 }

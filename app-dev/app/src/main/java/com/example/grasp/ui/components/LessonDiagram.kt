@@ -63,7 +63,12 @@ fun LessonDiagram(diagram: LessonBlock.Diagram, modifier: Modifier = Modifier) {
             when (diagram.kind) {
                 DiagramKind.FLOW -> FlowDiagram(diagram.items)
                 DiagramKind.COMPARE -> CompareDiagram(diagram.items)
-                DiagramKind.BAR -> BarDiagram(diagram.items)
+                DiagramKind.BAR -> BarDiagram(
+                    items = diagram.items,
+                    unit = diagram.unit,
+                    maxValue = diagram.maxValue,
+                    showValues = diagram.showValues
+                )
             }
             if (diagram.text.isNotBlank()) {
                 Text(
@@ -186,8 +191,13 @@ private fun CompareDiagram(items: List<DiagramItem>) {
 /** Labelled magnitudes. Bars are drawn relative to the largest value, which is the only honest
  * scale when the AI supplies numbers whose absolute units we can't verify. */
 @Composable
-private fun BarDiagram(items: List<DiagramItem>) {
-    val largest = items.maxOfOrNull { it.value }?.takeIf { it > 0f } ?: 1f
+private fun BarDiagram(
+    items: List<DiagramItem>,
+    unit: String? = null,
+    maxValue: Float? = null,
+    showValues: Boolean = true
+) {
+    val largest = maxValue ?: items.maxOfOrNull { it.value }?.takeIf { it > 0f } ?: 1f
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         items.forEach { item ->
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -203,13 +213,15 @@ private fun BarDiagram(items: List<DiagramItem>) {
                         color = PathInk,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Text(
-                        text = formatValue(item.value),
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = PathMuted,
-                    )
+                    if (showValues) {
+                        Text(
+                            text = formatValue(item.value, unit),
+                            fontFamily = NunitoFamily,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp,
+                            color = PathMuted,
+                        )
+                    }
                 }
                 Canvas(Modifier.fillMaxWidth().height(10.dp)) {
                     val radius = size.height / 2f
@@ -241,9 +253,14 @@ private fun BarDiagram(items: List<DiagramItem>) {
     }
 }
 
-/** Whole numbers stay whole; anything else keeps one decimal. */
-private fun formatValue(value: Float): String =
-    if (value % 1f == 0f) value.toInt().toString() else String.format("%.1f", value)
+/** Whole numbers stay whole; anything else keeps one decimal. Short symbols are appended directly,
+ * while others should be handled via the chart caption to avoid repetition. */
+private fun formatValue(value: Float, unit: String? = null): String {
+    val base = if (value % 1f == 0f) value.toInt().toString() else String.format("%.1f", value)
+    
+    // Only append unit if it is a short symbol (1-2 chars) to keep bar labels clean.
+    return if (unit != null && unit.length <= 2) "$base$unit" else base
+}
 
 /** Distinct hues for compare columns, drawn from the roadmap's own node palette. */
 private val COMPARE_ACCENTS = listOf(PathNodeCurrent, PathNodeDone, PathNodeBranch)

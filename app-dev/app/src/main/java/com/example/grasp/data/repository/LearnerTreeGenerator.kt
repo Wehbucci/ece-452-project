@@ -1,5 +1,6 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.UserPreferences
 import com.example.grasp.data.model.TreeNode
 import org.json.JSONObject
 
@@ -34,8 +35,12 @@ private const val MAX_EST_MINUTES = 120
  * Never throws. If the call or the parse fails the user still gets a one-node starter roadmap
  * they can grow by hand (NFR 3.1).
  */
-suspend fun buildLearnerTree(pathId: String, title: String): List<TreeNode> {
-    val generated = geminiJson(SYSTEM_INSTRUCTION, treePrompt(title))
+suspend fun buildLearnerTree(
+    pathId: String,
+    title: String,
+    prefs: UserPreferences = UserPreferences(),
+): List<TreeNode> {
+    val generated = geminiJson(SYSTEM_INSTRUCTION, treePrompt(title, prefs))
         ?.let(::parseGeneratedNodes)
         .orEmpty()
     return if (generated.isEmpty()) fallbackTree(pathId, title) else normalizeTree(pathId, generated)
@@ -151,16 +156,64 @@ private fun depthFirstOrder(rootId: String, nodes: List<GeneratedNode>): List<Ge
 
 // ── Prompt & fallback ──────────────────────────────────────────────────────────────────────
 
-private fun treePrompt(title: String) = """
+private fun treePrompt(title: String, prefs: UserPreferences) = """
     Generate a learning roadmap as a JSON tree for the topic below.
 
     Topic: $title
+    
+    User Preferences:
+    - Pace: ${prefs.pace.label} (${prefs.pace.prompt})
+    - Style: ${prefs.style.label} (${prefs.style.prompt})
+    - Tone: ${prefs.tone.label} (${prefs.tone.prompt})
+
+    Size and Detail Guidance:
+    ${
+    when (prefs.pace) {
+        com.example.grasp.data.model.Pace.OVERVIEW -> """
+            - STRICT LIMIT: Total nodes MUST be between 4 and 6.
+            - FOCUS: Absolute essentials only. Skip all history, minor rules, and non-critical details.
+            - STRUCTURE: Usually just 2 strands with 1-2 nodes each.
+        """.trimIndent()
+        com.example.grasp.data.model.Pace.COMPREHENSIVE -> """
+            - MINIMUM NODES: Total nodes MUST be at least 15. 
+            - FOCUS: Exhaustive detail. Include history, advanced strategy, technical officiating, scouting, and cultural impact.
+            - STRUCTURE: Use 3 full strands with 5-7 nodes each.
+        """.trimIndent()
+        else -> """
+            - TARGET SIZE: 8-12 total nodes.
+            - FOCUS: A standard, balanced foundational journey.
+            - STRUCTURE: Moderate strands (3-4 nodes each).
+        """.trimIndent()
+    }
+}
+
+    Style and Tone Guidance:
+    ${
+    when (prefs.style) {
+        com.example.grasp.data.model.Style.ACTIONABLE -> """
+            - STYLE: ACTIONABLE. Prioritize nodes that involve "doing" rather than "knowing".
+            - FOCUS: Include steps for setup, practice, and physical application.
+        """.trimIndent()
+        com.example.grasp.data.model.Style.THEORETICAL -> """
+            - STYLE: THEORETICAL. Prioritize nodes that explain the "logic", "architecture", and "history".
+            - FOCUS: Ensure foundations and conceptual relationships are mapped first.
+        """.trimIndent()
+        else -> "- STYLE: BALANCED."
+    }
+}
+    ${
+    when (prefs.tone) {
+        com.example.grasp.data.model.Tone.ENCOURAGING -> "- TONE: ENCOURAGING. Use motivating and friendly language in node titles."
+        com.example.grasp.data.model.Tone.MINIMALIST -> "- TONE: MINIMALIST. Use short, efficient node titles (2-3 words max)."
+        else -> "- TONE: PROFESSIONAL."
+    }
+}
 
     Shape you are building:
     Wide at the top, then deep. The root is the entry point to the topic. It
     fans out into 2-3 STRANDS — the genuinely distinct areas someone has to
     cover to know this topic. Each strand then runs DEEP on its own: a
-    mostly-straight chain of 3-5 lessons, each building on the last, from
+    mostly-straight chain of lessons, each building on the last, from
     foundational to advanced (or chronological, for historical topics).
 
     The breadth belongs at the root and almost nowhere else. Below the root a
@@ -201,11 +254,6 @@ private fun treePrompt(title: String) = """
     node id as a child of two different nodes.
     - Order the strands themselves so the one a beginner should start with
     comes first.
-
-    Size guidance (soft, not a target to hit exactly):
-    - Total nodes, including root: roughly 8-14. Two strands of four lessons
-    is a good focused roadmap; three strands of four or five suits a broad
-    topic. Depth inside a strand matters more than adding another strand.
 
     Each node must contain:
     - id: lowercase hyphen-separated string

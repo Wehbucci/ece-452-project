@@ -36,16 +36,18 @@ sealed interface LessonBlock {
     /**
      * A diagram the app DRAWS from a spec the AI wrote (FR4.4).
      *
-     * Deliberately a small vocabulary of shapes rather than free-form image generation: the app
-     * renders it natively, so it matches the theme, stays sharp, costs no extra generation, and
-     * — unlike a generated picture — its labels are guaranteed to say what the AI meant.
-     *
      * @property text the caption shown under the drawing.
+     * @property unit optional unit label to append to values (e.g. "%", "kg").
+     * @property maxValue optional fixed scale; bars are relative to this if set, else to the max item.
+     * @property showValues if false, numeric labels are hidden (useful for purely relative sizes).
      */
     data class Diagram(
         override val text: String,
         val kind: DiagramKind,
         val items: List<DiagramItem>,
+        val unit: String? = null,
+        val maxValue: Float? = null,
+        val showValues: Boolean = true,
     ) : LessonBlock
 
     /**

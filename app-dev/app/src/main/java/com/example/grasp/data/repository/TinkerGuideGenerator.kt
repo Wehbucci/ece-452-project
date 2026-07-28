@@ -1,5 +1,6 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.UserPreferences
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import org.json.JSONObject
@@ -28,8 +29,12 @@ private const val MAX_EST_MINUTES = 4320
  * Never throws. If the call or the parse fails the user still gets a one-step starter guide
  * (NFR 3.1).
  */
-suspend fun buildTinkerGuide(pathId: String, title: String): TinkerGuide {
-    val generated = geminiJson(SYSTEM_INSTRUCTION, guidePrompt(title))
+suspend fun buildTinkerGuide(
+    pathId: String,
+    title: String,
+    prefs: UserPreferences = UserPreferences(),
+): TinkerGuide {
+    val generated = geminiJson(SYSTEM_INSTRUCTION, guidePrompt(title, prefs))
         ?.let(::parseGeneratedSteps)
         .orEmpty()
     val steps = if (generated.isEmpty()) {
@@ -59,17 +64,72 @@ internal fun parseGeneratedSteps(json: JSONObject): List<GeneratedStep> =
         )
     }
 
-private fun guidePrompt(title: String) = """
+private fun guidePrompt(title: String, prefs: UserPreferences) = """
     Generate a step-by-step checklist guide as JSON for the task below.
 
     Task: $title
+    
+    User Preferences:
+    - Pace: ${prefs.pace.label} (${prefs.pace.prompt})
+    - Style: ${prefs.style.label} (${prefs.style.prompt})
+    - Tone: ${prefs.tone.label} (${prefs.tone.prompt})
+
+    Size Guidance:
+    ${
+    when (prefs.pace) {
+        com.example.grasp.data.model.Pace.OVERVIEW -> """
+            - STRICT LIMIT: Total steps MUST be between 3 and 5.
+            - FOCUS: Only the absolute 'show-stopper' actions needed to finish.
+        """.trimIndent()
+        com.example.grasp.data.model.Pace.COMPREHENSIVE -> """
+            - MINIMUM STEPS: Total steps MUST be at least 15.
+            - FOCUS: Exhaustive micro-instructions. Include safety warnings, preparation steps, cleanup, and expert tips for every sub-action.
+        """.trimIndent()
+        else -> """
+            - TARGET SIZE: 6-10 steps.
+            - FOCUS: A standard, complete set of instructions.
+        """.trimIndent()
+    }
+}
+
+    Style Guidance:
+    ${
+    when (prefs.style) {
+        com.example.grasp.data.model.Style.ACTIONABLE -> """
+            - STYLE: ACTIONABLE. Focus on physical execution.
+            - REQUIREMENT: Use precise, directive language and explicit measurements.
+        """.trimIndent()
+        com.example.grasp.data.model.Style.THEORETICAL -> """
+            - STYLE: THEORETICAL. Briefly explain the logic behind key steps.
+            - REQUIREMENT: Include 'detail' fields that explain WHY a step is performed a certain way.
+        """.trimIndent()
+        else -> """
+            - STYLE: BALANCED.
+        """.trimIndent()
+    }
+}
+
+    Tone Guidance:
+    ${
+    when (prefs.tone) {
+        com.example.grasp.data.model.Tone.ENCOURAGING -> """
+            - TONE: ENCOURAGING. Use motivating and positive language in the 'detail' field.
+        """.trimIndent()
+        com.example.grasp.data.model.Tone.MINIMALIST -> """
+            - TONE: MINIMALIST. Short instructions, no pleasantries.
+        """.trimIndent()
+        else -> """
+            - TONE: PROFESSIONAL. Standard instructional tone.
+        """.trimIndent()
+    }
+}
 
     Produce a flat, ORDERED list of steps a person can follow start to finish to accomplish
     this task. Each step is one concrete, actionable instruction — something to DO, not a
     subtopic to study.
 
     Guidance:
-    - 4-12 steps, ordered the way someone would actually perform them.
+    - Ordered the way someone would actually perform them.
     - "instruction" is a short imperative sentence (e.g. "Crack two eggs into a bowl").
     - If the step involves an ingredient, material, or measurable quantity, state the EXACT
       amount and unit inline in "instruction" (e.g. "Whisk 2 cups flour, 1 tsp baking soda,

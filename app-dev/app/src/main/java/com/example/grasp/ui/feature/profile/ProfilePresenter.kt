@@ -58,6 +58,10 @@ class ProfilePresenter(
         view?.onLoggedOut()
     }
 
+    override fun onPreferencesClicked() {
+        view?.openPreferences()
+    }
+
     /**
      * Rolls every saved path/guide up into one player card.
      *
