@@ -22,6 +22,13 @@ object GraspDestinations {
     const val LIBRARY = "library"
     const val PROFILE = "profile"
 
+    // ---- Profile sub-screens (pushed on top of the Profile tab) ----
+    /** Notification preferences (Profile → Notifications). */
+    const val NOTIFICATIONS = "notifications"
+
+    /** About Grasp — product, team and stack (Profile → About Grasp). */
+    const val ABOUT = "about"
+
     // ---- Argument keys ----
     const val ARG_PATH_ID = "pathId"
     const val ARG_NODE_ID = "nodeId"
