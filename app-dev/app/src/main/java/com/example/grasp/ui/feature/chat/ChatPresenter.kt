@@ -3,7 +3,9 @@ package com.example.grasp.ui.feature.chat
 import android.util.Log
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonBlock
+import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.FirebaseUserRepository
@@ -18,25 +20,18 @@ import kotlinx.coroutines.launch
 
 class ChatPresenter(
     private val context: String,
-    private val pathId: String = "",
-    private val nodeId: String = "",
-    private val blockIndex: Int = -1,
+    private val scope: ChatScope = ChatScope.General,
     // The real repository, so the tutor is grounded in the SAME generated lesson the user is
     // reading (it falls back to the fake data when signed out).
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
-    private val chatId: String = when {
-        pathId.isNotEmpty() && nodeId.isNotEmpty() && blockIndex >= 0 -> "${pathId}__${nodeId}__${blockIndex}"
-        pathId.isNotEmpty() && nodeId.isNotEmpty() -> "${pathId}__${nodeId}"
-        pathId.isNotEmpty() -> "tinker__${pathId}"
-        else -> "general"
-    }
+    private val chatId: String = scope.chatId
 
     private val messages = mutableListOf<ChatMessage>()
     private var nextId = 0
-    private var scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var uiScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
     /**
      * Built on first use rather than eagerly: the instruction embeds the node's lesson, which the
@@ -50,7 +45,7 @@ class ChatPresenter(
 
     override fun onViewAttached() {
         view?.showMessages(messages.toList())
-        scope.launch {
+        uiScope.launch {
             val saved = chatRepo.loadMessages(chatId)
             if (saved.isNotEmpty()) {
                 messages.clear()
@@ -62,7 +57,7 @@ class ChatPresenter(
     }
 
     override fun detach() {
-        scope.cancel()
+        uiScope.cancel()
         super.detach()
     }
 
@@ -76,11 +71,11 @@ class ChatPresenter(
         messages += ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, "", pending = true)
         view?.showMessages(messages.toList())
 
-        scope.launch {
+        uiScope.launch {
             chatRepo.saveMessage(chatId, context, userMessage)
         }
 
-        scope.launch {
+        uiScope.launch {
             var accumulated = ""
             try {
                 gemini().sendMessageStream(text.trim()).collect { chunk ->
@@ -119,62 +114,184 @@ class ChatPresenter(
         }
     }
 
+    // ---- System instruction -------------------------------------------------------------------
+
+    /**
+     * The tutor's briefing, assembled in tiers from the widest context down to the narrowest.
+     *
+     * Each [ChatScope] case appends everything the tiers above it would have, then narrows: a
+     * block chat is told the roadmap, then the whole lesson, and only then which paragraph the
+     * user is pointing at. The wider material stays in because it is still true and the tutor
+     * needs it to answer "why does this matter" — it just stops being the subject.
+     */
     private suspend fun buildSystemInstruction(): String = buildString {
         val prefs = FirebaseUserRepository().getPreferences()
-        
+
         appendLine("You are a helpful AI tutor in the Grasp learning app.")
         appendLine("Be concise, clear, and encouraging.")
         appendLine("If the user shares an image, describe what you see and relate it to the topic.")
         appendLine()
-        
+
         appendLine("User Preferences:")
         appendLine("- Style: ${prefs.style.label} (${prefs.style.prompt})")
         appendLine("- Tone: ${prefs.tone.label} (${prefs.tone.prompt})")
         appendLine()
 
-        val subtopic = if (pathId.isNotEmpty() && nodeId.isNotEmpty()) {
-            repo.subtopic(pathId, nodeId)
-        } else null
+        when (val s = scope) {
+            is ChatScope.General -> appendFallback()
+            is ChatScope.Path -> appendRoadmapTier(s.pathId)
+            is ChatScope.Node -> appendLessonTier(s.pathId, s.nodeId, focusBlockId = null)
+            is ChatScope.Block -> appendLessonTier(s.pathId, s.nodeId, focusBlockId = s.blockId)
+            is ChatScope.Guide -> appendGuideTier(s.pathId, focusStepId = null)
+            is ChatScope.Step -> appendGuideTier(s.pathId, focusStepId = s.stepId)
+        }
+    }
 
-        if (subtopic != null) {
-            appendLine("The user is studying: \"${subtopic.title}\"")
-            appendLine()
-            appendLine("Summary: ${subtopic.summary}")
-            appendLine()
-            appendLine("Why it matters: ${subtopic.whyItMatters}")
-            appendLine()
-            appendLine("Content:")
-            // Headings included, so the tutor knows how the lesson is organised.
-            subtopic.body.forEach { block ->
-                when (block) {
-                    is LessonBlock.Heading -> appendLine().appendLine("## ${block.text}")
-                    is LessonBlock.Paragraph -> appendLine(block.text)
-                    is LessonBlock.Code -> appendLine("```${block.language}\n${block.text}\n```")
-                    // Visuals are described, not reproduced — the user can see them, and the tutor
-                    // needs to know what they are looking at when they ask about one.
-                    is LessonBlock.Diagram -> appendLine(
-                        "[${block.kind.name.lowercase()} diagram: ${block.text}] " +
-                            block.items.joinToString(" -> ") { it.label },
-                    )
-                    is LessonBlock.Image -> appendLine("[image: ${block.text}]")
-                }
-            }
-        } else if (pathId.isNotEmpty()) {
-            val guide = repo.tinkerGuide(pathId)
-            if (guide != null) {
-                appendLine("The user is working on the task: \"${guide.title}\"")
+    /** Used whenever the material can't be loaded — [context] is the title the user is looking at. */
+    private fun StringBuilder.appendFallback() {
+        appendLine("The user is studying: $context")
+    }
+
+    /** Tier 1, Learner: the roadmap as a whole. */
+    private fun StringBuilder.appendRoadmapTier(pathId: String) {
+        val path = repo.learningPath(pathId)
+        if (path == null) {
+            appendFallback()
+            return
+        }
+        appendLine("The user is working through a roadmap called \"${path.title}\".")
+        appendLine()
+        appendLine("Its sections, indented by what they branch off (x = already completed):")
+        appendRoadmapTree(path)
+        appendLine()
+        appendLine(
+            "They are asking about the roadmap as a whole — what to learn next, how the pieces " +
+                "fit together, what is missing — rather than about any one section.",
+        )
+    }
+
+    /**
+     * The tree, depth-first from its roots.
+     *
+     * Walked from `children` rather than printed flat because the branching IS the roadmap's
+     * meaning: "what should I do next" has a different answer on a branch than on the trunk.
+     * `seen` guards against a malformed parent/child pair looping forever — the tree comes back
+     * from Firestore, where nothing has enforced its shape.
+     */
+    private fun StringBuilder.appendRoadmapTree(path: LearningPath) {
+        val byId = path.nodes.associateBy { it.id }
+        val seen = mutableSetOf<String>()
+
+        fun walk(id: String, depth: Int) {
+            val node = byId[id] ?: return
+            if (!seen.add(id)) return
+            // Branch-out nodes are affordances the user taps to grow the tree, not material.
+            if (!node.isBranchOut) {
+                append("  ".repeat(depth))
+                append("- ")
+                if (node.completed) append("x ")
+                append(node.title)
+                if (node.estMinutes > 0) append(" (${node.estMinutes} min)")
                 appendLine()
-                appendLine("Steps:")
-                guide.steps.forEach { step ->
-                    append("${step.order}. ${step.instruction}")
-                    if (step.detail.isNotBlank()) append(" (${step.detail})")
-                    appendLine()
-                }
-            } else {
-                appendLine("The user is studying: $context")
             }
-        } else {
-            appendLine("The user is studying: $context")
+            node.children.forEach { walk(it, depth + 1) }
+        }
+
+        path.nodes.filter { it.parentId == null }.forEach { walk(it.id, 0) }
+        // Anything orphaned by a bad parent link still belongs in the briefing.
+        path.nodes.filter { it.id !in seen }.forEach { walk(it.id, 0) }
+    }
+
+    /** Tier 2, Learner: one lesson — and tier 3 when [focusBlockId] names a block inside it. */
+    private suspend fun StringBuilder.appendLessonTier(
+        pathId: String,
+        nodeId: String,
+        focusBlockId: String?,
+    ) {
+        val subtopic = repo.subtopic(pathId, nodeId)
+        if (subtopic == null) {
+            appendFallback()
+            return
+        }
+
+        repo.learningPath(pathId)?.let { appendLine("Roadmap: \"${it.title}\"") }
+        appendLine("The user is studying: \"${subtopic.title}\"")
+        appendLine()
+        appendLine("Summary: ${subtopic.summary}")
+        appendLine()
+        appendLine("Why it matters: ${subtopic.whyItMatters}")
+        appendLine()
+        appendLine("Content:")
+        // Headings included, so the tutor knows how the lesson is organised.
+        subtopic.body.forEach { block ->
+            appendBlock(block)
+        }
+
+        if (focusBlockId != null) appendBlockTier(subtopic, focusBlockId)
+    }
+
+    /**
+     * Tier 3, Learner: the one block the user tapped.
+     *
+     * A missing block is not an error — the chat outlives the paragraph it was opened from, and a
+     * lesson edit can delete it. The conversation then simply widens to its lesson, which is
+     * still the material the user was reading.
+     */
+    private fun StringBuilder.appendBlockTier(subtopic: Subtopic, blockId: String) {
+        val focus = subtopic.body.firstOrNull { it.id == blockId } ?: return
+        appendLine()
+        appendLine("The user tapped THIS specific part of the lesson, and their questions are about it:")
+        appendBlock(focus)
+        appendLine()
+        appendLine(
+            "Answer about that part specifically. Treat the rest of the lesson as background you " +
+                "may draw on, but do not re-explain it unless they ask.",
+        )
+    }
+
+    /** Tier 1-2, Tinkerer: the guide, and the step they are standing on when [focusStepId] is set. */
+    private fun StringBuilder.appendGuideTier(pathId: String, focusStepId: String?) {
+        val guide = repo.tinkerGuide(pathId)
+        if (guide == null) {
+            appendFallback()
+            return
+        }
+
+        appendLine("The user is working on the task: \"${guide.title}\"")
+        appendLine()
+        appendLine("Steps (x = already done):")
+        guide.steps.forEach { step ->
+            append(if (step.done) "x " else "- ")
+            append("${step.order}. ${step.instruction}")
+            if (step.detail.isNotBlank()) append(" (${step.detail})")
+            appendLine()
+        }
+
+        val focus = focusStepId?.let { id -> guide.steps.firstOrNull { it.id == id } } ?: return
+        appendLine()
+        appendLine(
+            "They are on step ${focus.order} right now — \"${focus.instruction}\" — so assume a " +
+                "question without an obvious subject is about that step. They have not done the " +
+                "later steps yet; do not spoil them unless asked.",
+        )
+    }
+
+    /**
+     * One block as the tutor sees it.
+     *
+     * Visuals are described, not reproduced — the user can see them, and the tutor needs to know
+     * what they are looking at when they ask about one.
+     */
+    private fun StringBuilder.appendBlock(block: LessonBlock) {
+        when (block) {
+            is LessonBlock.Heading -> appendLine().appendLine("## ${block.text}")
+            is LessonBlock.Paragraph -> appendLine(block.text)
+            is LessonBlock.Code -> appendLine("```${block.language}\n${block.text}\n```")
+            is LessonBlock.Diagram -> appendLine(
+                "[${block.kind.name.lowercase()} diagram: ${block.text}] " +
+                    block.items.joinToString(" -> ") { it.label },
+            )
+            is LessonBlock.Image -> appendLine("[image: ${block.text}]")
         }
     }
 }

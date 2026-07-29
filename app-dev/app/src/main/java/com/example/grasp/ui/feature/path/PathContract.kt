@@ -93,9 +93,9 @@ interface PathContract {
 
         /**
          * Route to the existing AI chat feature for this subtopic.
-         * [blockIndex] is -1 for the whole subtopic, or the index of the lesson paragraph asked about.
+         * [blockId] is empty for the whole subtopic, or the stable id of the paragraph asked about.
          */
-        fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int)
+        fun openChat(context: String, pathId: String, nodeId: String, blockId: String)
     }
 
     interface Presenter : MvpPresenter<View> {
@@ -146,7 +146,7 @@ interface PathContract {
         fun onAskAi(nodeId: String)
 
         /** A paragraph of [nodeId]'s lesson was tapped — routes to chat scoped to that block. */
-        fun onAskAboutBlock(nodeId: String, blockText: String, blockIndex: Int)
+        fun onAskAboutBlock(nodeId: String, blockText: String, blockId: String)
 
         /** The open sheet was dismissed by the user. */
         fun onSheetDismissed()

@@ -84,7 +84,7 @@ fun SubtopicSheetContent(
     completed: Boolean,
     onMarkComplete: () -> Unit,
     onAskAi: () -> Unit,
-    onAskAboutBlock: (index: Int, text: String) -> Unit,
+    onAskAboutBlock: (blockId: String, text: String) -> Unit,
     onBranchOut: () -> Unit,
     onOpenResource: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -210,11 +210,11 @@ fun SubtopicSheetContent(
         // The lesson itself. Paragraphs are individually tappable; headings just structure them.
         if (subtopic.body.isNotEmpty()) {
             SectionLabel("THE LESSON", modifier = Modifier.padding(top = 4.dp))
-            subtopic.body.forEachIndexed { index, block ->
+            subtopic.body.forEach { block ->
                 when (block) {
                     is LessonBlock.Heading -> LessonHeading(block)
                     is LessonBlock.Paragraph ->
-                        ParagraphBlock(block.text, onClick = { onAskAboutBlock(index, block.text) })
+                        ParagraphBlock(block.text, onClick = { onAskAboutBlock(block.id, block.text) })
                     is LessonBlock.Code -> LessonCode(block)
                     is LessonBlock.Diagram -> LessonDiagram(block)
                     is LessonBlock.Image -> LessonImage(block, onOpenSource = onOpenResource)

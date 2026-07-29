@@ -59,8 +59,8 @@ class SubtopicPresenter(
         view?.openChat(subtopic?.title ?: "your material", pathId, nodeId)
     }
 
-    override fun onBlockClicked(blockText: String, blockIndex: Int) {
-        view?.openChat(blockText.take(60), pathId, nodeId, blockIndex)
+    override fun onBlockClicked(blockText: String, blockId: String) {
+        view?.openChat(blockText.take(60), pathId, nodeId, blockId)
     }
 
     override fun onResourceClicked(link: ResourceLink) {
@@ -72,11 +72,12 @@ class SubtopicPresenter(
             val prefix = "${pathId}__${nodeId}"
             val ids = chatRepo.existingChatIds(prefix)
             val hasFabHistory = prefix in ids
-            val blockIndices = ids
+            val blockIds = ids
                 .filter { it.startsWith("${prefix}__") }
-                .mapNotNull { it.removePrefix("${prefix}__").toIntOrNull() }
+                .map { it.removePrefix("${prefix}__") }
+                .filter { it.isNotEmpty() }
                 .toSet()
-            view?.showChatIndicators(hasFabHistory, blockIndices)
+            view?.showChatIndicators(hasFabHistory, blockIds)
         }
     }
 }

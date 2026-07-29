@@ -60,16 +60,14 @@ import com.example.grasp.ui.components.MarkdownText
 @Composable
 fun ChatScreen(
     chatContext: String,
-    pathId: String = "",
-    nodeId: String = "",
-    blockIndex: Int = -1,
+    scope: ChatScope = ChatScope.General,
     onBack: () -> Unit,
-    presenterFactory: (String, String, String, Int) -> ChatContract.Presenter = { ctx, p, n, b -> ChatPresenter(ctx, p, n, b) },
+    presenterFactory: (String, ChatScope) -> ChatContract.Presenter = { ctx, s -> ChatPresenter(ctx, s) },
 ) {
     var history by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
 
-    val presenter = remember(chatContext, pathId, nodeId, blockIndex) { presenterFactory(chatContext, pathId, nodeId, blockIndex) }
+    val presenter = remember(chatContext, scope) { presenterFactory(chatContext, scope) }
     val view = remember {
         object : ChatContract.View {
             override fun showMessages(messages: List<ChatMessage>) { history = messages }

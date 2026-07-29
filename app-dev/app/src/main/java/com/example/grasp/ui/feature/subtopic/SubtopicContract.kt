@@ -11,18 +11,18 @@ interface SubtopicContract {
         fun showSubtopic(subtopic: Subtopic)
         fun showNotFound()
         fun showCompleted(completed: Boolean)
-        /** Open the AI chat. [blockIndex] is -1 for the subtopic-level FAB chat. */
-        fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int = -1)
+        /** Open the AI chat. [blockId] is empty for the subtopic-level FAB chat. */
+        fun openChat(context: String, pathId: String, nodeId: String, blockId: String = "")
         fun openResource(url: String)
         /** Drive the history indicators: FAB badge and per-block indicators. */
-        fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIndices: Set<Int>)
+        fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIds: Set<String>)
     }
 
     interface Presenter : MvpPresenter<View> {
         fun onToggleComplete()
         fun onAskAi()
-        /** [blockIndex] is the position of the tapped block in the body list. */
-        fun onBlockClicked(blockText: String, blockIndex: Int)
+        /** [blockId] is the tapped block's stable id — not its position, which editing changes. */
+        fun onBlockClicked(blockText: String, blockId: String)
         fun onResourceClicked(link: ResourceLink)
     }
 }

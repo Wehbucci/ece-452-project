@@ -11,6 +11,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.grasp.ui.feature.about.AboutScreen
 import com.example.grasp.ui.feature.auth.LoginScreen
+import com.example.grasp.ui.feature.chat.ChatScope
 import com.example.grasp.ui.feature.chat.ChatScreen
 import com.example.grasp.ui.feature.home.HomeScreen
 import com.example.grasp.ui.feature.library.LibraryScreen
@@ -119,9 +120,9 @@ fun GraspNavHost(
                 onBack = navController::popBackStack,
                 // The subtopic detail is now an in-path bottom sheet, so the roadmap navigates
                 // out only for "Ask AI" → the existing chat feature.
-                onOpenChat = { ctx, p, n, blockIndex ->
+                onOpenChat = { ctx, p, n, blockId ->
                     navController.navigate(
-                        GraspDestinations.chat(context = ctx, pathId = p, nodeId = n, blockIndex = blockIndex),
+                        GraspDestinations.chat(context = ctx, pathId = p, nodeId = n, blockId = blockId),
                     )
                 },
             )
@@ -137,7 +138,7 @@ fun GraspNavHost(
                 guideId = guideId,
                 onBack = navController::popBackStack,
                 onOpenChat = { ctx, pathId ->
-                    navController.navigate(GraspDestinations.chat(ctx, pathId))
+                    navController.navigate(GraspDestinations.chat(ctx, pathId, tinkerer = true))
                 },
             )
         }
@@ -154,8 +155,8 @@ fun GraspNavHost(
                 pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
                 nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
                 onBack = navController::popBackStack,
-                onOpenChat = { ctx, pathId, nodeId, blockIndex ->
-                    navController.navigate(GraspDestinations.chat(ctx, pathId, nodeId, blockIndex))
+                onOpenChat = { ctx, pathId, nodeId, blockId ->
+                    navController.navigate(GraspDestinations.chat(ctx, pathId, nodeId, blockId))
                 },
             )
         }
@@ -176,17 +177,24 @@ fun GraspNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
-                navArgument(GraspDestinations.ARG_BLOCK_INDEX) {
-                    type = NavType.IntType
-                    defaultValue = -1
+                navArgument(GraspDestinations.ARG_BLOCK_ID) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
+                navArgument(GraspDestinations.ARG_TINKERER) {
+                    type = NavType.BoolType
+                    defaultValue = false
                 },
             ),
         ) { entry ->
             ChatScreen(
                 chatContext = entry.arguments?.getString(GraspDestinations.ARG_CONTEXT) ?: "your material",
-                pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
-                nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
-                blockIndex = entry.arguments?.getInt(GraspDestinations.ARG_BLOCK_INDEX) ?: -1,
+                scope = ChatScope.of(
+                    pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
+                    nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
+                    blockId = entry.arguments?.getString(GraspDestinations.ARG_BLOCK_ID).orEmpty(),
+                    tinkerer = entry.arguments?.getBoolean(GraspDestinations.ARG_TINKERER) ?: false,
+                ),
                 onBack = navController::popBackStack,
             )
         }

@@ -61,14 +61,14 @@ fun SubtopicScreen(
     pathId: String,
     nodeId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String, nodeId: String, blockIndex: Int) -> Unit,
+    onOpenChat: (context: String, pathId: String, nodeId: String, blockId: String) -> Unit,
     presenterFactory: (String, String) -> SubtopicContract.Presenter = { p, n -> SubtopicPresenter(p, n) },
 ) {
     var content by remember { mutableStateOf<Subtopic?>(null) }
     var isComplete by remember { mutableStateOf(false) }
     var notFound by remember { mutableStateOf(false) }
     var fabHasHistory by remember { mutableStateOf(false) }
-    var blocksWithHistory by remember { mutableStateOf(emptySet<Int>()) }
+    var blocksWithHistory by remember { mutableStateOf(emptySet<String>()) }
 
     val uriHandler = LocalUriHandler.current
     val presenter = remember(pathId, nodeId) { presenterFactory(pathId, nodeId) }
@@ -77,11 +77,11 @@ fun SubtopicScreen(
             override fun showSubtopic(subtopic: Subtopic) { content = subtopic; notFound = false }
             override fun showNotFound() { notFound = true }
             override fun showCompleted(completed: Boolean) { isComplete = completed }
-            override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) =
-                onOpenChat(context, pathId, nodeId, blockIndex)
-            override fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIndices: Set<Int>) {
+            override fun openChat(context: String, pathId: String, nodeId: String, blockId: String) =
+                onOpenChat(context, pathId, nodeId, blockId)
+            override fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIds: Set<String>) {
                 fabHasHistory = hasFabHistory
-                blocksWithHistory = blockHistoryIndices
+                blocksWithHistory = blockHistoryIds
             }
             override fun openResource(url: String) = uriHandler.openUri(url)
         }
@@ -160,7 +160,7 @@ fun SubtopicScreen(
 
                 SectionHeader("Learn")
                 // Headings structure the lesson; each paragraph is tappable to ask the AI about it.
-                current.body.forEachIndexed { index, block ->
+                current.body.forEach { block ->
                     when (block) {
                         is LessonBlock.Heading -> Text(
                             text = block.text,
@@ -173,8 +173,8 @@ fun SubtopicScreen(
 
                         is LessonBlock.Paragraph -> ContentBlock(
                             text = block.text,
-                            hasHistory = index in blocksWithHistory,
-                            onClick = { presenter.onBlockClicked(block.text, index) },
+                            hasHistory = block.id in blocksWithHistory,
+                            onClick = { presenter.onBlockClicked(block.text, block.id) },
                         )
 
                         is LessonBlock.Code -> LessonCode(block)

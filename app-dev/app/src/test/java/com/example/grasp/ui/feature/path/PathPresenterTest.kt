@@ -50,7 +50,7 @@ class PathPresenterTest {
         val levelUps = mutableListOf<Int>()
         val toasts = mutableListOf<String>()
         val chats = mutableListOf<String>()
-        val chatBlockIndices = mutableListOf<Int>()
+        val chatBlockIds = mutableListOf<String>()
         val deleteAsks = mutableListOf<Triple<String, String, Boolean>>()
 
         override fun showPath(state: PathUiState) { lastState = state }
@@ -84,9 +84,9 @@ class PathPresenterTest {
         override fun showConfetti() { confetti++ }
         override fun showLevelUp(level: Int) { levelUps += level }
         override fun showToast(message: String) { toasts += message }
-        override fun openChat(context: String, pathId: String, nodeId: String, blockIndex: Int) {
+        override fun openChat(context: String, pathId: String, nodeId: String, blockId: String) {
             chats += nodeId
-            chatBlockIndices += blockIndex
+            chatBlockIds += blockId
         }
     }
 
@@ -539,17 +539,17 @@ class PathPresenterTest {
         presenter.onAskAi("supervised")
 
         assertEquals(listOf("supervised"), view.chats)
-        assertEquals("whole subtopic, not one block", listOf(-1), view.chatBlockIndices)
+        assertEquals("whole subtopic, not one block", listOf(""), view.chatBlockIds)
     }
 
     @Test
     fun `tapping a lesson paragraph opens a chat scoped to that paragraph`() {
         val (presenter, view) = attach()
 
-        presenter.onAskAboutBlock("supervised", "Labelled data is what makes it supervised.", 2)
+        presenter.onAskAboutBlock("supervised", "Labelled data is what makes it supervised.", "b-labelled")
 
         assertEquals(listOf("supervised"), view.chats)
-        assertEquals(listOf(2), view.chatBlockIndices)
+        assertEquals(listOf("b-labelled"), view.chatBlockIds)
     }
 
     @Test
