@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Security rules for Grasp's Firestore data.
+//
+// Everything the app stores lives under users/{uid}, so the baseline is simple: you reach your own
+// documents and nobody else's. What needs saying beyond that is what an EDIT may do, because
+// editing generated content (FR4.5) opened the first write path in the app that is not "replace
+// this document with what I just generated":
+//
+//  · a lesson edit sends only the fields it changed, so the rules must accept a write carrying any
+//    subset of the content fields rather than insisting on a whole node;
+//  · they therefore check the document as it will STAND after the merge, and treat a missing field
+//    as fine — a node with no lesson written yet is an ordinary node;
+//  · and `edited` is one-way. A lesson the user has touched must never be quietly re-marked as
+//    untouched, because that flag is the only thing telling the generator to leave it alone.
+//
+// Deploy with: firebase deploy --only firestore:rules
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+
+      match /topics/{topicId} {
+        allow read, delete: if isOwner(userId);
+        allow create, update: if isOwner(userId) && isValidTopic();
+
+        match /nodes/{nodeId} {
+          allow read, delete: if isOwner(userId);
+          allow create: if isOwner(userId) && isValidNodeWrite();
+          allow update: if isOwner(userId) && isValidNodeWrite() && keepsEditedFlag();
+        }
+
+        // Per-scope conversation history. Messages are append-only: a tutor answer the user acted
+        // on should still be there when they come back to check what it said.
+        match /chats/{chatId} {
+          allow read, write: if isOwner(userId);
+
+          match /messages/{messageId} {
+            allow read, create: if isOwner(userId);
+            allow update, delete: if false;
+          }
+        }
+      }
+    }
+
+    function isOwner(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isValidTopic() {
+      return (!('title' in incoming()) || incoming().title is string)
+        && (!('mode' in incoming()) || incoming().mode in ['learner', 'tinkerer']);
+    }
+
+    // `request.resource.data` is the node as it will stand once the merge lands, so this checks
+    // the result rather than the patch — and lets a field simply be absent, because a partial
+    // write is the normal case here, not a suspicious one.
+    function isValidNodeWrite() {
+      return (!('id' in incoming()) || incoming().id is string)
+        && (!('title' in incoming()) || incoming().title is string)
+        && (!('completed' in incoming()) || incoming().completed is bool)
+        && (!('estMinutes' in incoming()) || incoming().estMinutes is int)
+        && (!('children' in incoming()) || incoming().children is list)
+        && (!('parentId' in incoming()) || incoming().parentId == null || incoming().parentId is string)
+        && (!('tier' in incoming()) || incoming().tier == null || incoming().tier is string)
+        && (!('edited' in incoming()) || incoming().edited is bool)
+        && (!('summary' in incoming()) || incoming().summary is string)
+        && (!('whyItMatters' in incoming()) || incoming().whyItMatters is string)
+        && (!('resources' in incoming()) || incoming().resources is list)
+        && isValidBodyWrite();
+    }
+
+    // The lesson body, when one is being written. Capped rather than merely typed: a runaway
+    // client or a model answer nobody validated should not be able to push a node document
+    // towards Firestore's 1 MiB ceiling, past which the lesson stops being savable at all.
+    function isValidBodyWrite() {
+      return !('body' in incoming())
+        || (incoming().body is list && incoming().body.size() <= 200);
+    }
+
+    // A lesson the user has edited stays edited. Nothing in the app un-marks one, and if
+    // something ever tried, the cost would be a generation pass writing over their work.
+    function keepsEditedFlag() {
+      return !(resource.data.get('edited', false) == true)
+        || incoming().get('edited', false) == true;
+    }
+  }
+}
