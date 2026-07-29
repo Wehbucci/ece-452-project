@@ -6,6 +6,7 @@ import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.paragraphs
+import com.example.grasp.data.model.withId
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -67,7 +68,10 @@ suspend fun generateSubtopicContent(
     ) ?: return null
 
     val summary = json.optString("summary").trim()
+    // Ids come from the FINAL position: the model never writes one, and blocks it asked for get
+    // dropped along the way, so the positions in its answer aren't the ones in the lesson.
     val body = resolveImages(json.objectList("body").mapNotNull(::parseBodyBlock))
+        .mapIndexed { index, block -> block.withId(positionalBlockId(index)) }
     // Summary + teaching prose ARE the lesson; headings and pictures alone are not worth showing.
     if (summary.isEmpty() || body.paragraphs().isEmpty()) return null
 
@@ -100,14 +104,18 @@ fun placeholderContent(nodeTitle: String, estMinutes: Int): GeneratedContent = G
     summary = "We couldn't write this lesson just now.",
     whyItMatters = "$nodeTitle is still part of your roadmap — reopen it once you're back online " +
         "and it will be generated then.",
+    // Fixed ids, not fresh ones: the placeholder is rebuilt on every open because it is never
+    // cached, and a chat scoped to one of these paragraphs should survive that.
     body = listOf(
         LessonBlock.Paragraph(
             "This node's content hasn't been generated yet. It needs a connection to the AI " +
                 "service the first time you open it; after that it's saved and works offline.",
+            id = positionalBlockId(0),
         ),
         LessonBlock.Paragraph(
             "You can still ask the AI assistant about $nodeTitle, mark this node complete, or " +
                 "branch off in a new direction from the roadmap.",
+            id = positionalBlockId(1),
         ),
     ),
     resources = listOf(wikipediaSearch(nodeTitle)),
@@ -185,6 +193,15 @@ private suspend fun resolveImages(parsed: List<ParsedBlock>): List<LessonBlock> 
 }
 
 /**
+ * The id given to a stored block that hasn't got one — its position, which is exactly what
+ * identified it before ids existed. Deterministic, so the same stored lesson reads back with the
+ * same ids every time and anything already keyed on a position survives; the first write after
+ * that makes them real. New ids come from [newBlockId] instead and are far too long to collide
+ * with these.
+ */
+private fun positionalBlockId(index: Int) = "b$index"
+
+/**
  * Turns raw body entries into [LessonBlock]s, from either the model's answer or a stored lesson.
  *
  * Tolerates two shapes on purpose. The current one is a map per block with a `type` of "heading"
@@ -193,8 +210,8 @@ private suspend fun resolveImages(parsed: List<ParsedBlock>): List<LessonBlock> 
  *
  * Pure, so the tolerance is actually testable.
  */
-internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { entry ->
-    when (entry) {
+internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapIndexedNotNull { index, entry ->
+    val block = when (entry) {
         is String -> entry.trim().ifBlank { null }?.let(LessonBlock::Paragraph)
         is Map<*, *> -> {
             val raw = (entry["text"] as? String).orEmpty()
@@ -249,10 +266,14 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
 
         else -> null
     }
+    // A stored id is the block's identity and is kept verbatim; anything else gets one from where
+    // it sits, which is what a model's answer and a pre-ids lesson both need.
+    val storedId = ((entry as? Map<*, *>)?.get("id") as? String)?.trim()
+    block?.withId(storedId?.ifEmpty { null } ?: positionalBlockId(index))
 }
 
 /** The Firestore/JSON shape of [LessonBlock], so the writer and reader can't drift apart. */
-internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
+internal fun LessonBlock.toMap(): Map<String, Any> = mapOf("id" to id) + when (this) {
     is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
     is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
     is LessonBlock.Code -> mapOf("type" to "code", "text" to text, "language" to language)

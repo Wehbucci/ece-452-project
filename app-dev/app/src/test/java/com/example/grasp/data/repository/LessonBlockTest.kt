@@ -3,6 +3,7 @@ package com.example.grasp.data.repository
 import com.example.grasp.data.model.DiagramItem
 import com.example.grasp.data.model.DiagramKind
 import com.example.grasp.data.model.LessonBlock
+import com.example.grasp.data.model.newBlockId
 import com.example.grasp.data.model.paragraphs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -29,9 +30,9 @@ class LessonBlockTest {
 
         assertEquals(
             listOf(
-                LessonBlock.Heading("What it does", 1),
-                LessonBlock.Paragraph("First."),
-                LessonBlock.Paragraph("Second."),
+                LessonBlock.Heading("What it does", 1, id = "b0"),
+                LessonBlock.Paragraph("First.", id = "b1"),
+                LessonBlock.Paragraph("Second.", id = "b2"),
             ),
             blocks,
         )
@@ -41,30 +42,76 @@ class LessonBlockTest {
     fun `reads a lesson saved before headings existed`() {
         val blocks = lessonBlocks(listOf("First.", "Second."))
 
-        assertEquals(listOf(LessonBlock.Paragraph("First."), LessonBlock.Paragraph("Second.")), blocks)
+        assertEquals(
+            listOf(LessonBlock.Paragraph("First.", id = "b0"), LessonBlock.Paragraph("Second.", id = "b1")),
+            blocks,
+        )
     }
 
     @Test
     fun `treats an unlabelled block as a paragraph`() {
         val blocks = lessonBlocks(listOf(mapOf("text" to "No type given.")))
 
-        assertEquals(listOf(LessonBlock.Paragraph("No type given.")), blocks)
+        assertEquals(listOf(LessonBlock.Paragraph("No type given.", id = "b0")), blocks)
     }
 
     @Test
     fun `flattens heading levels past a subheading`() {
         val blocks = lessonBlocks(listOf(heading("Too deep", level = 4), heading("Fine", level = 2)))
 
-        assertEquals(listOf(LessonBlock.Heading("Too deep", 2), LessonBlock.Heading("Fine", 2)), blocks)
+        assertEquals(
+            listOf(LessonBlock.Heading("Too deep", 2, id = "b0"), LessonBlock.Heading("Fine", 2, id = "b1")),
+            blocks,
+        )
     }
 
     @Test
     fun `drops empty and unusable entries`() {
         val blocks = lessonBlocks(listOf(paragraph("  "), heading(""), 42, null, paragraph("Kept.")))
 
-        assertEquals(listOf(LessonBlock.Paragraph("Kept.")), blocks)
+        // Its id is its position in what was STORED, gaps and all — anything already pointing at
+        // the surviving block still points at it.
+        assertEquals(listOf(LessonBlock.Paragraph("Kept.", id = "b4")), blocks)
     }
 
+    @Test
+    fun `keeps a stored block id rather than re-deriving one`() {
+        val blocks = lessonBlocks(
+            listOf(
+                paragraph("Moved down here.") + ("id" to "b7a1c93f0e42"),
+                paragraph("No id of its own."),
+            ),
+        )
+
+        assertEquals(
+            listOf(
+                LessonBlock.Paragraph("Moved down here.", id = "b7a1c93f0e42"),
+                LessonBlock.Paragraph("No id of its own.", id = "b1"),
+            ),
+            blocks,
+        )
+    }
+
+    @Test
+    fun `an edited block keeps its id`() {
+        val original = LessonBlock.Paragraph("Before the user rewrote it.")
+        val edited = original.copy(text = "After.")
+
+        // The whole point of the id: a chat or a proposed edit pointing at this paragraph still
+        // finds it once its text has changed.
+        assertEquals(original.id, edited.id)
+        assertEquals(listOf(edited), lessonBlocks(listOf(edited.toMap())))
+    }
+
+    @Test
+    fun `fresh ids are unique and never look like positional ones`() {
+        val ids = List(200) { newBlockId() }
+
+        assertEquals(200, ids.toSet().size)
+        assertTrue("must not collide with a stored lesson's b0, b1, ...", ids.none { it.length < 8 })
+    }
+
+    /** Ids included: they are what a stored lesson is edited and chatted about by. */
     @Test
     fun `round-trips every block kind through the stored shape`() {
         val original = listOf(
@@ -140,6 +187,7 @@ class LessonBlockTest {
                 url = "https://upload.wikimedia.org/pepper.jpg",
                 sourceUrl = "https://commons.wikimedia.org/wiki/File:Pepper.jpg",
                 credit = "Someone · CC BY-SA 4.0",
+                id = "b0",
             ),
             lessonBlocks(listOf(found)).single(),
         )

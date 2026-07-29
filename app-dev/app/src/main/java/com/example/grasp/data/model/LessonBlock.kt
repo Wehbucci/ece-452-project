@@ -1,14 +1,27 @@
 package com.example.grasp.data.model
 
+import java.util.UUID
+
 /**
  * One piece of a generated lesson body.
  *
- * The body is a FLAT list rather than nested sections on purpose: a block's position in that list
- * is its stable id, which is what scopes an inline AI chat to the part of the lesson the user
- * tapped (FR5.2, and `ChatPresenter`'s `pathId__nodeId__blockIndex` chat ids). Nesting would make
- * those ids depend on the shape of the content.
+ * The body is a FLAT list rather than nested sections on purpose: it keeps a block a thing that
+ * can be pointed at, edited and replaced on its own, which is what scopes an inline AI chat to the
+ * part of the lesson the user tapped (FR5.2) and what lets a user rewrite one paragraph without
+ * touching the rest (FR4.5). Nesting would make every reference depend on the shape of the
+ * content around it.
  */
 sealed interface LessonBlock {
+
+    /**
+     * Opaque, stable handle for this block.
+     *
+     * Everything that points AT a block rather than copying it — the chat scoped to it, an edit
+     * the user makes, an edit the AI proposes — travels by this id. So it is deliberately derived
+     * from NEITHER the block's text nor its position: both change under editing, and an id that
+     * moved with them would silently re-point at a different paragraph.
+     */
+    val id: String
 
     /** The text of this block: heading label, paragraph prose, or a visual's caption. */
     val text: String
@@ -18,10 +31,17 @@ sealed interface LessonBlock {
      *
      * @property level 1 for a section heading, 2 for a subheading within one.
      */
-    data class Heading(override val text: String, val level: Int = 1) : LessonBlock
+    data class Heading(
+        override val text: String,
+        val level: Int = 1,
+        override val id: String = newBlockId(),
+    ) : LessonBlock
 
     /** A paragraph of the lesson — the tappable unit the user can ask questions about. */
-    data class Paragraph(override val text: String) : LessonBlock
+    data class Paragraph(
+        override val text: String,
+        override val id: String = newBlockId(),
+    ) : LessonBlock
 
     /**
      * A short code or command sample, shown monospaced.
@@ -31,7 +51,11 @@ sealed interface LessonBlock {
      *
      * @property language what it's written in, for the little corner label; may be empty.
      */
-    data class Code(override val text: String, val language: String = "") : LessonBlock
+    data class Code(
+        override val text: String,
+        val language: String = "",
+        override val id: String = newBlockId(),
+    ) : LessonBlock
 
     /**
      * A diagram the app DRAWS from a spec the AI wrote (FR4.4).
@@ -46,6 +70,7 @@ sealed interface LessonBlock {
         override val text: String,
         val kind: DiagramKind,
         val items: List<DiagramItem>,
+        override val id: String = newBlockId(),
     ) : LessonBlock
 
     /**
@@ -60,7 +85,31 @@ sealed interface LessonBlock {
         val url: String,
         val sourceUrl: String,
         val credit: String,
+        override val id: String = newBlockId(),
     ) : LessonBlock
+}
+
+/**
+ * A fresh block id, for a block being created rather than read back.
+ *
+ * Long and random so it can never collide with the short positional ids handed to lessons that
+ * were stored before blocks carried one.
+ */
+fun newBlockId(): String = "b" + UUID.randomUUID().toString().replace("-", "").take(12)
+
+/**
+ * The same block under [id].
+ *
+ * Only for stamping an id onto a block that arrived without a usable one — off the model, or out
+ * of a lesson stored before ids existed. Re-identifying a block that already has one breaks every
+ * reference to it.
+ */
+fun LessonBlock.withId(id: String): LessonBlock = when (this) {
+    is LessonBlock.Heading -> copy(id = id)
+    is LessonBlock.Paragraph -> copy(id = id)
+    is LessonBlock.Code -> copy(id = id)
+    is LessonBlock.Diagram -> copy(id = id)
+    is LessonBlock.Image -> copy(id = id)
 }
 
 /** The diagram shapes the app knows how to draw. */
