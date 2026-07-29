@@ -1,8 +1,10 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
+import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.layout.layoutBoard
 import com.example.grasp.core.mvp.BasePresenter
+import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
@@ -40,6 +42,15 @@ class PathPresenter(
 
     /** Node the open branch sheet will grow from — an affordance, or any lesson on the board. */
     private var pendingBranchId: String? = null
+
+    /** The lesson the sheet is showing, kept so an edit has something to apply itself to. */
+    private var openLesson: Subtopic? = null
+
+    /** Whether that lesson is open for editing (FR4.5). Reset every time the sheet opens. */
+    private var editing = false
+
+    /** Whether the open lesson has a stored earlier version to go back to. */
+    private var canUndo = false
 
     /** Guards against a second "generate" tap while the AI is still building the first branch. */
     private var growing = false
@@ -122,7 +133,11 @@ class PathPresenter(
                 view?.showToast("⚠️ Couldn't open that lesson — check your connection")
                 return@launch
             }
-            view?.showSubtopicSheet(subtopic, completed = node.id in completed)
+            openLesson = subtopic
+            // Always opens in reading mode; edit mode is asked for, never inherited.
+            editing = false
+            canUndo = repo.lessonRevisions(pathId, node.id).isNotEmpty()
+            showOpenLesson()
             // Generation is also where a node's reading time comes from — keep the board honest.
             if (subtopic.estMinutes != node.estMinutes) {
                 nodes = nodes.map { if (it.id == node.id) it.copy(estMinutes = subtopic.estMinutes) else it }
@@ -228,6 +243,63 @@ class PathPresenter(
         // Drop the pending targets so a late generation result can't reopen a closed sheet.
         openingNodeId = null
         pendingBranchId = null
+        // Closing the lesson closes the editor with it: reopening a node should always land the
+        // user in a clean reading view, never back in a mode they left days ago (NFR 2.2).
+        editing = false
+        openLesson = null
+    }
+
+    override fun onToggleEditMode() {
+        editing = !editing
+        showOpenLesson()
+    }
+
+    /**
+     * Applies one change and shows the result.
+     *
+     * The repository is the one that applies it, so a change made by hand goes through exactly the
+     * same code an accepted AI proposal will (FR5.4) — including saving the version before it.
+     */
+    override fun onLessonEdit(edit: LessonEdit) {
+        val lesson = openLesson ?: return
+        scope.launch {
+            val updated = repo.editLesson(pathId, lesson.nodeId, listOf(edit))
+            if (updated == null) {
+                // The only way here is an edit aimed at something no longer in the lesson.
+                view?.showToast("⚠️ Couldn't make that change")
+                return@launch
+            }
+            openLesson = updated
+            canUndo = true
+            showOpenLesson()
+        }
+    }
+
+    override fun onUndoLessonEdit() {
+        val lesson = openLesson ?: return
+        scope.launch {
+            val restored = repo.undoLastLessonEdit(pathId, lesson.nodeId)
+            if (restored == null) {
+                view?.showToast("Nothing left to undo")
+                canUndo = false
+                showOpenLesson()
+                return@launch
+            }
+            openLesson = restored
+            canUndo = repo.lessonRevisions(pathId, lesson.nodeId).isNotEmpty()
+            showOpenLesson()
+        }
+    }
+
+    /** Re-renders the open sheet from the lesson and mode the presenter currently holds. */
+    private fun showOpenLesson() {
+        val lesson = openLesson ?: return
+        view?.showSubtopicSheet(
+            subtopic = lesson,
+            completed = lesson.nodeId in completed,
+            editing = editing,
+            canUndo = canUndo,
+        )
     }
 
     // ── Derivation (pure functions of `nodes` + `completed`) ────────────────────────────────

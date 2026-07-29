@@ -1,5 +1,6 @@
 package com.example.grasp.ui.feature.path
 
+import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.mvp.MvpPresenter
 import com.example.grasp.core.mvp.MvpView
 import com.example.grasp.data.model.Subtopic
@@ -30,8 +31,20 @@ interface PathContract {
          */
         fun showSubtopicLoading(title: String, generating: Boolean)
 
-        /** Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA. */
-        fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean)
+        /**
+         * Open the subtopic detail bottom sheet for [subtopic]; [completed] drives the CTA.
+         *
+         * @param editing whether the sheet is in edit mode (FR4.5) rather than reading mode. Off
+         *        by default and off again every time the sheet opens — editing is something the
+         *        user asks for, never the state they find the lesson in.
+         * @param canUndo whether there is a stored earlier version to take back.
+         */
+        fun showSubtopicSheet(
+            subtopic: Subtopic,
+            completed: Boolean,
+            editing: Boolean = false,
+            canUndo: Boolean = false,
+        )
 
         /** Open the "grow your path" sheet; [fromTitle] is the lesson the branch will grow off. */
         fun showBranchSheet(fromTitle: String)
@@ -100,5 +113,14 @@ interface PathContract {
 
         /** The open sheet was dismissed by the user. */
         fun onSheetDismissed()
+
+        /** Turn edit mode on or off for the open lesson (FR4.5). */
+        fun onToggleEditMode()
+
+        /** Apply one change the user made in edit mode, and save it. */
+        fun onLessonEdit(edit: LessonEdit)
+
+        /** Take back the last change made to the open lesson. */
+        fun onUndoLessonEdit()
     }
 }

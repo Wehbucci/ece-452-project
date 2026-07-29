@@ -33,6 +33,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
@@ -68,6 +69,13 @@ import com.example.grasp.ui.theme.PathWhyItMattersBg
  * @param onAskAboutBlock route to the AI chat about ONE paragraph of the lesson (FR5.2).
  * @param onBranchOut grow a new section off this node.
  * @param onOpenResource open an optional "explore further" link.
+ * @param editing whether the lesson is open for editing (FR4.5). The proposal resolved its
+ *        simplicity-vs-customisation conflict in favour of simplicity, so editing is a MODE you
+ *        turn on from a small secondary control — never controls living in the reading flow.
+ * @param canUndo whether there is an earlier version of this lesson to go back to.
+ * @param onToggleEdit switch between reading and editing.
+ * @param onEdit one change the user made while editing.
+ * @param onUndo take back the last change.
  */
 @Composable
 fun SubtopicSheetContent(
@@ -79,6 +87,11 @@ fun SubtopicSheetContent(
     onBranchOut: () -> Unit,
     onOpenResource: (String) -> Unit,
     modifier: Modifier = Modifier,
+    editing: Boolean = false,
+    canUndo: Boolean = false,
+    onToggleEdit: () -> Unit = {},
+    onEdit: (LessonEdit) -> Unit = {},
+    onUndo: () -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -95,15 +108,33 @@ fun SubtopicSheetContent(
                 SheetChip("★ YOU'RE HERE", PathNodeCurrentTint, PathNodeCurrent)
             }
             SheetChip("${subtopic.estMinutes} min", PathChipNeutralBg, PathMuted)
+            // A lesson the user has changed says so, so nobody has to wonder whether what they
+            // are reading is still what the AI wrote.
+            if (subtopic.edited) SheetChip("EDITED", PathChipNeutralBg, PathMuted)
             Spacer(Modifier.weight(1f))
-            Text(
-                text = subtopic.sectionLabel.uppercase(),
-                fontFamily = NunitoFamily,
-                fontWeight = FontWeight.Black,
-                fontSize = 11.sp,
-                letterSpacing = 0.8.sp,
-                color = PathFaint,
-            )
+            if (editing) {
+                Text(
+                    text = "DONE",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.8.sp,
+                    color = PathNodeCurrent,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable(onClick = onToggleEdit)
+                        .padding(horizontal = 6.dp, vertical = 4.dp),
+                )
+            } else {
+                Text(
+                    text = subtopic.sectionLabel.uppercase(),
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.8.sp,
+                    color = PathFaint,
+                )
+            }
         }
 
         Text(
@@ -113,6 +144,32 @@ fun SubtopicSheetContent(
             fontSize = 26.sp,
             color = PathInk,
         )
+        if (editing) {
+            // Editing replaces the reading view rather than decorating it, so a learner who never
+            // turns it on never meets a delete button (NFR 2.2).
+            LessonEditorBody(subtopic = subtopic, onEdit = onEdit)
+            Spacer(Modifier.height(4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                BeveledButton(
+                    text = "Done editing",
+                    face = PathNodeCurrent,
+                    bevel = PathNodeCurrentBevel,
+                    onClick = onToggleEdit,
+                    modifier = Modifier.weight(1f),
+                )
+                if (canUndo) {
+                    BeveledButton(
+                        text = "Undo",
+                        face = PathNodeBranch,
+                        bevel = PathNodeBranch,
+                        onClick = onUndo,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            return@Column
+        }
+
         Text(
             text = subtopic.summary,
             fontFamily = NunitoFamily,
@@ -221,6 +278,23 @@ fun SubtopicSheetContent(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 14.dp),
             )
         }
+
+        // The way in to editing (FR4.5), and deliberately the quietest thing on the sheet: the
+        // default view of a lesson is somewhere to read, and only a user who came to change
+        // something should have to notice this.
+        Text(
+            text = "✎ Edit this lesson",
+            fontFamily = NunitoFamily,
+            fontWeight = FontWeight.Bold,
+            fontSize = 13.sp,
+            color = PathMuted,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .clickable(onClick = onToggleEdit)
+                .padding(vertical = 10.dp),
+        )
     }
 }
 

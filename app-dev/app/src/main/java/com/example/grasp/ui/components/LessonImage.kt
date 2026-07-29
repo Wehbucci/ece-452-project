@@ -123,7 +123,7 @@ fun LessonImage(
  * for a problem this screen doesn't have.
  */
 @Composable
-private fun rememberRemoteImage(url: String): ImageBitmap? {
+internal fun rememberRemoteImage(url: String): ImageBitmap? {
     val context = LocalContext.current
     var bitmap by remember(url) { mutableStateOf<ImageBitmap?>(null) }
 

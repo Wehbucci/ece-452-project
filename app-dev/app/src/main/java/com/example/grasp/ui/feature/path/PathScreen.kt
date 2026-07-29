@@ -101,6 +101,8 @@ fun PathScreen(
     var sheetGenerating by remember { mutableStateOf(false) }
     var sheetSubtopic by remember { mutableStateOf<Subtopic?>(null) }
     var sheetCompleted by remember { mutableStateOf(false) }
+    var sheetEditing by remember { mutableStateOf(false) }
+    var sheetCanUndo by remember { mutableStateOf(false) }
     var branchSheet by remember { mutableStateOf(false) }
     var branchFromTitle by remember { mutableStateOf("") }
     var branchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -130,11 +132,18 @@ fun PathScreen(
                 sheetGenerating = generating
                 sheetLoadingTitle = title
             }
-            override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
+            override fun showSubtopicSheet(
+                subtopic: Subtopic,
+                completed: Boolean,
+                editing: Boolean,
+                canUndo: Boolean,
+            ) {
                 branchSheet = false
                 sheetLoadingTitle = null
                 sheetSubtopic = subtopic
                 sheetCompleted = completed
+                sheetEditing = editing
+                sheetCanUndo = canUndo
             }
             override fun showBranchSheet(fromTitle: String) {
                 sheetSubtopic = null
@@ -253,6 +262,11 @@ fun PathScreen(
                     },
                     onBranchOut = { presenter.onBranchFromNode(subtopic.nodeId) },
                     onOpenResource = { url -> uriHandler.openUri(url) },
+                    editing = sheetEditing,
+                    canUndo = sheetCanUndo,
+                    onToggleEdit = { presenter.onToggleEditMode() },
+                    onEdit = { presenter.onLessonEdit(it) },
+                    onUndo = { presenter.onUndoLessonEdit() },
                 )
             } else {
                 SubtopicLoadingContent(title = loadingTitle!!, generating = sheetGenerating)

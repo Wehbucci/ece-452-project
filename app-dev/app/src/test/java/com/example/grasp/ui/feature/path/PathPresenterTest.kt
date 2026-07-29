@@ -1,5 +1,7 @@
 package com.example.grasp.ui.feature.path
 
+import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.FakePathRepository
 import kotlinx.coroutines.CoroutineDispatcher
@@ -30,6 +32,7 @@ class PathPresenterTest {
         var notFound = false
         var subtopicSheet: Subtopic? = null
         var subtopicCompleted = false
+        var subtopicEditing = false
         var branchSheetShown = false
         val branchFromTitles = mutableListOf<String>()
         var dismissCount = 0
@@ -51,8 +54,13 @@ class PathPresenterTest {
             loadingTitles += title
             loadingSaidGenerating += generating
         }
-        override fun showSubtopicSheet(subtopic: Subtopic, completed: Boolean) {
-            subtopicSheet = subtopic; subtopicCompleted = completed
+        override fun showSubtopicSheet(
+            subtopic: Subtopic,
+            completed: Boolean,
+            editing: Boolean,
+            canUndo: Boolean,
+        ) {
+            subtopicSheet = subtopic; subtopicCompleted = completed; subtopicEditing = editing
         }
         override fun showBranchSheet(fromTitle: String) {
             branchSheetShown = true
@@ -369,6 +377,65 @@ class PathPresenterTest {
 
         assertEquals(listOf("supervised"), view.chats)
         assertEquals(listOf(2), view.chatBlockIndices)
+    }
+
+    @Test
+    fun `a lesson always opens in reading mode`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("supervised")
+        assertFalse(view.subtopicEditing)
+
+        presenter.onToggleEditMode()
+        assertTrue(view.subtopicEditing)
+
+        // Closing and reopening must not drop the user back into an editor they left days ago.
+        presenter.onSheetDismissed()
+        presenter.onNodeTapped("supervised")
+        assertFalse(view.subtopicEditing)
+    }
+
+    @Test
+    fun `an edit made in the sheet is applied and shown`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("unsupervised")
+        val blockId = view.subtopicSheet!!.body.first { it is LessonBlock.Paragraph }.id
+
+        presenter.onLessonEdit(
+            LessonEdit.UpdateBlock(blockId, LessonBlock.Paragraph("My own explanation.")),
+        )
+
+        val shown = view.subtopicSheet!!
+        assertEquals("My own explanation.", shown.body.first { it.id == blockId }.text)
+        // The lesson is marked as touched, which is what keeps generation off it.
+        assertTrue(shown.edited)
+    }
+
+    @Test
+    fun `undo puts the lesson back and says so when there is nothing left`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("regression")
+        val blockId = view.subtopicSheet!!.body.first { it is LessonBlock.Paragraph }.id
+        val original = view.subtopicSheet!!.body.first { it.id == blockId }.text
+
+        presenter.onLessonEdit(LessonEdit.UpdateBlock(blockId, LessonBlock.Paragraph("Changed.")))
+        presenter.onUndoLessonEdit()
+
+        assertEquals(original, view.subtopicSheet!!.body.first { it.id == blockId }.text)
+
+        presenter.onUndoLessonEdit()
+        assertTrue(view.toasts.any { it.contains("undo", ignoreCase = true) })
+    }
+
+    @Test
+    fun `an edit aimed at a block that is gone changes nothing and says so`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("clustering")
+        val before = view.subtopicSheet!!
+
+        presenter.onLessonEdit(LessonEdit.DeleteBlock("never-existed"))
+
+        assertEquals(before, view.subtopicSheet)
+        assertTrue(view.toasts.isNotEmpty())
     }
 
     @Test
