@@ -93,6 +93,7 @@ import com.example.grasp.ui.theme.PathScreenBg
 @Composable
 fun ProfileScreen(
     onSelectTab: (TopLevelDestination) -> Unit,
+    onOpenPreferences: () -> Unit,
     navigateToLogin: () -> Unit,
     navigateToNotifications: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -104,10 +105,11 @@ fun ProfileScreen(
     var confirmLogout by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
-    val view = remember(navigateToLogin) {
+    val view = remember(navigateToLogin, onOpenPreferences) {
         object : ProfileContract.View {
             override fun showProfile(name: String, email: String) { userName = name; userEmail = email }
             override fun showStats(stats: ProfileStats) { playerStats = stats }
+            override fun openPreferences() = onOpenPreferences()
             override fun onLoggedOut() = navigateToLogin()
         }
     }
@@ -154,7 +156,7 @@ fun ProfileScreen(
                     subtitle = "Difficulty, depth and pace",
                     tint = PathNodeCurrentTint,
                     glyph = { SlidersGlyph(PathNodeCurrent, Modifier.size(20.dp)) },
-                    trailing = { SoonTag() },
+                    onClick = presenter::onPreferencesClicked,
                 )
                 GameRowDivider()
                 GameSettingRow(

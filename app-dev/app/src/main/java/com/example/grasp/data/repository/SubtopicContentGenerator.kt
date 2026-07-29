@@ -1,5 +1,9 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.UserPreferences
+import com.example.grasp.data.model.Pace
+import com.example.grasp.data.model.Style
+import com.example.grasp.data.model.Tone
 import com.example.grasp.data.model.DiagramItem
 import com.example.grasp.data.model.DiagramKind
 import com.example.grasp.data.model.LessonBlock
@@ -60,10 +64,11 @@ suspend fun generateSubtopicContent(
     previousTitles: List<String>,
     upcomingTitles: List<String>,
     estMinutes: Int = 0,
+    prefs: UserPreferences = UserPreferences(),
 ): GeneratedContent? {
     val json = geminiJson(
         SYSTEM_INSTRUCTION,
-        contentPrompt(pathTitle, nodeTitle, previousTitles, upcomingTitles),
+        contentPrompt(pathTitle, nodeTitle, previousTitles, upcomingTitles, prefs),
     ) ?: return null
 
     val summary = json.optString("summary").trim()
@@ -156,7 +161,16 @@ private fun parseBodyBlock(json: JSONObject): ParsedBlock? {
                 .firstOrNull { it.name.equals(json.optString("kind"), ignoreCase = true) }
             // A diagram with one item isn't a diagram, and an unknown shape can't be drawn.
             if (kind == null || items.size < 2) null
-            else ParsedBlock.Ready(LessonBlock.Diagram(text, kind, items.take(MAX_DIAGRAM_ITEMS)))
+            else ParsedBlock.Ready(
+                LessonBlock.Diagram(
+                    text = text,
+                    kind = kind,
+                    items = items.take(MAX_DIAGRAM_ITEMS),
+                    unit = json.optString("unit").takeIf { it.isNotBlank() },
+                    maxValue = if (json.has("maxValue")) json.optDouble("maxValue").toFloat() else null,
+                    showValues = json.optBoolean("showValues", true)
+                )
+            )
         }
 
         else -> lessonBlocks(
@@ -223,7 +237,14 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
                             )
                         }
                     if (kind == null || items.size < 2) null
-                    else LessonBlock.Diagram(text, kind, items)
+                    else LessonBlock.Diagram(
+                        text = text,
+                        kind = kind,
+                        items = items,
+                        unit = entry["unit"] as? String,
+                        maxValue = (entry["maxValue"] as? Number)?.toFloat(),
+                        showValues = entry["showValues"] as? Boolean ?: true
+                    )
                 }
 
                 // Blank lines around it go, but the inner layout is untouched — for a language
@@ -252,7 +273,7 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapNotNull { en
 }
 
 /** The Firestore/JSON shape of [LessonBlock], so the writer and reader can't drift apart. */
-internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
+internal fun LessonBlock.toMap(): Map<String, Any?> = when (this) {
     is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
     is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
     is LessonBlock.Code -> mapOf("type" to "code", "text" to text, "language" to language)
@@ -260,6 +281,9 @@ internal fun LessonBlock.toMap(): Map<String, Any> = when (this) {
         "type" to "diagram",
         "text" to text,
         "kind" to kind.name,
+        "unit" to unit,
+        "maxValue" to maxValue,
+        "showValues" to showValues,
         "items" to items.map {
             mapOf("label" to it.label, "detail" to it.detail, "value" to it.value)
         },
@@ -290,10 +314,17 @@ private fun contentPrompt(
     nodeTitle: String,
     previousTitles: List<String>,
     upcomingTitles: List<String>,
+    prefs: UserPreferences,
 ) = """
     Write one lesson for a learner working through a roadmap on "$pathTitle".
 
     The lesson is: "$nodeTitle"
+    
+    User Preferences:
+    - Pace: ${prefs.pace.label} (${prefs.pace.prompt})
+    - Style: ${prefs.style.label} (${prefs.style.prompt})
+    - Tone: ${prefs.tone.label} (${prefs.tone.prompt})
+    
     ${context("Already covered (build on this, don't re-explain it)", previousTitles)}
     ${context("Coming up later (do NOT cover this here)", upcomingTitles)}
 
@@ -304,21 +335,72 @@ private fun contentPrompt(
     actual terms, and work through actual examples, the way a good tutor would if this were the
     only explanation the learner ever got.
 
+    ${
+    when (prefs.style) {
+        Style.ACTIONABLE -> """
+            - STYLE: ACTIONABLE. Minimize theory. Focus on "How" rather than "Why".
+            - REQUIREMENT: Every section MUST include either a code block, a specific task, or a "Try this" step.
+            - EXAMPLES: Use only practical, real-world execution examples.
+        """.trimIndent()
+        Style.THEORETICAL -> """
+            - STYLE: THEORETICAL. Focus on first-principles, history, and conceptual architecture.
+            - REQUIREMENT: Avoid "How-to" steps. Explain the underlying logic and "Why" it works.
+            - EXAMPLES: Use thought experiments and conceptual analogies.
+        """.trimIndent()
+        else -> """
+            - STYLE: BALANCED. Provide a mix of conceptual definitions and practical examples.
+        """.trimIndent()
+    }
+}
+
+    ${
+    when (prefs.tone) {
+        Tone.MINIMALIST -> """
+            - TONE: MINIMALIST. No fluff. No encouraging language. Just cold, hard facts.
+            - REQUIREMENT: Skip all introductory sentences and concluding remarks.
+        """.trimIndent()
+        Tone.ENCOURAGING -> """
+            - TONE: ENCOURAGING. Be warm, supportive, and use friendly metaphors.
+            - REQUIREMENT: Celebrate the importance of the concept and use motivational transitions.
+        """.trimIndent()
+        else -> """
+            - TONE: PROFESSIONAL. Use standard, clear, and objective academic language.
+        """.trimIndent()
+    }
+}
+
+    ${
+    when (prefs.pace) {
+        Pace.OVERVIEW -> """
+            - STRICT LIMIT: Body MUST be exactly 2-3 paragraphs total.
+            - FOCUS: Key takeaways and absolute essentials only.
+            - HEADINGS: Use only 1-2 level-1 headings.
+        """.trimIndent()
+        Pace.COMPREHENSIVE -> """
+            - MINIMUM LENGTH: Body MUST be at least 10 substantial paragraphs.
+            - FOCUS: Deep-dive exploration of every detail, edge case, and historical nuance.
+            - HEADINGS: Use 5-7 level-1 headings and at least 3 level-2 subheadings.
+            - EXAMPLES: Include at least 3 distinct fully-worked examples.
+        """.trimIndent()
+        else -> """
+            - STANDARD LENGTH: Use 3-5 level-1 headings and 5-8 substantial paragraphs.
+            - FOCUS: A balanced teaching approach for a standard learner.
+        """.trimIndent()
+    }
+}
+
     Write these parts:
     - summary: 1-2 sentences a beginner could read in ten seconds, framing what this lesson covers.
     - whyItMatters: 1-2 sentences on what this unlocks for them, concretely.
     - body: the lesson, as an ordered list of heading and paragraph blocks.
       Structure it like a well-organised set of notes, not a wall of text:
-      · Open with a heading (level 1), then its paragraphs. Use 3 to 5 level-1 headings in total,
-      each naming the idea that section teaches — a real title like "Why labelled data matters",
-      never a filler like "Introduction", "Overview", "Details" or "Conclusion".
+      · Open with a heading (level 1), then its paragraphs. 
       · Give a section a level-2 subheading only when it genuinely splits into named parts, such as
       two contrasting approaches or a worked example inside a longer explanation. Most sections
       need none, and a section must never have exactly one subheading.
-      · Under the headings, write 5 to 8 substantial paragraphs in total. Introduce each term the
-      first time you use it. Where something is commonly misunderstood, say so and correct it.
-      Someone who reads only this and nothing else should come away actually understanding
-      "$nodeTitle" and able to use it.
+      · Introduce each term the first time you use it. Where something is commonly misunderstood, 
+      say so and correct it. Someone who reads only this and nothing else should come away 
+      actually understanding "$nodeTitle" and able to use it.
       · EXAMPLES ARE NOT OPTIONAL. Every idea you introduce gets something concrete attached to
       it, and the lesson as a whole must contain at least one fully worked example that runs from
       a specific starting point through to its result, showing the intermediate steps rather than
@@ -346,8 +428,17 @@ private fun contentPrompt(
       · "compare" — two or three things set against each other on the same terms.
       · "bar" — quantities worth comparing. Give each item a "value"; they only need to be
       right relative to each other.
-    Every diagram needs 2 to $MAX_DIAGRAM_ITEMS items, a short "label" each, an optional one-line
-    "detail", and a "text" caption saying what the diagram shows.
+    Every diagram needs 2 to $MAX_DIAGRAM_ITEMS items. Each item must have:
+      · "label": a short name.
+      · "detail": an optional one-line explanation.
+      · "value": a number. REQUIRED for "bar" charts; use 0.0 for other types.
+    Finally, include these configuration fields for "bar" diagrams:
+      · "unit": optional string. 
+        - Use ONLY for short symbols (e.g. "%", "$", "°C").
+        - For longer units (e.g. "kilograms", "light years"), leave this field BLANK and instead state the unit clearly in the "text" caption (e.g. "Relative impact in kilograms").
+      · "maxValue": optional number for a fixed scale (e.g., 100 for percentage). If omitted, the chart is relative to the largest item.
+      · "showValues": boolean. Set false to hide numbers and only show relative bar sizes (great for abstract concepts like "impact").
+    Include a "text" caption saying what the diagram shows and stating units if they are not short symbols.
 
     Image blocks are looked up in Wikimedia Commons, so give a "query" of 2-5 plain search words
     naming a concrete, photographable thing ("bell pepper julienne cut", "Hertzsprung-Russell
@@ -373,12 +464,14 @@ private fun contentPrompt(
         { "type": "code", "language": "python", "text": "weights = [0.5, -0.2]\ntotal = sum(w * x for w, x in zip(weights, inputs))" },
         {
         "type": "diagram",
-        "kind": "flow",
-        "text": "How one input becomes one output",
+        "kind": "bar",
+        "text": "Comparative size of planets",
+        "unit": "x Earth",
+        "maxValue": 12.0,
+        "showValues": true,
         "items": [
-            { "label": "Inputs", "detail": "The numbers fed in." },
-            { "label": "Weighted sum", "detail": "Each input scaled and added up." },
-            { "label": "Threshold", "detail": "Fires only past a cutoff." }
+            { "label": "Earth", "detail": "Our home.", "value": 1.0 },
+            { "label": "Jupiter", "detail": "The giant.", "value": 11.2 }
         ]
         },
         { "type": "heading", "text": "Where it breaks down", "level": 1 },

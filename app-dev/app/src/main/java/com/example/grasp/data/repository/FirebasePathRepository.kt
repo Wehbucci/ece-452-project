@@ -201,6 +201,9 @@ class FirebasePathRepository : PathRepository {
     ): GeneratedContent {
         val lessons = path.nodes.filter { !it.isBranchOut }
         val position = lessons.indexOfFirst { it.id == node.id }.coerceAtLeast(0)
+        
+        val prefs = FirebaseUserRepository().getPreferences()
+        
         val generated = generateSubtopicContent(
             pathTitle = path.title,
             nodeTitle = node.title,
@@ -208,6 +211,7 @@ class FirebasePathRepository : PathRepository {
             previousTitles = lessons.take(position).takeLast(3).map { it.title },
             upcomingTitles = lessons.drop(position + 1).take(2).map { it.title },
             estMinutes = node.estMinutes,
+            prefs = prefs
         ) ?: return placeholderContent(node.title, node.estMinutes)
 
         try {
@@ -302,7 +306,8 @@ class FirebasePathRepository : PathRepository {
         }
 
     private suspend fun createLearnerTopic(uid: String, normalizedId: String, title: String): LearningPath? {
-        val nodes = buildLearnerTree(normalizedId, title)
+        val prefs = FirebaseUserRepository().getPreferences()
+        val nodes = buildLearnerTree(normalizedId, title, prefs)
         val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
         return try {
             topicsRef(uid).document(normalizedId).set(
@@ -347,7 +352,8 @@ class FirebasePathRepository : PathRepository {
     * fetched via [tinkerGuide].
     */
     private suspend fun createTinkerTopic(uid: String, normalizedId: String, title: String): LearningPath? {
-        val guide = buildTinkerGuide(normalizedId, title)
+        val prefs = FirebaseUserRepository().getPreferences()
+        val guide = buildTinkerGuide(normalizedId, title, prefs)
         return try {
             topicsRef(uid).document(normalizedId).set(
                 mapOf(
