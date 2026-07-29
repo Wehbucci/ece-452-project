@@ -28,6 +28,49 @@ private const val THUMB_WIDTH = 1000
 
 private const val TIMEOUT_MS = 8_000
 
+/** How many results generation looks at, and how many the picker offers a user to choose between. */
+private const val GENERATION_RESULTS = 3
+const val PICKER_RESULTS = 12
+
+/**
+ * Commons matches for [query], best first — up to [limit], and empty if nothing usable came back.
+ *
+ * Each carries the file's own title as its [LessonBlock.Image.text] so a picker has something to
+ * label it with; a caller placing one in a lesson replaces that with the caption it wants.
+ */
+suspend fun searchLessonImages(query: String, limit: Int = PICKER_RESULTS): List<LessonBlock.Image> =
+    withContext(Dispatchers.IO) {
+        val cleaned = query.trim()
+        if (cleaned.isEmpty()) return@withContext emptyList()
+        try {
+            val json = JSONObject(fetch(commonsUrl(cleaned, limit)))
+            val pages = json.optJSONObject("query")?.optJSONObject("pages")
+                ?: return@withContext emptyList()
+
+            // `pages` is keyed by page id; search order comes from each page's "index".
+            pages.keys().asSequence()
+                .mapNotNull { pages.optJSONObject(it) }
+                .sortedBy { it.optInt("index", Int.MAX_VALUE) }
+                .mapNotNull { page ->
+                    val info = page.optJSONArray("imageinfo")?.optJSONObject(0)
+                    val url = info?.optString("thumburl").orEmpty()
+                        .ifEmpty { info?.optString("url").orEmpty() }
+                    if (!url.startsWith("http")) return@mapNotNull null
+                    LessonBlock.Image(
+                        text = page.optString("title").removePrefix("File:"),
+                        url = url,
+                        sourceUrl = info?.optString("descriptionurl").orEmpty(),
+                        credit = creditFor(info),
+                    )
+                }
+                .toList()
+        } catch (e: Exception) {
+            // A lesson without its picture is fine; a lesson that failed to generate is not.
+            Log.e(TAG, "image search failed for \"$cleaned\"", e)
+            emptyList()
+        }
+    }
+
 /**
  * The best Commons match for [query], or null if nothing usable came back.
  *
@@ -35,50 +78,19 @@ private const val TIMEOUT_MS = 8_000
  *        is not shown to the user.
  */
 suspend fun findLessonImage(query: String, caption: String): LessonBlock.Image? =
-    withContext(Dispatchers.IO) {
-        val cleaned = query.trim()
-        if (cleaned.isEmpty()) return@withContext null
-        try {
-            val json = JSONObject(fetch(commonsUrl(cleaned)))
-            val pages = json.optJSONObject("query")?.optJSONObject("pages")
-                ?: return@withContext null
-
-            // `pages` is keyed by page id; search order comes from each page's "index".
-            val best = pages.keys().asSequence()
-                .mapNotNull { pages.optJSONObject(it) }
-                .sortedBy { it.optInt("index", Int.MAX_VALUE) }
-                .firstNotNullOfOrNull { page ->
-                    val info = page.optJSONArray("imageinfo")?.optJSONObject(0)
-                    val url = info?.optString("thumburl").orEmpty().ifEmpty {
-                        info?.optString("url").orEmpty()
-                    }
-                    if (url.startsWith("http")) page to url else null
-                } ?: return@withContext null
-
-            val (page, url) = best
-            val info = page.optJSONArray("imageinfo")?.optJSONObject(0)
-            LessonBlock.Image(
-                text = caption.trim().ifEmpty { page.optString("title").removePrefix("File:") },
-                url = url,
-                sourceUrl = info?.optString("descriptionurl").orEmpty(),
-                credit = creditFor(info),
-            )
-        } catch (e: Exception) {
-            // A lesson without its picture is fine; a lesson that failed to generate is not.
-            Log.e(TAG, "image search failed for \"$cleaned\"", e)
-            null
-        }
+    searchLessonImages(query, limit = GENERATION_RESULTS).firstOrNull()?.let { found ->
+        caption.trim().ifEmpty { null }?.let { found.copy(text = it) } ?: found
     }
 
 /**
  * Search Commons' File namespace (6) and return each hit's thumbnail plus its licence metadata in
  * one round trip.
  */
-private fun commonsUrl(query: String): String {
+private fun commonsUrl(query: String, limit: Int): String {
     val encoded = URLEncoder.encode(query, Charsets.UTF_8.name())
     return "https://commons.wikimedia.org/w/api.php" +
         "?action=query&format=json&generator=search" +
-        "&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=3" +
+        "&gsrsearch=$encoded&gsrnamespace=6&gsrlimit=$limit" +
         "&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=$THUMB_WIDTH"
 }
 
