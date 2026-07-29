@@ -9,11 +9,14 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.example.grasp.ui.feature.about.AboutScreen
 import com.example.grasp.ui.feature.auth.LoginScreen
 import com.example.grasp.ui.feature.chat.ChatScreen
 import com.example.grasp.ui.feature.home.HomeScreen
 import com.example.grasp.ui.feature.library.LibraryScreen
+import com.example.grasp.ui.feature.notifications.NotificationsScreen
 import com.example.grasp.ui.feature.path.PathScreen
+import com.example.grasp.ui.feature.profile.PreferencesScreen
 import com.example.grasp.ui.feature.profile.ProfileScreen
 import com.example.grasp.ui.feature.subtopic.SubtopicScreen
 import com.example.grasp.ui.feature.tinker.TinkerScreen
@@ -83,13 +86,26 @@ fun GraspNavHost(
         composable(GraspDestinations.PROFILE) {
             ProfileScreen(
                 onSelectTab = navController::switchTab,
+                onOpenPreferences = { navController.navigate(GraspDestinations.PREFERENCES) },
                 navigateToLogin = {
                     navController.navigate(GraspDestinations.LOGIN) {
-                        // Clear the whole back stack on logout.
                         popUpTo(GraspDestinations.HOME) { inclusive = true }
                     }
                 },
+                navigateToNotifications = { navController.navigate(GraspDestinations.NOTIFICATIONS) },
+                navigateToAbout = { navController.navigate(GraspDestinations.ABOUT) },
             )
+        }
+        composable(GraspDestinations.PREFERENCES) {
+            PreferencesScreen(onBack = navController::popBackStack)
+        }
+
+        // ---- Profile sub-screens (full-screen, back returns to the Profile tab) ----
+        composable(GraspDestinations.NOTIFICATIONS) {
+            NotificationsScreen(onBack = navController::popBackStack)
+        }
+        composable(GraspDestinations.ABOUT) {
+            AboutScreen(onBack = navController::popBackStack)
         }
 
         // ---- Learner roadmap ----

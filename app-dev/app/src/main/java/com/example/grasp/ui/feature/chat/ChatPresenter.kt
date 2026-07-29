@@ -6,6 +6,7 @@ import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
@@ -119,9 +120,16 @@ class ChatPresenter(
     }
 
     private suspend fun buildSystemInstruction(): String = buildString {
+        val prefs = FirebaseUserRepository().getPreferences()
+        
         appendLine("You are a helpful AI tutor in the Grasp learning app.")
         appendLine("Be concise, clear, and encouraging.")
         appendLine("If the user shares an image, describe what you see and relate it to the topic.")
+        appendLine()
+        
+        appendLine("User Preferences:")
+        appendLine("- Style: ${prefs.style.label} (${prefs.style.prompt})")
+        appendLine("- Tone: ${prefs.tone.label} (${prefs.tone.prompt})")
         appendLine()
 
         val subtopic = if (pathId.isNotEmpty() && nodeId.isNotEmpty()) {
