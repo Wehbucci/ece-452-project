@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -43,12 +45,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.ui.feature.path.BoardMode
 import com.example.grasp.ui.feature.path.PathNodeState
 import com.example.grasp.ui.feature.path.PathNodeUi
 import com.example.grasp.ui.theme.FredokaFamily
@@ -65,6 +69,7 @@ import com.example.grasp.ui.theme.PathNodeDone
 import com.example.grasp.ui.theme.PathNodeDoneBevel
 import com.example.grasp.ui.theme.PathNodeOpenBevel
 import com.example.grasp.ui.theme.PathScreenBg
+import com.example.grasp.ui.theme.PathStreak
 import kotlin.math.abs
 
 /**
@@ -129,7 +134,7 @@ object PathLayout {
     fun boardHeight(rowCount: Int, regionRows: Set<Int>): Dp =
         centerY((rowCount - 1).coerceAtLeast(0), regionRows) + BottomPadding
 
-    /** Diameter of the amber "+" badge a node wears while the board is a picker. */
+    /** Diameter of the badge a node wears while the board is a picker. */
     val PickBadgeSize: Dp = 24.dp
 
     /** Circle diameter for each visual state (the "chunky game button" sizes). */
@@ -144,13 +149,16 @@ object PathLayout {
 /**
  * A single tappable node on the journey — the chunky, bevelled "game button".
  *
- * Stateless: everything visual is a function of [node] and [picking]. The only motion it owns is
+ * Stateless: everything visual is a function of [node] and [mode]. The only motion it owns is
  * transient and driven by a key the Screen bumps:
  *  - [enterKey]  — bump to pop/bounce this node in (the marker advancing onto it, or a
  *    freshly-grown branch node).
  *
- * While [picking] the node wears an amber "+" and wobbles in place, so the board reads as a set of
- * targets rather than as lessons waiting to be opened.
+ * While the board is a picker the node wears a badge saying what a tap would do to it and wobbles
+ * in place, so the board reads as a set of targets rather than as lessons waiting to be opened. A
+ * node the current mode can't act on — the root while deleting, a section's own branch while
+ * choosing where to move it — instead fades back and stays still, which is the honest picture: it
+ * is on the board, and it is not one of the answers.
  *
  * The current node additionally shows an infinitely pulsing ring and a bobbing "YOU'RE HERE"
  * tag. Placement (absolute offset by circle center) is the Screen's job via [PathLayout].
@@ -161,8 +169,10 @@ fun PathNode(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enterKey: Int = 0,
-    picking: Boolean = false,
+    mode: BoardMode = BoardMode.BROWSING,
 ) {
+    val picking = mode.picking && node.pickable
+    val ruledOut = mode.picking && !node.pickable
     // Pop/bounce when the marker advances onto this node, or when it is inserted.
     val enterScale = remember { Animatable(1f) }
     androidx.compose.runtime.LaunchedEffect(enterKey) {
@@ -189,7 +199,9 @@ fun PathNode(
     }
 
     Column(
-        modifier = modifier.width(PathLayout.SlotWidth),
+        modifier = modifier
+            .width(PathLayout.SlotWidth)
+            .graphicsLayer { alpha = if (ruledOut) RuledOutAlpha else 1f },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // Tag zone (only the current node fills it).
@@ -216,6 +228,9 @@ fun PathNode(
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
+                    // Inert rather than merely ignored: a faded node that still reacted to a press
+                    // would keep promising it was an option.
+                    enabled = !ruledOut,
                     onClick = onClick,
                 ),
             contentAlignment = Alignment.Center,
@@ -230,7 +245,7 @@ fun PathNode(
                 // a separate thing floating beside it. Derived from this state's diameter, which is
                 // why a bigger CURRENT node still wears it on the edge.
                 val rim = PathLayout.circleSize(node.state) * RIM_FRACTION
-                PickBadge(Modifier.align(Alignment.Center).offset(x = rim, y = -rim))
+                PickBadge(mode, Modifier.align(Alignment.Center).offset(x = rim, y = -rim))
             }
         }
 
@@ -279,28 +294,45 @@ fun PathNode(
 }
 
 /**
- * The amber "+" a node wears while the board is a picker.
+ * The badge a node wears while the board is a picker, saying what a tap would do to it.
  *
  * Ringed in the screen background rather than sitting flush on the node, so it stays legible on a
- * green DONE node and an indigo CURRENT one as readily as on a white OPEN one.
+ * green DONE node and an indigo CURRENT one as readily as on a white OPEN one. Its glyph and colour
+ * come from the mode rather than being fixed, because "tap to branch from" and "tap to delete" are
+ * the same gesture on the same board and the badge is the only thing distinguishing them.
  */
 @Composable
-private fun PickBadge(modifier: Modifier = Modifier) {
+private fun PickBadge(mode: BoardMode, modifier: Modifier = Modifier) {
+    val (icon, tint, label) = pickBadgeFor(mode) ?: return
     Box(
         modifier = modifier
             .size(PathLayout.PickBadgeSize)
             .background(PathScreenBg, CircleShape)
             .padding(2.dp)
-            .background(PathNodeBranch, CircleShape),
+            .background(tint, CircleShape),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
-            Icons.Filled.Add,
-            contentDescription = "Branch from here",
+            icon,
+            contentDescription = label,
             tint = Color.White,
             modifier = Modifier.size(PathLayout.PickBadgeSize * 0.62f),
         )
     }
+}
+
+private data class PickBadgeStyle(val icon: ImageVector, val tint: Color, val label: String)
+
+private fun pickBadgeFor(mode: BoardMode): PickBadgeStyle? = when (mode) {
+    BoardMode.PICK_ADD_PARENT ->
+        PickBadgeStyle(Icons.Filled.Add, PathNodeBranch, "Branch from here")
+    BoardMode.PICK_DELETE ->
+        PickBadgeStyle(Icons.Filled.Delete, PathStreak, "Delete this section")
+    BoardMode.PICK_MOVE ->
+        PickBadgeStyle(Icons.AutoMirrored.Filled.ArrowForward, PathNodeCurrent, "Move this section")
+    BoardMode.PICK_MOVE_PARENT ->
+        PickBadgeStyle(Icons.Filled.Check, PathNodeCurrent, "Move it under here")
+    BoardMode.BROWSING, BoardMode.MENU -> null
 }
 
 /** The "YOU'RE HERE" pill above the current node, gently bobbing. */
@@ -431,6 +463,15 @@ private const val PickWobbleMillis = 620
 
 /** Badge centre as a fraction of the node's diameter — ~1/√2 of the radius, i.e. 45° on the rim. */
 private const val RIM_FRACTION = 0.35f
+
+/**
+ * How far back a node the current picker can't act on fades.
+ *
+ * Faint enough to read as unavailable next to a wobbling neighbour, but not so faint that the
+ * roadmap appears to have holes in it — the section is still there, it just isn't an answer to the
+ * question being asked.
+ */
+private const val RuledOutAlpha = 0.3f
 
 // ── tiny infinite-transition helper so the call sites above stay readable ──────────────────
 @Composable

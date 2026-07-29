@@ -51,6 +51,7 @@ class PathPresenterTest {
         val toasts = mutableListOf<String>()
         val chats = mutableListOf<String>()
         val chatBlockIndices = mutableListOf<Int>()
+        val deleteAsks = mutableListOf<Triple<String, String, Boolean>>()
 
         override fun showPath(state: PathUiState) { lastState = state }
         override fun showNotFound() { notFound = true }
@@ -74,6 +75,9 @@ class PathPresenterTest {
         }
         override fun showBranchSuggestions(topics: List<String>) { branchSuggestions += topics }
         override fun showBranchGenerating(generating: Boolean) { generatingStates += generating }
+        override fun confirmDeleteSection(nodeId: String, title: String, hasDescendants: Boolean) {
+            deleteAsks += Triple(nodeId, title, hasDescendants)
+        }
         override fun dismissSheet() { dismissCount++ }
         override fun playAdvance(nodeId: String) { advances += nodeId }
         override fun playPopIn(nodeId: String) { popIns += nodeId }
@@ -219,20 +223,40 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `the picker turns on and off without touching the board`() {
+    fun `the edit menu opens and closes without touching the board`() {
         val (presenter, view) = attach()
 
         val before = view.lastState!!
-        assertFalse("not picking until asked", before.pickingBranchAnchor)
+        assertEquals("resting until asked", BoardMode.BROWSING, before.boardMode)
 
-        presenter.onAddNodeRequested()
+        presenter.onEditRoadmapRequested()
+        val menu = view.lastState!!
+        assertEquals(BoardMode.MENU, menu.boardMode)
+        // Opening the menu changes nothing about the roadmap, and doesn't make the board a picker.
+        assertEquals(before.nodes, menu.nodes)
+        assertFalse(menu.boardMode.picking)
+
+        presenter.onEditRoadmapRequested()
+        assertEquals(BoardMode.BROWSING, view.lastState!!.boardMode)
+        assertEquals(before.nodes, view.lastState!!.nodes)
+    }
+
+    @Test
+    fun `choosing add turns the board into a picker without touching it`() {
+        val (presenter, view) = attach()
+        val before = view.lastState!!
+
+        presenter.onEditRoadmapRequested()
+        presenter.onAddSectionChosen()
+
         val picking = view.lastState!!
-        assertTrue(picking.pickingBranchAnchor)
+        assertEquals(BoardMode.PICK_ADD_PARENT, picking.boardMode)
         // Nothing is added to or moved on the board — the whole board just becomes the target.
-        assertEquals(before.nodes, picking.nodes)
+        assertEquals(before.nodes.map { it.id }, picking.nodes.map { it.id })
+        assertTrue("anything can sprout a detour", picking.nodes.all { it.pickable })
 
-        presenter.onAddModeCancelled()
-        assertFalse(view.lastState!!.pickingBranchAnchor)
+        presenter.onBoardEditCancelled()
+        assertEquals(BoardMode.BROWSING, view.lastState!!.boardMode)
         assertEquals(before.nodes, view.lastState!!.nodes)
     }
 
@@ -240,10 +264,10 @@ class PathPresenterTest {
     fun `picking a section leaves the picker and opens the sheet for it`() {
         val (presenter, view) = attach()
 
-        presenter.onAddNodeRequested()
+        presenter.onAddSectionChosen()
         presenter.onNodeTapped("data-basics")
 
-        assertFalse(view.lastState!!.pickingBranchAnchor)
+        assertEquals(BoardMode.BROWSING, view.lastState!!.boardMode)
         assertTrue(view.branchSheetShown)
         assertEquals(listOf("Data Basics"), view.branchFromTitles)
 
@@ -258,12 +282,132 @@ class PathPresenterTest {
     fun `tapping a node while picking an anchor picks it instead of opening its lesson`() {
         val (presenter, view) = attach()
 
-        presenter.onAddNodeRequested()
+        presenter.onAddSectionChosen()
         presenter.onNodeTapped("regression") // outside the picker this would open its lesson
 
         assertNull(view.subtopicSheet)
         assertTrue(view.branchSheetShown)
         assertEquals(listOf("Regression"), view.branchFromTitles)
+    }
+
+    @Test
+    fun `deleting a section is asked about before anything happens`() {
+        val (presenter, view) = attach()
+
+        presenter.onDeleteSectionChosen()
+        presenter.onNodeTapped("clustering")
+
+        // The tap picks the section and ends the picker — it does NOT delete it.
+        assertEquals(BoardMode.BROWSING, view.lastState!!.boardMode)
+        assertEquals(listOf(Triple("clustering", "Clustering", true)), view.deleteAsks)
+        assertNotNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
+
+        presenter.onDeleteSectionConfirmed("clustering", withDescendants = false)
+
+        assertNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
+        // What grew beyond it is still there — deleting one section isn't deleting a branch.
+        assertNotNull(view.lastState!!.nodes.firstOrNull { it.id == "model-evaluation" })
+    }
+
+    @Test
+    fun `deleting a section with its branch takes everything below it`() {
+        val (presenter, view) = attach()
+
+        presenter.onDeleteSectionChosen()
+        presenter.onNodeTapped("unsupervised")
+        presenter.onDeleteSectionConfirmed("unsupervised", withDescendants = true)
+
+        val ids = view.lastState!!.nodes.map { it.id }
+        assertFalse("unsupervised" in ids)
+        assertFalse("its own branch goes with it", "clustering" in ids)
+        // The other track is untouched.
+        assertTrue("supervised" in ids)
+    }
+
+    @Test
+    fun `the roadmap's first section can be branched from but not deleted or moved`() {
+        val (presenter, view) = attach()
+
+        // Nothing hangs it off anything: it is the roadmap, not a section of it.
+        presenter.onAddSectionChosen()
+        assertTrue(view.lastState!!.node("what-is-ml").pickable)
+
+        presenter.onDeleteSectionChosen()
+        assertFalse(view.lastState!!.node("what-is-ml").pickable)
+        assertTrue(view.lastState!!.node("regression").pickable)
+
+        presenter.onMoveSectionChosen()
+        assertFalse(view.lastState!!.node("what-is-ml").pickable)
+    }
+
+    @Test
+    fun `moving a section asks which one, then where it goes`() {
+        val (presenter, view) = attach()
+
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("regression")
+
+        // Still a picker — the same gesture, now asking the second half of the question.
+        val choosing = view.lastState!!
+        assertEquals(BoardMode.PICK_MOVE_PARENT, choosing.boardMode)
+        assertEquals("Regression", choosing.movingTitle)
+        assertNull("picking a section to move doesn't open it", view.subtopicSheet)
+
+        presenter.onNodeTapped("unsupervised")
+
+        val moved = view.lastState!!
+        assertEquals(BoardMode.BROWSING, moved.boardMode)
+        assertNull(moved.movingTitle)
+        assertEquals(listOf("unsupervised"), moved.node("regression").parentIds)
+        assertTrue(view.toasts.any { it.contains("moved", ignoreCase = true) })
+    }
+
+    @Test
+    fun `a section can never be moved under itself or its own branch`() {
+        val (presenter, view) = attach()
+
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("regression")
+        val state = view.lastState!!
+
+        assertFalse("itself", state.node("regression").pickable)
+        assertFalse("its own child", state.node("model-evaluation").pickable)
+        assertFalse("deeper down its own branch", state.node("neural-networks").pickable)
+        // Its current parent is ruled out too — moving it there would change nothing.
+        assertFalse("where it already is", state.node("supervised").pickable)
+        assertTrue(state.node("unsupervised").pickable)
+    }
+
+    @Test
+    fun `tapping a section the picker rules out does nothing at all`() {
+        val (presenter, view) = attach()
+
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("regression")
+        val before = view.lastState!!
+
+        presenter.onNodeTapped("model-evaluation") // its own child
+
+        val after = view.lastState!!
+        assertEquals("still asking the same question", BoardMode.PICK_MOVE_PARENT, after.boardMode)
+        assertEquals("Regression", after.movingTitle)
+        assertEquals(before.nodes, after.nodes)
+        assertNull(view.subtopicSheet)
+    }
+
+    @Test
+    fun `cancelling a half-finished move leaves the roadmap alone`() {
+        val (presenter, view) = attach()
+        val before = view.lastState!!
+
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("regression")
+        presenter.onBoardEditCancelled()
+
+        val after = view.lastState!!
+        assertEquals(BoardMode.BROWSING, after.boardMode)
+        assertNull(after.movingTitle)
+        assertEquals(before.nodes, after.nodes)
     }
 
     @Test
@@ -464,7 +608,7 @@ class PathPresenterTest {
         presenter.onNodeTapped("clustering")
         val dismissedBefore = view.dismissCount
 
-        presenter.onRoadmapEdit(RoadmapEdit.DeleteNode("clustering"))
+        presenter.onDeleteSectionConfirmed("clustering", withDescendants = false)
 
         assertNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
         assertTrue(view.dismissCount > dismissedBefore)
@@ -473,29 +617,15 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `a section can never be moved under itself or its own branch`() {
+    fun `the open section carries its roadmap name and numbers, and nothing structural`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("supervised")
-
-        val offered = view.subtopicSection!!.possibleParents.map { it.id }
-
-        assertFalse("itself", "supervised" in offered)
-        assertFalse("its own child", "regression" in offered)
-        // Its current parent is left out too — moving it there would change nothing.
-        assertFalse("where it already is", "data-basics" in offered)
-        assertTrue("unsupervised" in offered)
-    }
-
-    @Test
-    fun `the roadmap's first section is not offered for deletion`() {
-        val (presenter, view) = attach()
-
-        presenter.onNodeTapped("what-is-ml")
-        // Nothing hangs it off anything: it is the roadmap, not a section of it.
-        assertFalse(view.subtopicSection!!.canDelete)
 
         presenter.onNodeTapped("regression")
-        assertTrue(view.subtopicSection!!.canDelete)
+
+        val section = view.subtopicSection!!
+        assertEquals("regression", section.nodeId)
+        assertEquals("Regression", section.title)
+        assertEquals(10, section.estMinutes)
     }
 
     @Test

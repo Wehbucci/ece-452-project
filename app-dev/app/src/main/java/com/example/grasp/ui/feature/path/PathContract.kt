@@ -61,6 +61,18 @@ interface PathContract {
         /** Put the open branch sheet into / out of its "growing your branch…" state. */
         fun showBranchGenerating(generating: Boolean)
 
+        /**
+         * Ask, before deleting the section the user just tapped on the board.
+         *
+         * A one-shot request rather than a flag on [PathUiState] because it is a question, not a
+         * state of the board: the picker is already over by the time it is asked.
+         *
+         * @param hasDescendants whether anything grew beyond this section — the only thing the
+         *        question actually hinges on, since with nothing below it there is no second choice
+         *        to make.
+         */
+        fun confirmDeleteSection(nodeId: String, title: String, hasDescendants: Boolean)
+
         /** Close whichever bottom sheet is open. */
         fun dismissSheet()
 
@@ -88,19 +100,38 @@ interface PathContract {
 
     interface Presenter : MvpPresenter<View> {
         /**
-         * A node was tapped: opens its lesson sheet — or, while picking a branch anchor, becomes
-         * the section the new branch grows from.
+         * A node was tapped: opens its lesson sheet — or, in one of the picking modes, becomes the
+         * section the new branch grows from / the one to delete / the one to move or move under.
+         *
+         * A tap on a node the current mode can't act on does nothing at all: the roadmap is only
+         * ever reshaped by a tap the board already showed as available.
          */
         fun onNodeTapped(nodeId: String)
 
         /** Branch off [nodeId] itself, adding a detour beside whatever it already leads to. */
         fun onBranchFromNode(nodeId: String)
 
-        /** Start (or abandon) picking the section a new branch should grow from. */
-        fun onAddNodeRequested()
+        /** Open (or close) the roadmap's edit menu — add a section, move one, delete one. */
+        fun onEditRoadmapRequested()
 
-        /** Stop picking a branch anchor, leaving the board untouched. */
-        fun onAddModeCancelled()
+        /** From the menu: turn the board into a picker for the section to branch from. */
+        fun onAddSectionChosen()
+
+        /** From the menu: turn the board into a picker for the section to move. */
+        fun onMoveSectionChosen()
+
+        /** From the menu: turn the board into a picker for the section to delete. */
+        fun onDeleteSectionChosen()
+
+        /** Back out of the menu or any picker, leaving the roadmap untouched. */
+        fun onBoardEditCancelled()
+
+        /**
+         * The delete asked about by [View.confirmDeleteSection] was confirmed. [withDescendants]
+         * is the user's answer to whether everything beyond it goes too; false re-hangs those
+         * sections where the deleted one stood.
+         */
+        fun onDeleteSectionConfirmed(nodeId: String, withDescendants: Boolean)
 
         /** Mark [nodeId] complete: +XP, advance to the next node, celebrate, maybe level up. */
         fun onMarkComplete(nodeId: String)

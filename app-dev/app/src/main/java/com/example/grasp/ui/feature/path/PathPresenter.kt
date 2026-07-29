@@ -57,8 +57,11 @@ class PathPresenter(
     /** Guards against a second "generate" tap while the AI is still building the first branch. */
     private var growing = false
 
-    /** True while the board is waiting for the user to tap the section to branch from. */
-    private var pickingAnchor = false
+    /** Whether the board is resting, showing its edit menu, or being used to pick a section. */
+    private var boardMode = BoardMode.BROWSING
+
+    /** The section picked to move, while the board is asking where it should go. */
+    private var movingId: String? = null
 
     override fun onViewAttached() {
         scope.launch {
@@ -86,16 +89,42 @@ class PathPresenter(
 
     override fun onNodeTapped(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId } ?: return
-        // While picking an anchor the whole board is the picker: the tapped lesson is what the new
-        // branch grows out of, rather than opening.
-        if (pickingAnchor) {
-            pickingAnchor = false
-            emit() // drop the banner first, so the board behind the sheet is back to normal
-            openBranchSheet(node.id)
-            return
+        // In a picking mode the whole board is the picker, and a node the mode can't act on is
+        // inert — the board has already shown it dimmed, so the tap simply doesn't land.
+        if (boardMode.picking && !isPickable(nodeId)) return
+
+        when (boardMode) {
+            // The tapped lesson is what the new branch grows out of, rather than opening.
+            BoardMode.PICK_ADD_PARENT -> {
+                leaveBoardEdit() // drop the banner first, so the board behind the sheet is normal
+                openBranchSheet(node.id)
+            }
+
+            BoardMode.PICK_DELETE -> {
+                leaveBoardEdit()
+                // Asked, never done on the tap: this is the one board gesture that destroys work.
+                view?.confirmDeleteSection(node.id, node.title, node.children.isNotEmpty())
+            }
+
+            // Half of a move. The board stays a picker, now asking the second question.
+            BoardMode.PICK_MOVE -> {
+                movingId = node.id
+                boardMode = BoardMode.PICK_MOVE_PARENT
+                emit()
+            }
+
+            BoardMode.PICK_MOVE_PARENT -> {
+                val moving = movingId ?: return
+                leaveBoardEdit()
+                applyRoadmapEdit(RoadmapEdit.ReparentNode(moving, node.id), "↕️ Section moved")
+            }
+
+            // Every lesson is open: the roadmap suggests an order, it doesn't enforce one.
+            BoardMode.BROWSING, BoardMode.MENU -> {
+                if (boardMode == BoardMode.MENU) leaveBoardEdit()
+                openSubtopic(node)
+            }
         }
-        // Every lesson is open: the roadmap suggests an order, it doesn't enforce one.
-        openSubtopic(node)
     }
 
     override fun onBranchFromNode(nodeId: String) {
@@ -105,14 +134,37 @@ class PathPresenter(
         openBranchSheet(node.id)
     }
 
-    override fun onAddNodeRequested() {
-        pickingAnchor = !pickingAnchor
+    override fun onEditRoadmapRequested() {
+        boardMode = if (boardMode == BoardMode.MENU) BoardMode.BROWSING else BoardMode.MENU
+        movingId = null
         emit()
     }
 
-    override fun onAddModeCancelled() {
-        if (!pickingAnchor) return
-        pickingAnchor = false
+    override fun onAddSectionChosen() = enterPicker(BoardMode.PICK_ADD_PARENT)
+
+    override fun onMoveSectionChosen() = enterPicker(BoardMode.PICK_MOVE)
+
+    override fun onDeleteSectionChosen() = enterPicker(BoardMode.PICK_DELETE)
+
+    override fun onBoardEditCancelled() {
+        if (boardMode == BoardMode.BROWSING) return
+        leaveBoardEdit()
+    }
+
+    override fun onDeleteSectionConfirmed(nodeId: String, withDescendants: Boolean) {
+        applyRoadmapEdit(RoadmapEdit.DeleteNode(nodeId, withDescendants), "🗑️ Section deleted")
+    }
+
+    private fun enterPicker(mode: BoardMode) {
+        boardMode = mode
+        movingId = null
+        emit()
+    }
+
+    /** Back to a plain board, whatever mode it was in. */
+    private fun leaveBoardEdit() {
+        boardMode = BoardMode.BROWSING
+        movingId = null
         emit()
     }
 
@@ -299,7 +351,10 @@ class PathPresenter(
      * The board derives every position from the tree on each render, so there is nothing to move
      * here — re-emitting the state IS the re-layout.
      */
-    override fun onRoadmapEdit(edit: RoadmapEdit) {
+    override fun onRoadmapEdit(edit: RoadmapEdit) = applyRoadmapEdit(edit)
+
+    /** [onRoadmapEdit], plus a word about what happened for the changes made out on the board. */
+    private fun applyRoadmapEdit(edit: RoadmapEdit, announce: String? = null) {
         scope.launch {
             val updated = repo.editRoadmap(pathId, listOf(edit))
             if (updated == null) {
@@ -317,6 +372,7 @@ class PathPresenter(
             } else {
                 showOpenLesson()
             }
+            announce?.let { view?.showToast(it) }
         }
     }
 
@@ -333,33 +389,65 @@ class PathPresenter(
     }
 
     /**
-     * What edit mode may change about the open node, including where it could be moved to.
+     * The facts about the open node that live on the roadmap rather than in its lesson.
      *
-     * The candidate parents exclude the node itself and everything below it: hanging a section off
-     * its own descendant would cut the pair loose from the root, and offering the choice only to
-     * refuse it would be a worse answer than not offering it.
+     * Names and numbers only. Adding, moving and deleting a section are done on the board, where
+     * the shape being changed is actually visible, not from inside one lesson looking out at it.
      */
-    private fun sectionShapeFor(nodeId: String): SectionShape? {
-        val node = nodes.firstOrNull { it.id == nodeId } ?: return null
+    private fun sectionShapeFor(nodeId: String): SectionShape? =
+        nodes.firstOrNull { it.id == nodeId }?.let {
+            SectionShape(nodeId = it.id, title = it.title, estMinutes = it.estMinutes, tier = it.tier)
+        }
+
+    // ── Picking rules ───────────────────────────────────────────────────────────────────────
+
+    /**
+     * Whether [nodeId] can be tapped in the mode the board is currently in.
+     *
+     * These mirror what `RoadmapEdit.applyEdit` would refuse, deliberately: the operations already
+     * reject a move that would cut a loop off the tree, and this is the same rule stated early
+     * enough for the board to grey the node out rather than swallow the tap.
+     */
+    private fun isPickable(nodeId: String): Boolean = when (boardMode) {
+        // Any lesson can sprout a detour, including the root.
+        BoardMode.PICK_ADD_PARENT -> true
+
+        // The root is the one nothing hangs off — the roadmap itself, not a section of it, so it
+        // can neither be cut out nor rehung somewhere else.
+        BoardMode.PICK_DELETE, BoardMode.PICK_MOVE -> !isRoot(nodeId)
+
+        BoardMode.PICK_MOVE_PARENT -> {
+            val moving = movingId
+            when {
+                moving == null -> false
+                nodeId == moving -> false
+                // Hanging a section off its own branch would cut the pair loose from the root.
+                nodeId in descendantsOf(moving) -> false
+                // Already its parent: offering a move that changes nothing reads as a broken one.
+                moving in (nodes.firstOrNull { it.id == nodeId }?.children ?: emptyList()) -> false
+                else -> true
+            }
+        }
+
+        BoardMode.BROWSING, BoardMode.MENU -> true
+    }
+
+    /**
+     * Derived from `children`, never read off the node: `parentId` is the inverse of that relation
+     * and is only filled in on the paths that happen to store it.
+     */
+    private fun isRoot(nodeId: String) = nodes.none { nodeId in it.children }
+
+    /** Every node below [nodeId], however deep. */
+    private fun descendantsOf(nodeId: String): Set<String> {
         val byId = nodes.associateBy { it.id }
-        val below = mutableSetOf(nodeId)
-        val queue = ArrayDeque(node.children)
+        val found = mutableSetOf<String>()
+        val queue = ArrayDeque(byId[nodeId]?.children.orEmpty())
         while (queue.isNotEmpty()) {
             val next = queue.removeFirst()
-            if (below.add(next)) queue += byId[next]?.children.orEmpty()
+            if (found.add(next)) queue += byId[next]?.children.orEmpty()
         }
-        // Derived from `children`, never read off the node: `parentId` is the inverse of that
-        // relation and is only filled in on the paths that happen to store it.
-        val parentId = nodes.firstOrNull { nodeId in it.children }?.id
-        return SectionShape(
-            nodeId = nodeId,
-            title = node.title,
-            estMinutes = node.estMinutes,
-            tier = node.tier,
-            // The root is the one nothing hangs off — the roadmap itself, not a section of it.
-            canDelete = parentId != null,
-            possibleParents = nodes.filter { it.id !in below && it.id != parentId },
-        )
+        return found
     }
 
     // ── Derivation (pure functions of `nodes` + `completed`) ────────────────────────────────
@@ -412,6 +500,7 @@ class PathPresenter(
                 column = layout.columns.getValue(n.id),
                 row = layout.rows.getValue(n.id),
                 parentIds = parents[n.id].orEmpty(),
+                pickable = !boardMode.picking || isPickable(n.id),
             )
         }
         // One pill per tier, anchored at the tier's first (shallowest) row — several nodes may
@@ -429,7 +518,8 @@ class PathPresenter(
                 title = title,
                 nodes = nodeUis,
                 regions = regions,
-                pickingBranchAnchor = pickingAnchor,
+                boardMode = boardMode,
+                movingTitle = movingId?.let { id -> nodes.firstOrNull { it.id == id }?.title },
                 masteredCount = completed.size,
                 totalLessons = nodes.count { !it.isBranchOut },
                 streak = STREAK,

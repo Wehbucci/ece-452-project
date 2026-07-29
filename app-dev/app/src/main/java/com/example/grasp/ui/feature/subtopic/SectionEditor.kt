@@ -4,13 +4,9 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -27,40 +23,35 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.core.edit.RoadmapEdit
-import com.example.grasp.data.model.TreeNode
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathChipNeutralBg
 import com.example.grasp.ui.theme.PathFaint
 import com.example.grasp.ui.theme.PathInk
 import com.example.grasp.ui.theme.PathMuted
-import com.example.grasp.ui.theme.PathNodeBranch
 
 /**
  * The roadmap facts about the open section that edit mode can change.
  *
  * Separate from [com.example.grasp.data.model.Subtopic] because these live on the roadmap NODE,
- * not on its lesson: renaming a section renames it on the board, and moving it re-shapes the tree.
+ * not on its lesson: renaming a section renames it on the board too — they are the same name.
  *
- * @param canDelete false for the root, which is the roadmap itself rather than a section of it.
- * @param possibleParents every other section this one could hang from, already filtered of the
- *        ones that would make a loop.
+ * Names and numbers only, on purpose. Adding a section, moving one and deleting one all change the
+ * SHAPE of the roadmap, and those belong on the board where the shape is visible — see
+ * `ui.feature.path.RoadmapEditBar`. Choosing a new parent from a list inside one lesson meant
+ * rearranging the tree while looking at exactly one node of it.
  */
 data class SectionShape(
     val nodeId: String,
     val title: String,
     val estMinutes: Int,
     val tier: String?,
-    val canDelete: Boolean,
-    val possibleParents: List<TreeNode>,
 )
 
 /**
  * Editing the section itself rather than the words in it (FR4.5).
  *
- * Sits at the bottom of edit mode, below the lesson, because it is the rarer of the two jobs and
- * the more consequential: renaming a section is a small thing, but deleting one or moving it
- * changes the shape of the whole roadmap. Everything destructive here asks first.
+ * Sits at the bottom of edit mode, below the lesson, because it is the rarer of the two jobs.
  */
 @Composable
 fun SectionEditorPanel(
@@ -85,17 +76,14 @@ fun SectionEditorPanel(
         SectionField("Time", "${section.estMinutes} min") { dialog = SectionAction.Retime }
         SectionField("Region", section.tier ?: "None") { dialog = SectionAction.Retier }
 
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SectionButton("Add a section after this") { dialog = SectionAction.AddChild }
-            if (section.possibleParents.isNotEmpty()) {
-                SectionButton("Move under…") { dialog = SectionAction.Reparent }
-            }
-        }
-        if (section.canDelete) {
-            SectionButton("Delete this section", tint = PathNodeBranch) {
-                dialog = SectionAction.Delete
-            }
-        }
+        Text(
+            text = "Add, move and delete sections from the roadmap itself — “Edit roadmap” there.",
+            fontFamily = NunitoFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            color = PathMuted,
+            modifier = Modifier.padding(top = 2.dp),
+        )
     }
 
     when (dialog) {
@@ -130,155 +118,10 @@ fun SectionEditorPanel(
             onSave = { dialog = null; onRoadmapEdit(RoadmapEdit.RetierNode(section.nodeId, it)) },
             onDismiss = { dialog = null },
         )
-
-        SectionAction.AddChild -> TextPromptDialog(
-            title = "New section",
-            label = "Name",
-            initial = "",
-            onSave = { name ->
-                dialog = null
-                onRoadmapEdit(
-                    RoadmapEdit.AddNode(
-                        parentId = section.nodeId,
-                        // Its lesson is written the first time the section is opened, the same
-                        // way one that failed up-front generation is.
-                        node = TreeNode(id = newSectionId(name), title = name, contentReady = false),
-                    ),
-                )
-            },
-            onDismiss = { dialog = null },
-        )
-
-        SectionAction.Reparent -> PickParentDialog(
-            candidates = section.possibleParents,
-            onPick = {
-                dialog = null
-                onRoadmapEdit(RoadmapEdit.ReparentNode(section.nodeId, it.id))
-            },
-            onDismiss = { dialog = null },
-        )
-
-        SectionAction.Delete -> DeleteSectionDialog(
-            title = section.title,
-            onDelete = { withDescendants ->
-                dialog = null
-                onRoadmapEdit(RoadmapEdit.DeleteNode(section.nodeId, withDescendants))
-            },
-            onDismiss = { dialog = null },
-        )
     }
 }
 
-private enum class SectionAction { Rename, Retime, Retier, AddChild, Reparent, Delete }
-
-/**
- * An id for a hand-made section.
- *
- * Slug plus a random tail: the slug keeps a Firestore document readable when someone is looking at
- * the console, and the tail is what actually guarantees two sections named "Practice" don't
- * collide.
- */
-private fun newSectionId(title: String): String {
-    val slug = title.trim().lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-').take(24)
-    val tail = java.util.UUID.randomUUID().toString().take(6)
-    return if (slug.isEmpty()) "section-$tail" else "$slug-$tail"
-}
-
-@Composable
-private fun PickParentDialog(
-    candidates: List<TreeNode>,
-    onPick: (TreeNode) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { DialogHeading("Move under which section?") },
-        text = {
-            Column(
-                modifier = Modifier
-                    .heightIn(max = 360.dp)
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = "Everything below this section moves with it.",
-                    fontFamily = NunitoFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 12.sp,
-                    color = PathMuted,
-                )
-                candidates.forEach { candidate ->
-                    Surface(
-                        onClick = { onPick(candidate) },
-                        shape = RoundedCornerShape(12.dp),
-                        color = PathChipNeutralBg,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(
-                            text = candidate.title,
-                            fontFamily = NunitoFamily,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp,
-                            color = PathInk,
-                            modifier = Modifier.padding(12.dp),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
-
-/**
- * Deleting a section, with the one question that actually matters spelled out: whether what grew
- * beyond it goes too. The default keeps it — a user cutting one section rarely means "and the six
- * after it".
- */
-@Composable
-private fun DeleteSectionDialog(
-    title: String,
-    onDelete: (withDescendants: Boolean) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var withDescendants by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { DialogHeading("Delete “$title”?") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "Its lesson goes with it. This can't be undone from the roadmap.",
-                    fontFamily = NunitoFamily,
-                    fontWeight = FontWeight.SemiBold,
-                    fontSize = 13.sp,
-                    color = PathMuted,
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Checkbox(checked = withDescendants, onCheckedChange = { withDescendants = it })
-                    Text(
-                        text = "Also delete everything that branches off it",
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 13.sp,
-                        color = PathInk,
-                    )
-                }
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = { onDelete(withDescendants) }) {
-                Text("Delete", color = PathNodeBranch)
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
-    )
-}
+private enum class SectionAction { Rename, Retime, Retier }
 
 @Composable
 private fun TextPromptDialog(
@@ -340,28 +183,6 @@ private fun SectionField(label: String, value: String, onClick: () -> Unit) {
                 color = PathInk,
             )
         }
-    }
-}
-
-@Composable
-private fun SectionButton(
-    text: String,
-    tint: androidx.compose.ui.graphics.Color = PathMuted,
-    onClick: () -> Unit,
-) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(percent = 50),
-        color = tint.copy(alpha = 0.12f),
-        contentColor = tint,
-    ) {
-        Text(
-            text = text,
-            fontFamily = NunitoFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 12.sp,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-        )
     }
 }
 

@@ -4,11 +4,9 @@ package com.example.grasp.ui.feature.path
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -16,16 +14,10 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.foundation.layout.requiredWidth
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -41,16 +33,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.ui.components.ConfettiBurst
 import com.example.grasp.ui.components.LevelUpRibbon
@@ -62,11 +51,8 @@ import com.example.grasp.ui.components.RegionLabel
 import com.example.grasp.ui.feature.subtopic.SubtopicLoadingContent
 import com.example.grasp.ui.feature.subtopic.SectionShape
 import com.example.grasp.ui.feature.subtopic.SubtopicSheetContent
-import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.GraspTheme
-import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathMuted
-import com.example.grasp.ui.theme.PathNodeBranch
 import com.example.grasp.ui.theme.PathScreenBg
 
 /**
@@ -109,6 +95,9 @@ fun PathScreen(
     var branchFromTitle by remember { mutableStateOf("") }
     var branchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
     var branchGenerating by remember { mutableStateOf(false) }
+
+    // The section the board is asking about, between the tap that picked it and the answer.
+    var deleteTarget by remember { mutableStateOf<DeleteTarget?>(null) }
 
     // One-shot motion signals
     var confettiTrigger by remember { mutableIntStateOf(0) }
@@ -159,6 +148,13 @@ fun PathScreen(
             }
             override fun showBranchSuggestions(topics: List<String>) { branchSuggestions = topics }
             override fun showBranchGenerating(generating: Boolean) { branchGenerating = generating }
+            override fun confirmDeleteSection(
+                nodeId: String,
+                title: String,
+                hasDescendants: Boolean,
+            ) {
+                deleteTarget = DeleteTarget(nodeId, title, hasDescendants)
+            }
             override fun dismissSheet() {
                 sheetSubtopic = null
                 sheetLoadingTitle = null
@@ -222,21 +218,21 @@ fun PathScreen(
                         LevelUpRibbon(levelUp, onFinished = { levelUp = null })
                         PathToast(toast, onFinished = { toast = null })
 
-                        // Either we're asking which section to branch from, or offering to ask.
-                        if (s.pickingBranchAnchor) {
-                            PickAnchorBanner(
-                                onCancel = presenter::onAddModeCancelled,
-                                modifier = Modifier.align(Alignment.TopCenter),
-                            )
-                        } else {
-                            AddNodeButton(
-                                onClick = presenter::onAddNodeRequested,
-                                modifier = Modifier
-                                    .align(Alignment.BottomEnd)
-                                    .navigationBarsPadding()
-                                    .padding(20.dp),
-                            )
-                        }
+                        // Reshaping the roadmap: one quiet control, its menu, and the banner for
+                        // whichever "tap a section" question is being asked.
+                        RoadmapEditBar(
+                            mode = s.boardMode,
+                            movingTitle = s.movingTitle,
+                            onEditRequested = presenter::onEditRoadmapRequested,
+                            onAdd = presenter::onAddSectionChosen,
+                            onMove = presenter::onMoveSectionChosen,
+                            onDelete = presenter::onDeleteSectionChosen,
+                            onCancel = presenter::onBoardEditCancelled,
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .navigationBarsPadding()
+                                .padding(12.dp),
+                        )
                     }
                 }
             }
@@ -278,6 +274,18 @@ fun PathScreen(
                 SubtopicLoadingContent(title = loadingTitle!!, generating = sheetGenerating)
             }
         }
+    }
+
+    // Deleting a section, asked out on the board where it was picked.
+    deleteTarget?.let { target ->
+        DeleteSectionDialog(
+            target = target,
+            onDelete = { withDescendants ->
+                deleteTarget = null
+                presenter.onDeleteSectionConfirmed(target.nodeId, withDescendants)
+            },
+            onDismiss = { deleteTarget = null },
+        )
     }
 
     // Branch-out sheet.
@@ -454,7 +462,7 @@ private fun JourneyBoard(
                         node = node,
                         onClick = { onNodeTapped(node.id) },
                         enterKey = if (node.id == enterId) enterNonce else 0,
-                        picking = state.pickingBranchAnchor,
+                        mode = state.boardMode,
                         modifier = Modifier.offset(
                             x = PathLayout.centerX(node.column) - PathLayout.circleCenterXInSlot,
                             y = PathLayout.centerY(node.row, regionRows) - PathLayout.circleCenterYInSlot,
@@ -502,75 +510,6 @@ private val FocusMinInset = 108.dp
  * being broken rather than as a limit.
  */
 private val KeepOnScreen = 120.dp
-
-/** The floating "add a section" button that starts the pick-a-section-to-branch-from flow. */
-@Composable
-private fun AddNodeButton(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        onClick = onClick,
-        shape = RoundedCornerShape(percent = 50),
-        color = PathNodeBranch,
-        contentColor = Color.White,
-        shadowElevation = 6.dp,
-        modifier = modifier,
-    ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(20.dp))
-            Text(
-                text = "Add a section",
-                fontFamily = FredokaFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
-            )
-        }
-    }
-}
-
-/**
- * Replaces the add button while the board is a picker: says what to tap, and gives a way out that
- * isn't "pick a section you didn't want".
- */
-@Composable
-private fun PickAnchorBanner(onCancel: () -> Unit, modifier: Modifier = Modifier) {
-    Surface(
-        shape = RoundedCornerShape(percent = 50),
-        color = PathNodeBranch,
-        contentColor = Color.White,
-        shadowElevation = 6.dp,
-        modifier = modifier.padding(12.dp),
-    ) {
-        Row(
-            modifier = Modifier.padding(start = 18.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = "Tap a section to branch from",
-                fontFamily = FredokaFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.sp,
-            )
-            Surface(
-                onClick = onCancel,
-                shape = RoundedCornerShape(percent = 50),
-                color = Color.White.copy(alpha = 0.22f),
-                contentColor = Color.White,
-            ) {
-                Text(
-                    text = "Cancel",
-                    fontFamily = NunitoFamily,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                )
-            }
-        }
-    }
-}
 
 /**
  * Pill-top distance above its row's node center: past the circle band (42) and tag zone (26)
