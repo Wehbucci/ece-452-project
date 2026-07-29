@@ -23,6 +23,9 @@ sealed interface LessonBlock {
      */
     val id: String
 
+    /** Who this block's words belong to. */
+    val source: BlockSource
+
     /** The text of this block: heading label, paragraph prose, or a visual's caption. */
     val text: String
 
@@ -35,12 +38,14 @@ sealed interface LessonBlock {
         override val text: String,
         val level: Int = 1,
         override val id: String = newBlockId(),
+        override val source: BlockSource = BlockSource.AI,
     ) : LessonBlock
 
     /** A paragraph of the lesson — the tappable unit the user can ask questions about. */
     data class Paragraph(
         override val text: String,
         override val id: String = newBlockId(),
+        override val source: BlockSource = BlockSource.AI,
     ) : LessonBlock
 
     /**
@@ -55,6 +60,7 @@ sealed interface LessonBlock {
         override val text: String,
         val language: String = "",
         override val id: String = newBlockId(),
+        override val source: BlockSource = BlockSource.AI,
     ) : LessonBlock
 
     /**
@@ -71,6 +77,7 @@ sealed interface LessonBlock {
         val kind: DiagramKind,
         val items: List<DiagramItem>,
         override val id: String = newBlockId(),
+        override val source: BlockSource = BlockSource.AI,
     ) : LessonBlock
 
     /**
@@ -86,7 +93,27 @@ sealed interface LessonBlock {
         val sourceUrl: String,
         val credit: String,
         override val id: String = newBlockId(),
+        override val source: BlockSource = BlockSource.AI,
     ) : LessonBlock
+}
+
+/**
+ * Who wrote a block.
+ *
+ * Tracked per block rather than per lesson because editing is per block: without it, the next
+ * generation pass has no way to tell a paragraph the user rewrote from one it wrote itself, and
+ * would quietly overwrite their work (FR4.5). It also decides how carefully the assistant has to
+ * tread — its own prose it may rewrite freely, the user's it must ask about (FR5.4).
+ */
+enum class BlockSource {
+    /** Generated, and untouched since. */
+    AI,
+
+    /** Written or rewritten by the user. Their words — nothing replaces these unasked. */
+    USER,
+
+    /** Rewritten by the assistant from a change the user explicitly accepted. */
+    AI_EDITED,
 }
 
 /**
@@ -110,6 +137,15 @@ fun LessonBlock.withId(id: String): LessonBlock = when (this) {
     is LessonBlock.Code -> copy(id = id)
     is LessonBlock.Diagram -> copy(id = id)
     is LessonBlock.Image -> copy(id = id)
+}
+
+/** The same block credited to [source] — how an edit records whose words the block now holds. */
+fun LessonBlock.withSource(source: BlockSource): LessonBlock = when (this) {
+    is LessonBlock.Heading -> copy(source = source)
+    is LessonBlock.Paragraph -> copy(source = source)
+    is LessonBlock.Code -> copy(source = source)
+    is LessonBlock.Diagram -> copy(source = source)
+    is LessonBlock.Image -> copy(source = source)
 }
 
 /** The diagram shapes the app knows how to draw. */

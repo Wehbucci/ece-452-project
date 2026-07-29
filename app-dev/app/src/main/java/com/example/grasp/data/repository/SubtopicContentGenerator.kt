@@ -1,5 +1,6 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.BlockSource
 import com.example.grasp.data.model.DiagramItem
 import com.example.grasp.data.model.DiagramKind
 import com.example.grasp.data.model.LessonBlock
@@ -7,6 +8,7 @@ import com.example.grasp.data.model.ResourceKind
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.paragraphs
 import com.example.grasp.data.model.withId
+import com.example.grasp.data.model.withSource
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -16,6 +18,10 @@ import java.net.URLEncoder
  *
  * Deliberately mirrors the persisted shape so the repository can cache it verbatim and rebuild a
  * [com.example.grasp.data.model.Subtopic] from Firestore without re-generating (NFR 1.2, 3.2).
+ *
+ * @property edited whether a human has touched this lesson since it was generated. Once true it
+ *           stays true, and it is what stops a later generation pass writing over their work — see
+ *           `FirebasePathRepository.subtopic`.
  */
 data class GeneratedContent(
     val summary: String,
@@ -23,6 +29,7 @@ data class GeneratedContent(
     val body: List<LessonBlock>,
     val resources: List<ResourceLink>,
     val estMinutes: Int,
+    val edited: Boolean = false,
 )
 
 private const val SYSTEM_INSTRUCTION = """
@@ -267,13 +274,22 @@ internal fun lessonBlocks(raw: List<*>): List<LessonBlock> = raw.mapIndexedNotNu
         else -> null
     }
     // A stored id is the block's identity and is kept verbatim; anything else gets one from where
-    // it sits, which is what a model's answer and a pre-ids lesson both need.
-    val storedId = ((entry as? Map<*, *>)?.get("id") as? String)?.trim()
-    block?.withId(storedId?.ifEmpty { null } ?: positionalBlockId(index))
+    // it sits, which is what a model's answer and a pre-ids lesson both need. An unrecognised or
+    // missing source reads as AI — every lesson stored before this existed was generated.
+    val stored = entry as? Map<*, *>
+    val storedId = (stored?.get("id") as? String)?.trim()
+    block
+        ?.withId(storedId?.ifEmpty { null } ?: positionalBlockId(index))
+        ?.withSource(blockSource(stored?.get("source") as? String))
 }
 
+/** Reads a stored provenance label, defaulting to [BlockSource.AI]. */
+private fun blockSource(raw: String?): BlockSource =
+    BlockSource.entries.firstOrNull { it.name.equals(raw?.trim(), ignoreCase = true) } ?: BlockSource.AI
+
 /** The Firestore/JSON shape of [LessonBlock], so the writer and reader can't drift apart. */
-internal fun LessonBlock.toMap(): Map<String, Any> = mapOf("id" to id) + when (this) {
+internal fun LessonBlock.toMap(): Map<String, Any> =
+    mapOf("id" to id, "source" to source.name) + when (this) {
     is LessonBlock.Heading -> mapOf("type" to "heading", "text" to text, "level" to level)
     is LessonBlock.Paragraph -> mapOf("type" to "paragraph", "text" to text)
     is LessonBlock.Code -> mapOf("type" to "code", "text" to text, "language" to language)

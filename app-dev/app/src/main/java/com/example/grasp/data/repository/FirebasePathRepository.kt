@@ -118,6 +118,7 @@ class FirebasePathRepository : PathRepository {
                     resources = content.resources,
                     estMinutes = content.estMinutes,
                     completed = node.completed,
+                    edited = content.edited,
                 )
             } catch (e: Exception) {
                 Log.e("FirebasePathRepo", "subtopic failed for $pathId/$nodeId", e)
@@ -288,6 +289,12 @@ class FirebasePathRepository : PathRepository {
                     SetOptions.merge(),
                 ).await()
 
+                // Re-running a topic the user already has (same query, same normalised id) must
+                // not write over lessons they have edited (FR4.5). Their nodes keep their content.
+                val editedNodeIds = nodesRef(uid, normalizedId).get().await().documents
+                    .filter { it.getBoolean("edited") == true }
+                    .mapTo(mutableSetOf()) { it.id }
+
                 val parentByNodeId = linkedMapOf<String, String?>()
                 nodes.forEach { parentByNodeId[it.id] = null }
                 nodes.forEach { node ->
@@ -297,7 +304,13 @@ class FirebasePathRepository : PathRepository {
                 nodes.forEachIndexed { index, node ->
                     nodesRef(uid, normalizedId).document(node.id)
                         .set(
-                            nodeDoc(node, index, parentByNodeId[node.id], content[node.id]),
+                            nodeDoc(
+                                node,
+                                index,
+                                parentByNodeId[node.id],
+                                content[node.id],
+                                keepStoredContent = node.id in editedNodeIds,
+                            ),
                             SetOptions.merge(),
                         )
                         .await()
@@ -354,14 +367,17 @@ class FirebasePathRepository : PathRepository {
     /**
      * The Firestore shape of one node — one place, so every writer stays in sync.
      *
-     * [content] is the node's generated lesson when it was written up front; it overrides the
-     * "not generated yet" defaults below.
+     * [content] is the node's generated lesson when it was written up front. [keepStoredContent]
+     * leaves whatever lesson is already on the document untouched, which is how a re-created topic
+     * avoids writing over one the user has edited — note that includes its `contentStatus`, since
+     * marking an edited lesson "not generated" would invite the app to generate one over the top.
      */
     private fun nodeDoc(
         node: TreeNode,
         order: Int,
         parentId: String? = node.parentId,
         content: GeneratedContent? = null,
+        keepStoredContent: Boolean = false,
     ): Map<String, Any?> = mapOf(
         "id" to node.id,
         "title" to node.title,
@@ -377,9 +393,12 @@ class FirebasePathRepository : PathRepository {
             node.completed -> "completed"
             else -> "active"
         },
-        "contentStatus" to "not_generated",
         "tier" to node.tier,
-    ) + (content?.let(::contentFields) ?: emptyMap())
+    ) + when {
+        keepStoredContent -> emptyMap()
+        content != null -> contentFields(content)
+        else -> mapOf("contentStatus" to "not_generated")
+    }
 
     /** The generated-lesson half of a node document, shared by the up-front and lazy writers. */
     private fun contentFields(content: GeneratedContent): Map<String, Any?> = mapOf(
@@ -391,6 +410,7 @@ class FirebasePathRepository : PathRepository {
         },
         "estMinutes" to content.estMinutes,
         "contentStatus" to CONTENT_GENERATED,
+        "edited" to content.edited,
     )
 
     private fun com.google.firebase.firestore.DocumentSnapshot.toTreeNode(): TreeNode? {
@@ -415,11 +435,16 @@ class FirebasePathRepository : PathRepository {
 
     /** The cached lesson on a node document, or null if it hasn't been generated yet. */
     private fun com.google.firebase.firestore.DocumentSnapshot.toGeneratedContent(): GeneratedContent? {
-        if (getString("contentStatus") != CONTENT_GENERATED) return null
+        val edited = getBoolean("edited") ?: false
+        if (!edited && getString("contentStatus") != CONTENT_GENERATED) return null
         val summary = getString("summary").orEmpty()
         // Lessons saved before headings existed are plain strings; [lessonBlocks] reads both.
         val body = lessonBlocks((get("body") as? List<*>).orEmpty())
-        if (summary.isBlank() || body.paragraphs().isEmpty()) return null
+        // This bar judges GENERATION — a lesson that came back too thin to show is worth another
+        // try. It must not be applied to a lesson the user has edited: they are allowed to cut it
+        // down to a single heading if they like, and regenerating over that destroys their work
+        // (FR4.5).
+        if (!edited && (summary.isBlank() || body.paragraphs().isEmpty())) return null
         val resources = (get("resources") as? List<*>).orEmpty()
             .filterIsInstance<Map<*, *>>()
             .mapNotNull { resource ->
@@ -436,6 +461,7 @@ class FirebasePathRepository : PathRepository {
             body = body,
             resources = resources,
             estMinutes = getLong("estMinutes")?.toInt() ?: 0,
+            edited = edited,
         )
     }
 

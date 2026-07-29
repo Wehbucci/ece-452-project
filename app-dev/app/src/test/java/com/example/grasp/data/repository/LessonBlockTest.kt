@@ -1,5 +1,6 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.data.model.BlockSource
 import com.example.grasp.data.model.DiagramItem
 import com.example.grasp.data.model.DiagramKind
 import com.example.grasp.data.model.LessonBlock
@@ -101,6 +102,24 @@ class LessonBlockTest {
         // finds it once its text has changed.
         assertEquals(original.id, edited.id)
         assertEquals(listOf(edited), lessonBlocks(listOf(edited.toMap())))
+    }
+
+    @Test
+    fun `remembers who wrote a block`() {
+        val rewritten = LessonBlock.Paragraph("The user's own words.", source = BlockSource.USER)
+
+        assertEquals(listOf(rewritten), lessonBlocks(listOf(rewritten.toMap())))
+    }
+
+    @Test
+    fun `a block with no stored source counts as generated`() {
+        // Every lesson written before provenance existed came out of the generator, and a label
+        // we don't recognise is not evidence a human wrote it.
+        val legacy = lessonBlocks(listOf(paragraph("From before."))).single()
+        val nonsense = lessonBlocks(listOf(paragraph("Odd.") + ("source" to "wizard"))).single()
+
+        assertEquals(BlockSource.AI, legacy.source)
+        assertEquals(BlockSource.AI, nonsense.source)
     }
 
     @Test

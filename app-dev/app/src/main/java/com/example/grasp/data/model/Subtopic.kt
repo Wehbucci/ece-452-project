@@ -17,6 +17,9 @@ package com.example.grasp.data.model
  * @property resources "Dive deeper" links
  * @property estMinutes estimated reading/work time
  * @property completed whether the subtopic is marked done
+ * @property edited whether a human has changed this lesson since it was generated (FR4.5). Kept
+ *           at lesson level as well as per block ([LessonBlock.source]) because deleting a block
+ *           is an edit that leaves no block behind to record it.
  */
 data class Subtopic(
     val nodeId: String,
@@ -28,4 +31,5 @@ data class Subtopic(
     val resources: List<ResourceLink>,
     val estMinutes: Int,
     val completed: Boolean = false,
+    val edited: Boolean = false,
 )
