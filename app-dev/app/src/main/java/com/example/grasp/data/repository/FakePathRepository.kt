@@ -1,5 +1,9 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.core.edit.EditAuthor
+import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
+import com.example.grasp.core.edit.applyEdits
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonBlock
@@ -39,7 +43,17 @@ object FakePathRepository : PathRepository {
     )
 
     // ---- Learner roadmaps -----------------------------------------------------------
-    override fun learningPath(id: String): LearningPath? = when (id) {
+    /**
+     * Edits made against the canned content, kept for as long as the app is running.
+     *
+     * The fake persists nothing and it stays that way — but an edit that vanished the instant the
+     * sheet closed would make the editing UI impossible to try without signing in, and the demo
+     * and the emulator both run signed out.
+     */
+    private val editedLessons = mutableMapOf<String, Subtopic>()
+    private val editedPaths = mutableMapOf<String, LearningPath>()
+
+    override fun learningPath(id: String): LearningPath? = editedPaths[id] ?: when (id) {
         "cooking-101" -> cookingPath()
         "ml-101" -> machineLearningPath()
         // Unknown ids resolve to the cooking sample so freshly-"generated" topics still demo.
@@ -120,6 +134,7 @@ object FakePathRepository : PathRepository {
 
     // ---- Subtopic detail content (the lazy contentRef fetch) ------------------------
     override suspend fun subtopic(pathId: String, nodeId: String): Subtopic? {
+        editedLessons[lessonKey(pathId, nodeId)]?.let { return it }
         val path = learningPath(pathId) ?: return null
         val index = path.nodes.indexOfFirst { it.id == nodeId }
         // Nodes the user grew themselves aren't part of this canned path. Describe what they asked
@@ -214,6 +229,26 @@ object FakePathRepository : PathRepository {
 
     override suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String> =
         emptyList()
+
+    override suspend fun editLesson(
+        pathId: String,
+        nodeId: String,
+        edits: List<LessonEdit>,
+        author: EditAuthor,
+    ): Subtopic? {
+        val before = subtopic(pathId, nodeId) ?: return null
+        val after = before.applyEdits(edits, author) ?: return null
+        editedLessons[lessonKey(pathId, nodeId)] = after
+        return after
+    }
+
+    override suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath? {
+        val after = (learningPath(pathId) ?: return null).applyEdits(edits) ?: return null
+        editedPaths[pathId] = after
+        return after
+    }
+
+    private fun lessonKey(pathId: String, nodeId: String) = "$pathId/$nodeId"
 
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         // Demo implementation: no-op.

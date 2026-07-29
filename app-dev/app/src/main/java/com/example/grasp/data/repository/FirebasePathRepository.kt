@@ -1,6 +1,10 @@
 package com.example.grasp.data.repository
 
 import android.util.Log
+import com.example.grasp.core.edit.EditAuthor
+import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
+import com.example.grasp.core.edit.applyEdits
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
@@ -326,6 +330,78 @@ class FirebasePathRepository : PathRepository {
             }
         }
 
+    /**
+     * Applies the edits, then writes back ONLY the fields they actually changed.
+     *
+     * Rewriting the whole node document for a one-word fix would send the entire lesson — every
+     * block, every picture credit — over the wire each keystroke-sized change, and would hand the
+     * loser of two overlapping edits a document with the winner's work erased. A partial write
+     * keeps a summary edit and a paragraph edit from treading on each other at all.
+     */
+    override suspend fun editLesson(
+        pathId: String,
+        nodeId: String,
+        edits: List<LessonEdit>,
+        author: EditAuthor,
+    ): Subtopic? = withContext(Dispatchers.IO) {
+        val before = subtopic(pathId, nodeId) ?: return@withContext null
+        val after = before.applyEdits(edits, author) ?: return@withContext null
+        // Signed out there is nowhere to write; the caller still gets the edited lesson.
+        val uid = uid ?: return@withContext after
+
+        val changed = changedLessonFields(before, after)
+        try {
+            nodesRef(uid, pathId).document(nodeId).set(
+                changed + mapOf(
+                    // Recorded even when nothing else changed, because it is what tells a later
+                    // generation pass to keep its hands off this lesson.
+                    "edited" to true,
+                    "contentStatus" to CONTENT_GENERATED,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                SetOptions.merge(),
+            ).await()
+            topicsRef(uid).document(pathId)
+                .set(mapOf("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                .await()
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "editLesson failed for $pathId/$nodeId", e)
+        }
+        after
+    }
+
+    override suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath? =
+        withContext(Dispatchers.IO) {
+            val before = learningPath(pathId) ?: return@withContext null
+            val after = before.applyEdits(edits) ?: return@withContext null
+            val uid = uid ?: return@withContext after
+
+            val wasById = before.nodes.associateBy { it.id }
+            val wasOrder = before.nodes.withIndex().associate { (index, node) -> node.id to index }
+            try {
+                after.nodes.forEachIndexed { index, node ->
+                    // Untouched nodes that also haven't shifted are left alone entirely.
+                    if (wasById[node.id] == node && wasOrder[node.id] == index) return@forEachIndexed
+                    nodesRef(uid, pathId).document(node.id)
+                        .set(
+                            // A structural edit never touches a lesson — not even the moved node's.
+                            nodeDoc(node, index, keepStoredContent = true),
+                            SetOptions.merge(),
+                        )
+                        .await()
+                }
+                (wasById.keys - after.nodes.mapTo(mutableSetOf()) { it.id }).forEach { goneId ->
+                    nodesRef(uid, pathId).document(goneId).delete().await()
+                }
+                topicsRef(uid).document(pathId)
+                    .set(mapOf("updatedAt" to FieldValue.serverTimestamp()), SetOptions.merge())
+                    .await()
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "editRoadmap failed for $pathId", e)
+            }
+            after
+        }
+
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
         Log.d("FirebasePathRepo", "Cloud sync: Node $nodeId -> completed=$completed")
@@ -405,9 +481,7 @@ class FirebasePathRepository : PathRepository {
         "summary" to content.summary,
         "whyItMatters" to content.whyItMatters,
         "body" to content.body.map { it.toMap() },
-        "resources" to content.resources.map {
-            mapOf("title" to it.title, "url" to it.url, "kind" to it.kind.name)
-        },
+        "resources" to content.resources.map(::resourceMap),
         "estMinutes" to content.estMinutes,
         "contentStatus" to CONTENT_GENERATED,
         "edited" to content.edited,
@@ -472,4 +546,22 @@ class FirebasePathRepository : PathRepository {
         /** How many lessons to write at once when generating a whole roadmap or branch. */
         const val MAX_PARALLEL_GENERATIONS = 4
     }
+}
+
+/** The stored shape of a "dive deeper" link, shared by every writer of one. */
+private fun resourceMap(link: ResourceLink): Map<String, Any> =
+    mapOf("title" to link.title, "url" to link.url, "kind" to link.kind.name)
+
+/**
+ * The stored lesson fields that differ between [before] and [after] — nothing else.
+ *
+ * Pure and separate from the write so the "only what changed" part is testable without Firestore:
+ * it is the whole point of the partial write, and a version of this that quietly returns
+ * everything would look identical from the outside until two people edited the same lesson.
+ */
+internal fun changedLessonFields(before: Subtopic, after: Subtopic): Map<String, Any?> = buildMap {
+    if (after.summary != before.summary) put("summary", after.summary)
+    if (after.whyItMatters != before.whyItMatters) put("whyItMatters", after.whyItMatters)
+    if (after.body != before.body) put("body", after.body.map { it.toMap() })
+    if (after.resources != before.resources) put("resources", after.resources.map(::resourceMap))
 }

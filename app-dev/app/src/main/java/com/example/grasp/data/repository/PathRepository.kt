@@ -1,5 +1,8 @@
 package com.example.grasp.data.repository
 
+import com.example.grasp.core.edit.EditAuthor
+import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.Mode
@@ -65,6 +68,28 @@ interface PathRepository {
 
     /** Starter branch ideas for the "grow your path" sheet; empty when none could be produced. */
     suspend fun branchSuggestions(pathId: String, fromNodeId: String): List<String>
+
+    /**
+     * Applies [edits] to one node's lesson and persists them, returning the lesson as it now
+     * stands — or null if the lesson isn't there or any edit didn't fit it (FR4.5).
+     *
+     * All or nothing, and the same door for both authors: the editing UI and an assistant proposal
+     * the user accepted (FR5.4) arrive here identically, differing only in [author].
+     */
+    suspend fun editLesson(
+        pathId: String,
+        nodeId: String,
+        edits: List<LessonEdit>,
+        author: EditAuthor = EditAuthor.USER,
+    ): Subtopic?
+
+    /**
+     * Applies [edits] to the roadmap's structure and persists them, returning the roadmap as it
+     * now stands — or null if any edit didn't fit it.
+     *
+     * Structure only: a node's lesson is left exactly as it is, including for a node being moved.
+     */
+    suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath?
 
     /** Persist completion state for a node in Firestore or the backend. */
     suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)
