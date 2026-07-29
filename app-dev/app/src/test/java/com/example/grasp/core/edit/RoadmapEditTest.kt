@@ -108,12 +108,25 @@ class RoadmapEditTest {
     }
 
     @Test
-    fun `refuses a reparent that would cut a loop off the tree`() {
-        // knives under its own child would strand the pair with nothing joining them to the root.
-        assertNull(path.applyEdit(RoadmapEdit.ReparentNode("knives", "sharpening")))
-        assertNull(path.applyEdit(RoadmapEdit.ReparentNode("knives", "knives")))
-        assertNull(path.applyEdit(RoadmapEdit.ReparentNode("cooking", "heat")))
-        assertNull(path.applyEdit(RoadmapEdit.ReparentNode("knives", "nowhere")))
+    fun `a node can move down its own branch, leaving that branch behind`() {
+        // The ordinary "this should come later" move on a roadmap that is mostly one chain.
+        val moved = path.applyEdit(RoadmapEdit.ReparentNode("knives", "sharpening"))!!
+
+        assertEquals("sharpening", moved.parentOf("knives"))
+        // Its branch couldn't come with it, so it closed up into the place knives left.
+        assertEquals("cooking", moved.parentOf("sharpening"))
+        assertEquals(listOf("sharpening", "heat"), moved.node("cooking").children)
+        assertEquals(listOf("knives"), moved.node("sharpening").children)
+        // Still one tree, with nothing dropped on the floor.
+        assertEquals(listOf("cooking", "sharpening", "knives", "heat"), moved.ids())
+    }
+
+    @Test
+    fun `refuses a reparent that isn't a move at all`() {
+        assertNull("nowhere to hang the root from", path.applyEdit(RoadmapEdit.ReparentNode("cooking", "heat")))
+        assertNull("under itself", path.applyEdit(RoadmapEdit.ReparentNode("knives", "knives")))
+        assertNull("no such destination", path.applyEdit(RoadmapEdit.ReparentNode("knives", "nowhere")))
+        assertNull("no such node", path.applyEdit(RoadmapEdit.ReparentNode("nowhere", "heat")))
     }
 
     @Test

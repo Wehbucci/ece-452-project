@@ -416,13 +416,14 @@ class PathPresenter(
         // can neither be cut out nor rehung somewhere else.
         BoardMode.PICK_DELETE, BoardMode.PICK_MOVE -> !isRoot(nodeId)
 
+        // Anywhere but itself and where it already is. A section may be moved down its own branch:
+        // `RoadmapEdit.ReparentNode` takes it out of the tree before putting it back, so the
+        // branch simply closes up behind it rather than tying a loop.
         BoardMode.PICK_MOVE_PARENT -> {
             val moving = movingId
             when {
                 moving == null -> false
                 nodeId == moving -> false
-                // Hanging a section off its own branch would cut the pair loose from the root.
-                nodeId in descendantsOf(moving) -> false
                 // Already its parent: offering a move that changes nothing reads as a broken one.
                 moving in (nodes.firstOrNull { it.id == nodeId }?.children ?: emptyList()) -> false
                 else -> true
@@ -437,18 +438,6 @@ class PathPresenter(
      * and is only filled in on the paths that happen to store it.
      */
     private fun isRoot(nodeId: String) = nodes.none { nodeId in it.children }
-
-    /** Every node below [nodeId], however deep. */
-    private fun descendantsOf(nodeId: String): Set<String> {
-        val byId = nodes.associateBy { it.id }
-        val found = mutableSetOf<String>()
-        val queue = ArrayDeque(byId[nodeId]?.children.orEmpty())
-        while (queue.isNotEmpty()) {
-            val next = queue.removeFirst()
-            if (found.add(next)) queue += byId[next]?.children.orEmpty()
-        }
-        return found
-    }
 
     // ── Derivation (pure functions of `nodes` + `completed`) ────────────────────────────────
 

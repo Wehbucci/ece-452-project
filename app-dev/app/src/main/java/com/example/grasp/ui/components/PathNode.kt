@@ -156,9 +156,9 @@ object PathLayout {
  *
  * While the board is a picker the node wears a badge saying what a tap would do to it and wobbles
  * in place, so the board reads as a set of targets rather than as lessons waiting to be opened. A
- * node the current mode can't act on — the root while deleting, a section's own branch while
- * choosing where to move it — instead fades back and stays still, which is the honest picture: it
- * is on the board, and it is not one of the answers.
+ * node the current mode can't act on — the root while deleting, a section's own current parent
+ * while choosing where to move it — instead fades back and stays still, which is the honest
+ * picture: it is on the board, and it is not one of the answers.
  *
  * The current node additionally shows an infinitely pulsing ring and a bobbing "YOU'RE HERE"
  * tag. Placement (absolute offset by circle center) is the Screen's job via [PathLayout].

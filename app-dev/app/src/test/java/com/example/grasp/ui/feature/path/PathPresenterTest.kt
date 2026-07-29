@@ -363,7 +363,7 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `a section can never be moved under itself or its own branch`() {
+    fun `a section can go anywhere but itself and where it already is`() {
         val (presenter, view) = attach()
 
         presenter.onMoveSectionChosen()
@@ -371,11 +371,30 @@ class PathPresenterTest {
         val state = view.lastState!!
 
         assertFalse("itself", state.node("regression").pickable)
-        assertFalse("its own child", state.node("model-evaluation").pickable)
-        assertFalse("deeper down its own branch", state.node("neural-networks").pickable)
-        // Its current parent is ruled out too — moving it there would change nothing.
+        // Its current parent: moving it there would change nothing.
         assertFalse("where it already is", state.node("supervised").pickable)
-        assertTrue(state.node("unsupervised").pickable)
+        // Its own branch IS offered — the section is taken out of the tree before it goes back in,
+        // so moving one further down its own line is an ordinary move, not a loop.
+        assertTrue("its own child", state.node("model-evaluation").pickable)
+        assertTrue("deeper down its own branch", state.node("neural-networks").pickable)
+        assertTrue("another track entirely", state.node("unsupervised").pickable)
+        assertTrue("back up towards the root", state.node("what-is-ml").pickable)
+    }
+
+    @Test
+    fun `moving a section down its own line leaves that line behind`() {
+        val (presenter, view) = attach()
+
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("supervised")
+        presenter.onNodeTapped("regression") // supervised's own child
+
+        val moved = view.lastState!!
+        assertEquals(listOf("regression"), moved.node("supervised").parentIds)
+        // What was below it closed up into the place it left, rather than coming along.
+        assertEquals(listOf("data-basics"), moved.node("regression").parentIds)
+        // Nothing fell off the board.
+        assertTrue("model-evaluation" in moved.nodes.map { it.id })
     }
 
     @Test
@@ -386,7 +405,7 @@ class PathPresenterTest {
         presenter.onNodeTapped("regression")
         val before = view.lastState!!
 
-        presenter.onNodeTapped("model-evaluation") // its own child
+        presenter.onNodeTapped("supervised") // the parent it already has
 
         val after = view.lastState!!
         assertEquals("still asking the same question", BoardMode.PICK_MOVE_PARENT, after.boardMode)

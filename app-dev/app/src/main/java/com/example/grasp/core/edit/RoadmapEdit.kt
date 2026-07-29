@@ -41,7 +41,18 @@ sealed interface RoadmapEdit {
      */
     data class DeleteNode(val nodeId: String, val withDescendants: Boolean = false) : RoadmapEdit
 
-    /** Moves a node — and everything below it — to hang off [newParentId] instead. */
+    /**
+     * Moves a node to hang off [newParentId] instead.
+     *
+     * A remove-and-reinsert, not a rewiring: the node is taken out of the tree first and put back
+     * under its new parent, which is why ANY node can be a destination but its own current parent.
+     * Everything below it comes along — unless the destination is itself down that branch, in
+     * which case the branch obviously can't come with it, and instead closes up behind it exactly
+     * as a [DeleteNode] without descendants would leave it. That case is the whole reason to
+     * remove first: moving a section further along its own line is the most ordinary thing to want
+     * on a roadmap that is mostly one chain, and rewiring parents in place can only tie it in a
+     * knot.
+     */
     data class ReparentNode(val nodeId: String, val newParentId: String) : RoadmapEdit
 }
 
@@ -103,14 +114,32 @@ fun LearningPath.applyEdit(edit: RoadmapEdit): LearningPath? {
             val newParent = byId[edit.newParentId] ?: return null
             if (isRoot(edit.nodeId)) return null // the root has nowhere to hang from
             if (edit.newParentId == edit.nodeId) return null
-            if (edit.newParentId in descendants(edit.nodeId, byId)) return null // would cut a loop off the tree
-            if (moving.id in newParent.children) return this
-            nodes.map { node ->
-                when (node.id) {
-                    edit.newParentId -> node.copy(children = node.children + moving.id)
-                    else -> node.copy(children = node.children - moving.id)
+            if (moving.id in newParent.children) return this // already there
+
+            // The one case where the branch can't travel: it contains the destination. Its
+            // children are left behind in its place, which is what makes moving a section further
+            // down its own line possible at all instead of a loop cut off from the root.
+            val intoOwnBranch = edit.newParentId in descendants(edit.nodeId, byId)
+            val leftBehind = if (intoOwnBranch) moving.children else emptyList()
+
+            nodes
+                // Out: wherever it currently hangs, with whatever isn't coming taking its place.
+                .map { node ->
+                    if (moving.id !in node.children) node
+                    else node.copy(
+                        children = node.children.flatMap {
+                            if (it == moving.id) leftBehind else listOf(it)
+                        },
+                    )
                 }
-            }
+                // Back in, under its new parent.
+                .map { node ->
+                    when (node.id) {
+                        edit.newParentId -> node.copy(children = node.children + moving.id)
+                        moving.id -> node.copy(children = node.children - leftBehind.toSet())
+                        else -> node
+                    }
+                }
         }
     }
     return copy(nodes = edited.rebuiltFrom(id))

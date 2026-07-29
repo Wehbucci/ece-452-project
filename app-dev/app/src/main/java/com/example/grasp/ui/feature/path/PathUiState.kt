@@ -42,10 +42,11 @@ enum class PathNodeState {
  * @property parentIds ids of this node's parents, used to draw the incoming connectors.
  * @property estMinutes shown as the "12 min" sub-label (0 → hidden, e.g. for the branch node).
  * @property pickable whether this node is a legal target for the current [PathUiState.boardMode] —
- *           false for the root while deleting, and for a section's own branch while choosing where
- *           to move it. Always true while [BoardMode.picking] is false. Showing those nodes as
- *           untappable is the honest version of refusing the tap: the alternative is a board that
- *           looks uniformly ready and then rejects half of it.
+ *           false for the root while deleting or moving, and, while choosing where a section
+ *           should go, for the section itself and the parent it already has. Always true while
+ *           [BoardMode.picking] is false. Showing those nodes as untappable is the honest version
+ *           of refusing the tap: the alternative is a board that looks uniformly ready and then
+ *           rejects part of it.
  */
 data class PathNodeUi(
     val id: String,
