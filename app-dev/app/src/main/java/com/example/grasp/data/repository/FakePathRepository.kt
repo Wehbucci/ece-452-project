@@ -4,8 +4,12 @@ import com.example.grasp.core.edit.EditAuthor
 import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.edit.applyEdits
+import com.example.grasp.core.edit.describeLessonEdits
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.LessonRevision
+import com.example.grasp.data.model.asRevision
+import com.example.grasp.data.model.restoredTo
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.ResourceKind
@@ -52,6 +56,10 @@ object FakePathRepository : PathRepository {
      */
     private val editedLessons = mutableMapOf<String, Subtopic>()
     private val editedPaths = mutableMapOf<String, LearningPath>()
+
+    /** Undo history for those edits, newest first — same semantics as the real one, no storage. */
+    private val revisions = mutableMapOf<String, MutableList<LessonRevision>>()
+    private var revisionCount = 0
 
     override fun learningPath(id: String): LearningPath? = editedPaths[id] ?: when (id) {
         "cooking-101" -> cookingPath()
@@ -238,8 +246,46 @@ object FakePathRepository : PathRepository {
     ): Subtopic? {
         val before = subtopic(pathId, nodeId) ?: return null
         val after = before.applyEdits(edits, author) ?: return null
+        revisions.getOrPut(lessonKey(pathId, nodeId)) { mutableListOf() }.add(
+            0,
+            before.asRevision(
+                id = "rev-${revisionCount++}",
+                savedAt = System.currentTimeMillis(),
+                label = describeLessonEdits(edits),
+                byAssistant = author == EditAuthor.ASSISTANT,
+            ),
+        )
         editedLessons[lessonKey(pathId, nodeId)] = after
         return after
+    }
+
+    override suspend fun lessonRevisions(pathId: String, nodeId: String): List<LessonRevision> =
+        revisions[lessonKey(pathId, nodeId)].orEmpty().toList()
+
+    override suspend fun undoLastLessonEdit(pathId: String, nodeId: String): Subtopic? {
+        val stack = revisions[lessonKey(pathId, nodeId)] ?: return null
+        val newest = stack.removeFirstOrNull() ?: return null
+        val restored = (subtopic(pathId, nodeId) ?: return null).restoredTo(newest)
+        editedLessons[lessonKey(pathId, nodeId)] = restored
+        return restored
+    }
+
+    override suspend fun restoreLesson(pathId: String, nodeId: String, revisionId: String): Subtopic? {
+        val stack = revisions[lessonKey(pathId, nodeId)] ?: return null
+        val wanted = stack.firstOrNull { it.id == revisionId } ?: return null
+        val current = subtopic(pathId, nodeId) ?: return null
+        stack.add(
+            0,
+            current.asRevision(
+                id = "rev-${revisionCount++}",
+                savedAt = System.currentTimeMillis(),
+                label = "Went back to an earlier version",
+                byAssistant = false,
+            ),
+        )
+        val restored = current.restoredTo(wanted)
+        editedLessons[lessonKey(pathId, nodeId)] = restored
+        return restored
     }
 
     override suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath? {

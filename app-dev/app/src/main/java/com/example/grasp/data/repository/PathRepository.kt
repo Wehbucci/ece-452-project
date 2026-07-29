@@ -5,6 +5,7 @@ import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.LessonRevision
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
@@ -90,6 +91,30 @@ interface PathRepository {
      * Structure only: a node's lesson is left exactly as it is, including for a node being moved.
      */
     suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath?
+
+    /**
+     * The stored earlier versions of one node's lesson, newest first.
+     *
+     * Each is the lesson as it stood BEFORE one change, so the newest entry is what an undo would
+     * put back. Empty for a lesson nobody has edited.
+     */
+    suspend fun lessonRevisions(pathId: String, nodeId: String): List<LessonRevision>
+
+    /**
+     * Takes back the most recent change, returning the lesson as it now stands.
+     *
+     * A true undo: the version it restores is consumed, so pressing it again steps back further
+     * rather than bouncing between two states. Null when there is nothing left to undo.
+     */
+    suspend fun undoLastLessonEdit(pathId: String, nodeId: String): Subtopic?
+
+    /**
+     * Puts the lesson back to a named earlier version, returning it as it now stands.
+     *
+     * Unlike [undoLastLessonEdit] this is itself a change: the version being replaced is kept, so
+     * reverting to something from last week never costs the user this morning's work.
+     */
+    suspend fun restoreLesson(pathId: String, nodeId: String, revisionId: String): Subtopic?
 
     /** Persist completion state for a node in Firestore or the backend. */
     suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean)

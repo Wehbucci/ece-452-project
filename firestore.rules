@@ -29,6 +29,16 @@ service cloud.firestore {
           allow read, delete: if isOwner(userId);
           allow create: if isOwner(userId) && isValidNodeWrite();
           allow update: if isOwner(userId) && isValidNodeWrite() && keepsEditedFlag();
+
+          // Earlier versions of the lesson. Written once and never rewritten: a version that
+          // could be edited in place is not a version, it is a second copy of the present.
+          // Deleting is allowed because undo consumes the version it puts back, and because the
+          // history is trimmed to a fixed depth.
+          match /revisions/{revisionId} {
+            allow read, delete: if isOwner(userId);
+            allow create: if isOwner(userId) && isValidRevision();
+            allow update: if false;
+          }
         }
 
         // Per-scope conversation history. Messages are append-only: a tutor answer the user acted
@@ -81,6 +91,16 @@ service cloud.firestore {
     function isValidBodyWrite() {
       return !('body' in incoming())
         || (incoming().body is list && incoming().body.size() <= 200);
+    }
+
+    // A stored version has to carry when it was taken, or the history can't be ordered and undo
+    // has no idea which entry is the most recent one.
+    function isValidRevision() {
+      return incoming().savedAt is int
+        && incoming().label is string
+        && incoming().byAssistant is bool
+        && incoming().body is list
+        && incoming().body.size() <= 200;
     }
 
     // A lesson the user has edited stays edited. Nothing in the app un-marks one, and if

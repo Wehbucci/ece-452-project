@@ -5,7 +5,11 @@ import com.example.grasp.core.edit.EditAuthor
 import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.edit.applyEdits
+import com.example.grasp.core.edit.describeLessonEdits
+import com.example.grasp.data.model.LessonRevision
 import com.example.grasp.data.model.Mode
+import com.example.grasp.data.model.asRevision
+import com.example.grasp.data.model.restoredTo
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
@@ -19,6 +23,7 @@ import com.example.grasp.data.model.TopicSuggestion
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +54,10 @@ class FirebasePathRepository : PathRepository {
 
     private fun nodesRef(uid: String, topicId: String) =
         topicsRef(uid).document(topicId).collection("nodes")
+
+    /** A node's earlier lesson versions. Its own collection so reading a node never drags them in. */
+    private fun revisionsRef(uid: String, topicId: String, nodeId: String) =
+        nodesRef(uid, topicId).document(nodeId).collection("revisions")
 
     override fun popularTopics(): List<TopicSuggestion> = FakePathRepository.popularTopics()
 
@@ -350,6 +359,20 @@ class FirebasePathRepository : PathRepository {
         val uid = uid ?: return@withContext after
 
         val changed = changedLessonFields(before, after)
+        // The version goes down FIRST. If the write below then fails the user has an extra entry
+        // in their history and nothing else; the other order risks a change landing with no way
+        // back from it.
+        saveRevision(
+            uid = uid,
+            pathId = pathId,
+            nodeId = nodeId,
+            revision = before.asRevision(
+                id = newRevisionId(),
+                savedAt = System.currentTimeMillis(),
+                label = describeLessonEdits(edits),
+                byAssistant = author == EditAuthor.ASSISTANT,
+            ),
+        )
         try {
             nodesRef(uid, pathId).document(nodeId).set(
                 changed + mapOf(
@@ -368,6 +391,135 @@ class FirebasePathRepository : PathRepository {
             Log.e("FirebasePathRepo", "editLesson failed for $pathId/$nodeId", e)
         }
         after
+    }
+
+    override suspend fun lessonRevisions(pathId: String, nodeId: String): List<LessonRevision> =
+        withContext(Dispatchers.IO) {
+            val uid = uid ?: return@withContext emptyList()
+            try {
+                revisionsRef(uid, pathId, nodeId)
+                    .orderBy("savedAt", Query.Direction.DESCENDING)
+                    .get().await()
+                    .documents.mapNotNull { it.toLessonRevision() }
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "lessonRevisions failed for $pathId/$nodeId", e)
+                emptyList()
+            }
+        }
+
+    override suspend fun undoLastLessonEdit(pathId: String, nodeId: String): Subtopic? =
+        withContext(Dispatchers.IO) {
+            val uid = uid ?: return@withContext null
+            val newest = lessonRevisions(pathId, nodeId).firstOrNull() ?: return@withContext null
+            val restored = restoreTo(uid, pathId, nodeId, newest) ?: return@withContext null
+            // Consumed, so pressing undo again steps back further instead of bouncing.
+            try {
+                revisionsRef(uid, pathId, nodeId).document(newest.id).delete().await()
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "dropping undone revision failed for $pathId/$nodeId", e)
+            }
+            restored
+        }
+
+    override suspend fun restoreLesson(
+        pathId: String,
+        nodeId: String,
+        revisionId: String,
+    ): Subtopic? = withContext(Dispatchers.IO) {
+        val uid = uid ?: return@withContext null
+        val wanted = lessonRevisions(pathId, nodeId).firstOrNull { it.id == revisionId }
+            ?: return@withContext null
+        val current = subtopic(pathId, nodeId) ?: return@withContext null
+        // Kept, not consumed: reverting to something from last week must not cost this morning.
+        saveRevision(
+            uid = uid,
+            pathId = pathId,
+            nodeId = nodeId,
+            revision = current.asRevision(
+                id = newRevisionId(),
+                savedAt = System.currentTimeMillis(),
+                label = "Went back to an earlier version",
+                byAssistant = false,
+            ),
+        )
+        restoreTo(uid, pathId, nodeId, wanted)
+    }
+
+    /** Writes [revision]'s content over the node's lesson, returning the lesson as it now stands. */
+    private suspend fun restoreTo(
+        uid: String,
+        pathId: String,
+        nodeId: String,
+        revision: LessonRevision,
+    ): Subtopic? {
+        val current = subtopic(pathId, nodeId) ?: return null
+        val restored = current.restoredTo(revision)
+        try {
+            nodesRef(uid, pathId).document(nodeId).set(
+                changedLessonFields(current, restored) + mapOf(
+                    "edited" to true,
+                    "contentStatus" to CONTENT_GENERATED,
+                    "updatedAt" to FieldValue.serverTimestamp(),
+                ),
+                SetOptions.merge(),
+            ).await()
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "restoring failed for $pathId/$nodeId", e)
+            return null
+        }
+        return restored
+    }
+
+    /**
+     * Stores one earlier version, then drops anything past [MAX_REVISIONS].
+     *
+     * Bounded because a node document's history is unbounded otherwise and nobody is ever going to
+     * scroll to the twentieth entry — but generous enough that a run of small edits doesn't push
+     * the version someone actually wants off the end.
+     */
+    private suspend fun saveRevision(
+        uid: String,
+        pathId: String,
+        nodeId: String,
+        revision: LessonRevision,
+    ) {
+        try {
+            revisionsRef(uid, pathId, nodeId).document(revision.id).set(
+                mapOf(
+                    "savedAt" to revision.savedAt,
+                    "label" to revision.label,
+                    "byAssistant" to revision.byAssistant,
+                    "summary" to revision.summary,
+                    "whyItMatters" to revision.whyItMatters,
+                    "body" to revision.body.map { it.toMap() },
+                    "resources" to revision.resources.map(::resourceMap),
+                ),
+            ).await()
+
+            revisionsRef(uid, pathId, nodeId)
+                .orderBy("savedAt", Query.Direction.DESCENDING)
+                .get().await()
+                .documents.drop(MAX_REVISIONS)
+                .forEach { it.reference.delete().await() }
+        } catch (e: Exception) {
+            // An edit whose history entry didn't save is still a saved edit; losing the undo is
+            // worth telling the log about, not worth refusing the change over.
+            Log.e("FirebasePathRepo", "saveRevision failed for $pathId/$nodeId", e)
+        }
+    }
+
+    private fun com.google.firebase.firestore.DocumentSnapshot.toLessonRevision(): LessonRevision? {
+        val savedAt = getLong("savedAt") ?: return null
+        return LessonRevision(
+            id = id,
+            savedAt = savedAt,
+            label = getString("label").orEmpty().ifEmpty { "Edited" },
+            byAssistant = getBoolean("byAssistant") ?: false,
+            summary = getString("summary").orEmpty(),
+            whyItMatters = getString("whyItMatters").orEmpty(),
+            body = lessonBlocks((get("body") as? List<*>).orEmpty()),
+            resources = (get("resources") as? List<*>).orEmpty().toResourceLinks(),
+        )
     }
 
     override suspend fun editRoadmap(pathId: String, edits: List<RoadmapEdit>): LearningPath? =
@@ -519,16 +671,7 @@ class FirebasePathRepository : PathRepository {
         // down to a single heading if they like, and regenerating over that destroys their work
         // (FR4.5).
         if (!edited && (summary.isBlank() || body.paragraphs().isEmpty())) return null
-        val resources = (get("resources") as? List<*>).orEmpty()
-            .filterIsInstance<Map<*, *>>()
-            .mapNotNull { resource ->
-                val title = resource["title"] as? String ?: return@mapNotNull null
-                val url = resource["url"] as? String ?: return@mapNotNull null
-                val kind = ResourceKind.entries
-                    .firstOrNull { it.name.equals(resource["kind"] as? String, ignoreCase = true) }
-                    ?: ResourceKind.ARTICLE
-                ResourceLink(title, url, kind)
-            }
+        val resources = (get("resources") as? List<*>).orEmpty().toResourceLinks()
         return GeneratedContent(
             summary = summary,
             whyItMatters = getString("whyItMatters").orEmpty(),
@@ -545,12 +688,28 @@ class FirebasePathRepository : PathRepository {
 
         /** How many lessons to write at once when generating a whole roadmap or branch. */
         const val MAX_PARALLEL_GENERATIONS = 4
+
+        /** How far back a lesson's undo history goes. */
+        const val MAX_REVISIONS = 20
+
+        fun newRevisionId(): String = java.util.UUID.randomUUID().toString()
     }
 }
 
 /** The stored shape of a "dive deeper" link, shared by every writer of one. */
 private fun resourceMap(link: ResourceLink): Map<String, Any> =
     mapOf("title" to link.title, "url" to link.url, "kind" to link.kind.name)
+
+/** Reads back stored "dive deeper" links, dropping any that lost their title or url. */
+private fun List<*>.toResourceLinks(): List<ResourceLink> = filterIsInstance<Map<*, *>>()
+    .mapNotNull { resource ->
+        val title = resource["title"] as? String ?: return@mapNotNull null
+        val url = resource["url"] as? String ?: return@mapNotNull null
+        val kind = ResourceKind.entries
+            .firstOrNull { it.name.equals(resource["kind"] as? String, ignoreCase = true) }
+            ?: ResourceKind.ARTICLE
+        ResourceLink(title, url, kind)
+    }
 
 /**
  * The stored lesson fields that differ between [before] and [after] — nothing else.

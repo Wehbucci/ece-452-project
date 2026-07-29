@@ -165,6 +165,41 @@ fun Subtopic.applyEdits(
     author: EditAuthor = EditAuthor.USER,
 ): Subtopic? = edits.fold(this as Subtopic?) { lesson, edit -> lesson?.applyEdit(edit, author) }
 
+/**
+ * One line saying what [edits] did, for the label on a stored version.
+ *
+ * Deliberately about the change and not the machinery — "Rewrote 2 blocks", not
+ * "2 × UpdateBlock". A version list is only useful if a user scanning it can tell which entry is
+ * the one they want back, and this is the only description they get.
+ */
+fun describeLessonEdits(edits: List<LessonEdit>): String {
+    if (edits.isEmpty()) return "No changes"
+    val kinds = edits.groupBy { it::class }
+    // Anything mixed is summarised by weight instead: naming two of five changes reads as if the
+    // other three didn't happen.
+    if (kinds.size > 1) return "${edits.size} changes"
+
+    val count = edits.size
+    return when (val first = edits.first()) {
+        is LessonEdit.UpdateBlock -> phrase("Rewrote", count, "block")
+        is LessonEdit.InsertBlockAfter -> phrase("Added", count, "block")
+        is LessonEdit.DeleteBlock -> phrase("Deleted", count, "block")
+        is LessonEdit.MoveBlock -> phrase("Moved", count, "block")
+        is LessonEdit.ReplaceImage -> phrase("Replaced", count, "picture")
+        is LessonEdit.UpdateResources -> "Changed the further reading"
+        is LessonEdit.UpdateField ->
+            if (count > 1) "Rewrote $count lesson fields"
+            else when (first.field) {
+                LessonField.SUMMARY -> "Rewrote the summary"
+                LessonField.WHY_IT_MATTERS -> "Rewrote why it matters"
+            }
+    }
+}
+
+/** "Rewrote a block" for one, "Rewrote 3 blocks" for more — "1 block" reads like a machine wrote it. */
+private fun phrase(verb: String, count: Int, noun: String) =
+    if (count == 1) "$verb a $noun" else "$verb $count ${noun}s"
+
 /** Where a block placed after [afterBlockId] goes; null if there is no such block to follow. */
 private fun List<LessonBlock>.insertionIndex(afterBlockId: String?): Int? {
     if (afterBlockId == null) return 0
