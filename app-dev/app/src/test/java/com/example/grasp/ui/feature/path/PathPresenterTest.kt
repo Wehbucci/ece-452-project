@@ -1,9 +1,11 @@
 package com.example.grasp.ui.feature.path
 
 import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.ui.feature.subtopic.SectionShape
 import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -11,6 +13,7 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import kotlin.coroutines.CoroutineContext
 import kotlin.math.abs
@@ -33,6 +36,7 @@ class PathPresenterTest {
         var subtopicSheet: Subtopic? = null
         var subtopicCompleted = false
         var subtopicEditing = false
+        var subtopicSection: SectionShape? = null
         var branchSheetShown = false
         val branchFromTitles = mutableListOf<String>()
         var dismissCount = 0
@@ -59,8 +63,10 @@ class PathPresenterTest {
             completed: Boolean,
             editing: Boolean,
             canUndo: Boolean,
+            section: SectionShape?,
         ) {
             subtopicSheet = subtopic; subtopicCompleted = completed; subtopicEditing = editing
+            subtopicSection = section
         }
         override fun showBranchSheet(fromTitle: String) {
             branchSheetShown = true
@@ -88,6 +94,10 @@ class PathPresenterTest {
     private class DirectDispatcher : CoroutineDispatcher() {
         override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
     }
+
+    /** The fake is a singleton, so each test starts from the canned content, not the last one's. */
+    @Before
+    fun clearFakeEdits() = FakePathRepository.clearEdits()
 
     private fun PathUiState.node(id: String) = nodes.first { it.id == id }
 
@@ -436,6 +446,56 @@ class PathPresenterTest {
 
         assertEquals(before, view.subtopicSheet)
         assertTrue(view.toasts.isNotEmpty())
+    }
+
+    @Test
+    fun `renaming a section shows the new name on the board`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("model-evaluation")
+
+        presenter.onRoadmapEdit(RoadmapEdit.RenameNode("model-evaluation", "How good is it?"))
+
+        assertEquals("How good is it?", view.lastState!!.node("model-evaluation").title)
+    }
+
+    @Test
+    fun `deleting the open section closes its sheet and re-lays the board`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("clustering")
+        val dismissedBefore = view.dismissCount
+
+        presenter.onRoadmapEdit(RoadmapEdit.DeleteNode("clustering"))
+
+        assertNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
+        assertTrue(view.dismissCount > dismissedBefore)
+        // What grew beyond it is still there — deleting one section isn't deleting a branch.
+        assertNotNull(view.lastState!!.nodes.firstOrNull { it.id == "model-evaluation" })
+    }
+
+    @Test
+    fun `a section can never be moved under itself or its own branch`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("supervised")
+
+        val offered = view.subtopicSection!!.possibleParents.map { it.id }
+
+        assertFalse("itself", "supervised" in offered)
+        assertFalse("its own child", "regression" in offered)
+        // Its current parent is left out too — moving it there would change nothing.
+        assertFalse("where it already is", "data-basics" in offered)
+        assertTrue("unsupervised" in offered)
+    }
+
+    @Test
+    fun `the roadmap's first section is not offered for deletion`() {
+        val (presenter, view) = attach()
+
+        presenter.onNodeTapped("what-is-ml")
+        // Nothing hangs it off anything: it is the roadmap, not a section of it.
+        assertFalse(view.subtopicSection!!.canDelete)
+
+        presenter.onNodeTapped("regression")
+        assertTrue(view.subtopicSection!!.canDelete)
     }
 
     @Test

@@ -60,6 +60,7 @@ import com.example.grasp.ui.components.PathNode
 import com.example.grasp.ui.components.PathToast
 import com.example.grasp.ui.components.RegionLabel
 import com.example.grasp.ui.feature.subtopic.SubtopicLoadingContent
+import com.example.grasp.ui.feature.subtopic.SectionShape
 import com.example.grasp.ui.feature.subtopic.SubtopicSheetContent
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.GraspTheme
@@ -103,6 +104,7 @@ fun PathScreen(
     var sheetCompleted by remember { mutableStateOf(false) }
     var sheetEditing by remember { mutableStateOf(false) }
     var sheetCanUndo by remember { mutableStateOf(false) }
+    var sheetSection by remember { mutableStateOf<SectionShape?>(null) }
     var branchSheet by remember { mutableStateOf(false) }
     var branchFromTitle by remember { mutableStateOf("") }
     var branchSuggestions by remember { mutableStateOf<List<String>>(emptyList()) }
@@ -137,6 +139,7 @@ fun PathScreen(
                 completed: Boolean,
                 editing: Boolean,
                 canUndo: Boolean,
+                section: SectionShape?,
             ) {
                 branchSheet = false
                 sheetLoadingTitle = null
@@ -144,6 +147,7 @@ fun PathScreen(
                 sheetCompleted = completed
                 sheetEditing = editing
                 sheetCanUndo = canUndo
+                sheetSection = section
             }
             override fun showBranchSheet(fromTitle: String) {
                 sheetSubtopic = null
@@ -267,6 +271,8 @@ fun PathScreen(
                     onToggleEdit = { presenter.onToggleEditMode() },
                     onEdit = { presenter.onLessonEdit(it) },
                     onUndo = { presenter.onUndoLessonEdit() },
+                    section = sheetSection,
+                    onRoadmapEdit = { presenter.onRoadmapEdit(it) },
                 )
             } else {
                 SubtopicLoadingContent(title = loadingTitle!!, generating = sheetGenerating)

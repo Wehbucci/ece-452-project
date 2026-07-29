@@ -61,6 +61,19 @@ object FakePathRepository : PathRepository {
     private val revisions = mutableMapOf<String, MutableList<LessonRevision>>()
     private var revisionCount = 0
 
+    /**
+     * Forgets every edit, putting the canned content back.
+     *
+     * Exists for tests: this is an `object`, so an edit made in one of them is still there in the
+     * next, and a shared singleton that quietly carries state between tests makes them pass or
+     * fail depending on the order they ran in.
+     */
+    internal fun clearEdits() {
+        editedLessons.clear()
+        editedPaths.clear()
+        revisions.clear()
+    }
+
     override fun learningPath(id: String): LearningPath? = editedPaths[id] ?: when (id) {
         "cooking-101" -> cookingPath()
         "ml-101" -> machineLearningPath()

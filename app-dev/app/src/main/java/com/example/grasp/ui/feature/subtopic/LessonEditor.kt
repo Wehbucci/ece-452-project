@@ -28,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.LessonField
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.BlockSource
 import com.example.grasp.data.model.DiagramItem
 import com.example.grasp.data.model.DiagramKind
@@ -61,6 +62,8 @@ fun LessonEditorBody(
     subtopic: Subtopic,
     onEdit: (LessonEdit) -> Unit,
     modifier: Modifier = Modifier,
+    section: SectionShape? = null,
+    onRoadmapEdit: (RoadmapEdit) -> Unit = {},
 ) {
     var dialog by remember { mutableStateOf<EditorAction?>(null) }
 
@@ -105,6 +108,10 @@ fun LessonEditorBody(
             )
             InsertSlot { dialog = EditorAction.PickType(afterBlockId = block.id) }
         }
+
+        // Last, and below the lesson: changing the roadmap's shape is the rarer job and the one
+        // with consequences beyond this screen.
+        section?.let { SectionEditorPanel(section = it, onRoadmapEdit = onRoadmapEdit) }
     }
 
     when (val open = dialog) {

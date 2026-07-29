@@ -2,12 +2,14 @@ package com.example.grasp.ui.feature.path
 
 import android.util.Log
 import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.layout.layoutBoard
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.ui.feature.subtopic.SectionShape
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -291,6 +293,33 @@ class PathPresenter(
         }
     }
 
+    /**
+     * Applies one change to the roadmap's shape and re-lays the board out.
+     *
+     * The board derives every position from the tree on each render, so there is nothing to move
+     * here — re-emitting the state IS the re-layout.
+     */
+    override fun onRoadmapEdit(edit: RoadmapEdit) {
+        scope.launch {
+            val updated = repo.editRoadmap(pathId, listOf(edit))
+            if (updated == null) {
+                view?.showToast("⚠️ Couldn't change the roadmap")
+                return@launch
+            }
+            nodes = updated.nodes
+            completed.retainAll(nodes.mapTo(mutableSetOf()) { it.id })
+            emit()
+            // A section the user just deleted has no sheet to go back to.
+            if (nodes.none { it.id == openLesson?.nodeId }) {
+                openLesson = null
+                editing = false
+                view?.dismissSheet()
+            } else {
+                showOpenLesson()
+            }
+        }
+    }
+
     /** Re-renders the open sheet from the lesson and mode the presenter currently holds. */
     private fun showOpenLesson() {
         val lesson = openLesson ?: return
@@ -299,6 +328,37 @@ class PathPresenter(
             completed = lesson.nodeId in completed,
             editing = editing,
             canUndo = canUndo,
+            section = sectionShapeFor(lesson.nodeId),
+        )
+    }
+
+    /**
+     * What edit mode may change about the open node, including where it could be moved to.
+     *
+     * The candidate parents exclude the node itself and everything below it: hanging a section off
+     * its own descendant would cut the pair loose from the root, and offering the choice only to
+     * refuse it would be a worse answer than not offering it.
+     */
+    private fun sectionShapeFor(nodeId: String): SectionShape? {
+        val node = nodes.firstOrNull { it.id == nodeId } ?: return null
+        val byId = nodes.associateBy { it.id }
+        val below = mutableSetOf(nodeId)
+        val queue = ArrayDeque(node.children)
+        while (queue.isNotEmpty()) {
+            val next = queue.removeFirst()
+            if (below.add(next)) queue += byId[next]?.children.orEmpty()
+        }
+        // Derived from `children`, never read off the node: `parentId` is the inverse of that
+        // relation and is only filled in on the paths that happen to store it.
+        val parentId = nodes.firstOrNull { nodeId in it.children }?.id
+        return SectionShape(
+            nodeId = nodeId,
+            title = node.title,
+            estMinutes = node.estMinutes,
+            tier = node.tier,
+            // The root is the one nothing hangs off — the roadmap itself, not a section of it.
+            canDelete = parentId != null,
+            possibleParents = nodes.filter { it.id !in below && it.id != parentId },
         )
     }
 

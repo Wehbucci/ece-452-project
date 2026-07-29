@@ -1,9 +1,11 @@
 package com.example.grasp.ui.feature.path
 
 import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.mvp.MvpPresenter
 import com.example.grasp.core.mvp.MvpView
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.feature.subtopic.SectionShape
 
 /**
  * MVP contract for the gamified Learner roadmap (the vertical "journey").
@@ -38,12 +40,16 @@ interface PathContract {
          *        by default and off again every time the sheet opens — editing is something the
          *        user asks for, never the state they find the lesson in.
          * @param canUndo whether there is a stored earlier version to take back.
+         * @param section the roadmap facts about this node that edit mode can change; null when
+         *        the node isn't on the board (which is not a state the app produces, but is what
+         *        a stale sheet would look like).
          */
         fun showSubtopicSheet(
             subtopic: Subtopic,
             completed: Boolean,
             editing: Boolean = false,
             canUndo: Boolean = false,
+            section: SectionShape? = null,
         )
 
         /** Open the "grow your path" sheet; [fromTitle] is the lesson the branch will grow off. */
@@ -122,5 +128,8 @@ interface PathContract {
 
         /** Take back the last change made to the open lesson. */
         fun onUndoLessonEdit()
+
+        /** Apply one change to the roadmap's own shape, and save it. */
+        fun onRoadmapEdit(edit: RoadmapEdit)
     }
 }

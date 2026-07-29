@@ -8,6 +8,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 
 /**
@@ -18,6 +19,10 @@ import org.junit.Test
  * one would make these depend on the order they ran in.
  */
 class LessonUndoTest {
+
+    /** The fake is a singleton, so each test starts from the canned content, not the last one's. */
+    @Before
+    fun clearFakeEdits() = FakePathRepository.clearEdits()
 
     private val repo = FakePathRepository
 

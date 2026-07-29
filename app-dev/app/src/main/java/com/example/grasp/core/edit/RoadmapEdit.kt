@@ -78,7 +78,7 @@ fun LearningPath.applyEdit(edit: RoadmapEdit): LearningPath? {
 
         is RoadmapEdit.DeleteNode -> {
             val going = byId[edit.nodeId] ?: return null
-            if (edit.nodeId == id) return null // the root IS the path
+            if (isRoot(edit.nodeId)) return null // the root IS the path
             val removed =
                 if (edit.withDescendants) descendants(edit.nodeId, byId) + edit.nodeId
                 else setOf(edit.nodeId)
@@ -101,7 +101,7 @@ fun LearningPath.applyEdit(edit: RoadmapEdit): LearningPath? {
         is RoadmapEdit.ReparentNode -> {
             val moving = byId[edit.nodeId] ?: return null
             val newParent = byId[edit.newParentId] ?: return null
-            if (edit.nodeId == id) return null // the root has nowhere to hang from
+            if (isRoot(edit.nodeId)) return null // the root has nowhere to hang from
             if (edit.newParentId == edit.nodeId) return null
             if (edit.newParentId in descendants(edit.nodeId, byId)) return null // would cut a loop off the tree
             if (moving.id in newParent.children) return this
@@ -119,6 +119,16 @@ fun LearningPath.applyEdit(edit: RoadmapEdit): LearningPath? {
 /** The roadmap with every edit applied in order, or null if any one of them doesn't fit. */
 fun LearningPath.applyEdits(edits: List<RoadmapEdit>): LearningPath? =
     edits.fold(this as LearningPath?) { path, edit -> path?.applyEdit(edit) }
+
+/**
+ * Whether [nodeId] is what the whole roadmap hangs from.
+ *
+ * "Nothing claims it as a child" rather than "it is called the same as the path", because those
+ * only coincide for a roadmap the generator built — and the root is exactly the node an edit must
+ * not be allowed to cut loose.
+ */
+private fun LearningPath.isRoot(nodeId: String) =
+    nodeId == id || nodes.none { nodeId in it.children }
 
 /** Every node below [nodeId], however deep. */
 private fun descendants(nodeId: String, byId: Map<String, TreeNode>): Set<String> {

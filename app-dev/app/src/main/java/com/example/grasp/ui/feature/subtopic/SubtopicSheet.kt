@@ -34,6 +34,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.core.edit.LessonEdit
+import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
@@ -92,6 +93,8 @@ fun SubtopicSheetContent(
     onToggleEdit: () -> Unit = {},
     onEdit: (LessonEdit) -> Unit = {},
     onUndo: () -> Unit = {},
+    section: SectionShape? = null,
+    onRoadmapEdit: (RoadmapEdit) -> Unit = {},
 ) {
     Column(
         modifier = modifier
@@ -147,7 +150,12 @@ fun SubtopicSheetContent(
         if (editing) {
             // Editing replaces the reading view rather than decorating it, so a learner who never
             // turns it on never meets a delete button (NFR 2.2).
-            LessonEditorBody(subtopic = subtopic, onEdit = onEdit)
+            LessonEditorBody(
+                subtopic = subtopic,
+                onEdit = onEdit,
+                section = section,
+                onRoadmapEdit = onRoadmapEdit,
+            )
             Spacer(Modifier.height(4.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 BeveledButton(
