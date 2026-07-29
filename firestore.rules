@@ -40,16 +40,18 @@ service cloud.firestore {
             allow update: if false;
           }
         }
+      }
 
-        // Per-scope conversation history. Messages are append-only: a tutor answer the user acted
-        // on should still be there when they come back to check what it said.
-        match /chats/{chatId} {
-          allow read, write: if isOwner(userId);
+      // Per-scope conversation history. Sits beside topics rather than inside one because a chat
+      // id already encodes its own scope — path, node or block — and the same collection holds
+      // all three. Messages are append-only: a tutor answer the user acted on should still be
+      // there when they come back to check what it said.
+      match /chats/{chatId} {
+        allow read, write: if isOwner(userId);
 
-          match /messages/{messageId} {
-            allow read, create: if isOwner(userId);
-            allow update, delete: if false;
-          }
+        match /messages/{messageId} {
+          allow read, create: if isOwner(userId);
+          allow update, delete: if false;
         }
       }
     }
