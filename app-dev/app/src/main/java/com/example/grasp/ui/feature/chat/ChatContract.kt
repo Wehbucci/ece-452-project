@@ -22,6 +22,12 @@ interface ChatContract {
         /** Send a text message. */
         fun onSend(text: String)
 
+        /**
+         * Ask again after a failed reply. [messageId] is the failed assistant message, which is
+         * reused rather than replaced — the user asked once and should see one answer.
+         */
+        fun onRetry(messageId: String)
+
         /** Attach a photo (multi-modal). Placeholder in the skeleton. */
         fun onAttachImage()
     }

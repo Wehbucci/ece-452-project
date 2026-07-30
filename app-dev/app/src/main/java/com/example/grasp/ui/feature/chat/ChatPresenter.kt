@@ -7,6 +7,7 @@ import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.ChatRepository
+import com.example.grasp.data.repository.ChatSession
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -27,6 +28,7 @@ class ChatPresenter(
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
     private val userRepo: UserRepository = FirebaseUserRepository(),
+    private val sessionFactory: (String) -> ChatSession = { GeminiChatSession(it) },
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
     private val chatId: String = scope.chatId
@@ -35,15 +37,18 @@ class ChatPresenter(
     private var nextId = 0
     private var uiScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
+    /** Failed assistant message id → the question that produced it, so Retry knows what to resend. */
+    private val retryPrompts = mutableMapOf<String, String>()
+
     /**
      * Built on first use rather than eagerly: the instruction embeds the node's lesson, which the
      * repository may have to generate (and which must not be fetched on the main thread).
-     * Only ever touched from [onSend]'s single coroutine, so no locking is needed.
+     * Only ever touched from [streamReply]'s single coroutine, so no locking is needed.
      */
-    private var gemini: GeminiChatSession? = null
+    private var session: ChatSession? = null
 
-    private suspend fun gemini(): GeminiChatSession =
-        gemini ?: GeminiChatSession(buildSystemInstruction()).also { gemini = it }
+    private suspend fun session(): ChatSession =
+        session ?: sessionFactory(buildSystemInstruction()).also { session = it }
 
     override fun onViewAttached() {
         view?.showMessages(messages.toList())
@@ -65,8 +70,9 @@ class ChatPresenter(
 
     override fun onSend(text: String) {
         if (text.isBlank()) return
+        val prompt = text.trim()
 
-        val userMessage = ChatMessage("msg-${nextId++}", ChatMessage.Author.USER, text.trim())
+        val userMessage = ChatMessage("msg-${nextId++}", ChatMessage.Author.USER, prompt)
         messages += userMessage
 
         val pendingId = "msg-${nextId++}"
@@ -77,23 +83,41 @@ class ChatPresenter(
             chatRepo.saveMessage(chatId, context, userMessage)
         }
 
+        streamReply(pendingId, prompt)
+    }
+
+    /**
+     * Ask again, in place.
+     *
+     * The failed bubble becomes the pending one rather than a new message being appended, so a
+     * flaky connection doesn't leave a column of dead ends in the transcript.
+     */
+    override fun onRetry(messageId: String) {
+        val prompt = retryPrompts[messageId] ?: return
+        updatePending(messageId, text = "", stillPending = true)
+        streamReply(messageId, prompt)
+    }
+
+    private fun streamReply(pendingId: String, prompt: String) {
         uiScope.launch {
             var accumulated = ""
             try {
-                gemini().sendMessageStream(text.trim()).collect { chunk ->
+                session().sendMessageStream(prompt).collect { chunk ->
                     accumulated += chunk
                     updatePending(pendingId, accumulated, stillPending = true)
                 }
+                retryPrompts -= pendingId
                 updatePending(pendingId, accumulated, stillPending = false)
                 val assistantMessage = ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, accumulated)
                 chatRepo.saveMessage(chatId, context, assistantMessage)
             } catch (e: Exception) {
+                // Recover the UI first, log second. Reversed, anything the logger itself throws
+                // leaves the bubble stuck on the typing dots forever.
+                retryPrompts[pendingId] = prompt
+                updatePending(pendingId, text = FAILURE_TEXT, stillPending = false, failed = true)
+                // The class name and stack trace belong in the log, not in the tutor's voice: the
+                // bubble is where an answer goes, and "UnknownHostException: null" reads as one.
                 Log.e("ChatPresenter", "Gemini call failed", e)
-                updatePending(
-                    pendingId,
-                    text = "Error: ${e.javaClass.simpleName}: ${e.message}",
-                    stillPending = false,
-                )
             }
         }
     }
@@ -108,10 +132,15 @@ class ChatPresenter(
         view?.showMessages(messages.toList())
     }
 
-    private fun updatePending(id: String, text: String, stillPending: Boolean) {
+    private fun updatePending(
+        id: String,
+        text: String,
+        stillPending: Boolean,
+        failed: Boolean = false,
+    ) {
         val idx = messages.indexOfFirst { it.id == id }
         if (idx >= 0) {
-            messages[idx] = messages[idx].copy(text = text, pending = stillPending)
+            messages[idx] = messages[idx].copy(text = text, pending = stillPending, failed = failed)
             view?.showMessages(messages.toList())
         }
     }
@@ -297,5 +326,13 @@ class ChatPresenter(
             )
             is LessonBlock.Image -> appendLine("[image: ${block.text}]")
         }
+    }
+
+    private companion object {
+        /**
+         * Deliberately says nothing about what went wrong. The causes the user can act on are all
+         * the same action — try again — and the ones they cannot act on are not their problem.
+         */
+        const val FAILURE_TEXT = "Couldn't reach the tutor just now."
     }
 }
