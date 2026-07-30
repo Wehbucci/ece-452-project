@@ -218,6 +218,18 @@ fun PathScreen(
                         LevelUpRibbon(levelUp, onFinished = { levelUp = null })
                         PathToast(toast, onFinished = { toast = null })
 
+                        // The tutor for the whole plan rather than one lesson. Stands down while
+                        // the board is a picker, so "tap a section" has the screen to itself.
+                        if (s.boardMode == BoardMode.BROWSING) {
+                            AskRoadmapButton(
+                                onClick = presenter::onAskAboutRoadmap,
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .navigationBarsPadding()
+                                    .padding(24.dp),
+                            )
+                        }
+
                         // Reshaping the roadmap: one quiet control, its menu, and the banner for
                         // whichever "tap a section" question is being asked.
                         RoadmapEditBar(

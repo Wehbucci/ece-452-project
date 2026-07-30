@@ -145,6 +145,12 @@ interface PathContract {
         /** "Ask AI" for [nodeId] — routes to chat. */
         fun onAskAi(nodeId: String)
 
+        /**
+         * "Ask AI" for the roadmap itself — routes to a chat that sees the whole tree rather than
+         * any one lesson, which is where "what should I learn next" can actually be answered.
+         */
+        fun onAskAboutRoadmap()
+
         /** A paragraph of [nodeId]'s lesson was tapped — routes to chat scoped to that block. */
         fun onAskAboutBlock(nodeId: String, blockText: String, blockId: String)
 

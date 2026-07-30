@@ -288,6 +288,11 @@ class PathPresenter(
         view?.openChat(node?.title ?: "your material", pathId, nodeId, blockId = "")
     }
 
+    override fun onAskAboutRoadmap() {
+        // No node id: that absence is exactly what tells the chat it is scoped to the whole path.
+        view?.openChat(title.ifEmpty { "your roadmap" }, pathId, nodeId = "", blockId = "")
+    }
+
     override fun onAskAboutBlock(nodeId: String, blockText: String, blockId: String) {
         // Same convention as the full subtopic screen: the block's opening words name the chat.
         view?.openChat(blockText.take(60), pathId, nodeId, blockId)

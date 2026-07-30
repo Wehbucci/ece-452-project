@@ -542,6 +542,20 @@ class PathPresenterTest {
         assertEquals("whole subtopic, not one block", listOf(""), view.chatBlockIds)
     }
 
+    /**
+     * The absent node id is the whole signal: it is what tells the chat it is scoped to the tree
+     * rather than to whichever lesson happened to be open last.
+     */
+    @Test
+    fun `asking about the roadmap opens a chat with no node`() {
+        val (presenter, view) = attach()
+
+        presenter.onAskAboutRoadmap()
+
+        assertEquals(listOf(""), view.chats)
+        assertEquals(listOf(""), view.chatBlockIds)
+    }
+
     @Test
     fun `tapping a lesson paragraph opens a chat scoped to that paragraph`() {
         val (presenter, view) = attach()
