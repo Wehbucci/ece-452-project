@@ -9,7 +9,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 
-class GeminiChatSession(systemInstruction: String) {
+class GeminiChatSession(systemInstruction: String) : ChatSession {
 
     private val model = Firebase.ai(backend = GenerativeBackend.googleAI())
         .generativeModel(
@@ -19,7 +19,7 @@ class GeminiChatSession(systemInstruction: String) {
 
     private val chat = model.startChat()
 
-    fun sendMessageStream(userText: String): Flow<String> = channelFlow {
+    override fun sendMessageStream(userText: String): Flow<String> = channelFlow {
         chat.sendMessageStream(userText).collect { chunk ->
             val text = chunk.text
             if (!text.isNullOrEmpty()) send(text)

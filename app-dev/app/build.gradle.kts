@@ -36,6 +36,14 @@ android {
     buildFeatures {
         compose = true
     }
+    testOptions {
+        unitTests {
+            // Without this the android.* stubs on the unit-test classpath throw
+            // "not mocked" instead of returning defaults, so a plain Log.e in a catch block
+            // takes down the code path under test.
+            isReturnDefaultValues = true
+        }
+    }
 }
 
 dependencies {
@@ -54,6 +62,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
     testImplementation(libs.junit)
+    // Presenters launch on Dispatchers.Main, which does not exist in a JVM unit test until
+    // Dispatchers.setMain installs one.
+    testImplementation(libs.kotlinx.coroutines.test)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)
