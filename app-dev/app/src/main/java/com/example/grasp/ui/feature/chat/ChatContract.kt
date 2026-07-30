@@ -28,6 +28,17 @@ interface ChatContract {
          */
         fun onRetry(messageId: String)
 
+        /**
+         * Make the changes the assistant offered under [messageId] (FR5.4).
+         *
+         * The ONLY way anything the assistant proposes reaches the user's material. There is no
+         * path that applies a change without a tap that means this.
+         */
+        fun onAcceptProposal(messageId: String)
+
+        /** Turn them down. Nothing is written, and the offer does not come back. */
+        fun onRejectProposal(messageId: String)
+
         /** Attach a photo (multi-modal). Placeholder in the skeleton. */
         fun onAttachImage()
     }

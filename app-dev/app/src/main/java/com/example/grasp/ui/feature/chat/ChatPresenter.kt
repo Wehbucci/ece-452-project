@@ -1,11 +1,19 @@
 package com.example.grasp.ui.feature.chat
 
 import android.util.Log
+import com.example.grasp.core.edit.EditAuthor
+import com.example.grasp.core.edit.EditProposal
+import com.example.grasp.core.edit.MAX_CHANGES_PER_PROPOSAL
+import com.example.grasp.core.edit.ToolCall
+import com.example.grasp.core.edit.proposeLessonEdits
+import com.example.grasp.core.edit.proposeRoadmapEdits
 import com.example.grasp.core.mvp.BasePresenter
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonBlock
+import com.example.grasp.data.model.ProposalOutcome
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.data.repository.ChatChunk
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.ChatSession
 import com.example.grasp.data.repository.FirebaseChatRepository
@@ -13,6 +21,7 @@ import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.TutorToolset
 import com.example.grasp.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,14 +33,30 @@ class ChatPresenter(
     private val context: String,
     private val scope: ChatScope = ChatScope.General,
     // The real repository, so the tutor is grounded in the SAME generated lesson the user is
-    // reading (it falls back to the fake data when signed out).
+    // reading (it falls back to the fake data when signed out). It is also where an accepted
+    // proposal lands — through `editLesson`, the same door the manual editor uses.
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
     private val userRepo: UserRepository = FirebaseUserRepository(),
-    private val sessionFactory: (String) -> ChatSession = { GeminiChatSession(it) },
+    private val sessionFactory: (String, TutorToolset) -> ChatSession = { instruction, tools ->
+        GeminiChatSession(instruction, tools)
+    },
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
     private val chatId: String = scope.chatId
+
+    /**
+     * What the tutor is allowed to offer to change here, which follows entirely from what the user
+     * is looking at (FR5.4).
+     *
+     * A Tinkerer guide gets nothing: its steps have no edit vocabulary — phase 1 built one for
+     * lessons and roadmaps only — so there is nothing for a tool call to turn into.
+     */
+    private val toolset: TutorToolset = when (scope) {
+        is ChatScope.Node, is ChatScope.Block -> TutorToolset.LESSON
+        is ChatScope.Path -> TutorToolset.ROADMAP
+        is ChatScope.General, is ChatScope.Guide, is ChatScope.Step -> TutorToolset.NONE
+    }
 
     private val messages = mutableListOf<ChatMessage>()
     private var nextId = 0
@@ -41,6 +66,15 @@ class ChatPresenter(
     private val retryPrompts = mutableMapOf<String, String>()
 
     /**
+     * Message id → the changes offered under it that nobody has answered yet.
+     *
+     * Kept here rather than read back off the message list because this is the authority on what
+     * can still be applied: an entry is removed the moment a decision is taken, so a second tap on
+     * a card mid-flight finds nothing and does nothing.
+     */
+    private val openProposals = mutableMapOf<String, EditProposal>()
+
+    /**
      * Built on first use rather than eagerly: the instruction embeds the node's lesson, which the
      * repository may have to generate (and which must not be fetched on the main thread).
      * Only ever touched from [streamReply]'s single coroutine, so no locking is needed.
@@ -48,7 +82,7 @@ class ChatPresenter(
     private var session: ChatSession? = null
 
     private suspend fun session(): ChatSession =
-        session ?: sessionFactory(buildSystemInstruction()).also { session = it }
+        session ?: sessionFactory(buildSystemInstruction(), toolset).also { session = it }
 
     override fun onViewAttached() {
         view?.showMessages(messages.toList())
@@ -101,14 +135,29 @@ class ChatPresenter(
     private fun streamReply(pendingId: String, prompt: String) {
         uiScope.launch {
             var accumulated = ""
+            val calls = mutableListOf<ToolCall>()
             try {
                 session().sendMessageStream(prompt).collect { chunk ->
-                    accumulated += chunk
-                    updatePending(pendingId, accumulated, stillPending = true)
+                    when (chunk) {
+                        is ChatChunk.Text -> {
+                            accumulated += chunk.text
+                            updatePending(pendingId, accumulated, stillPending = true)
+                        }
+                        // Held until the turn is over: a proposal is reviewed as one batch, and
+                        // showing the first card while the second is still arriving invites a tap
+                        // on half of it.
+                        is ChatChunk.Call -> calls += chunk.call
+                    }
                 }
                 retryPrompts -= pendingId
-                updatePending(pendingId, accumulated, stillPending = false)
-                val assistantMessage = ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, accumulated)
+                val proposal = proposalFrom(calls)
+                // A turn that is nothing but a tool call has no words in it, and a bubble with
+                // cards under it and nothing in it reads as a bug.
+                val text = accumulated.ifBlank { if (proposal != null) PROPOSAL_ONLY_TEXT else "" }
+                if (proposal != null) openProposals[pendingId] = proposal
+                updatePending(pendingId, text, stillPending = false, proposal = proposal)
+                // The proposal is deliberately not saved with it — see ChatMessage.proposal.
+                val assistantMessage = ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, text)
                 chatRepo.saveMessage(chatId, context, assistantMessage)
             } catch (e: Exception) {
                 // Recover the UI first, log second. Reversed, anything the logger itself throws
@@ -137,10 +186,94 @@ class ChatPresenter(
         text: String,
         stillPending: Boolean,
         failed: Boolean = false,
+        proposal: EditProposal? = null,
     ) {
         val idx = messages.indexOfFirst { it.id == id }
         if (idx >= 0) {
-            messages[idx] = messages[idx].copy(text = text, pending = stillPending, failed = failed)
+            messages[idx] = messages[idx].copy(
+                text = text,
+                pending = stillPending,
+                failed = failed,
+                proposal = proposal,
+            )
+            view?.showMessages(messages.toList())
+        }
+    }
+
+    // ---- Proposed changes (FR5.4) --------------------------------------------------------------
+
+    /**
+     * What [calls] would do to the material this conversation is about, or null if they would do
+     * nothing to it.
+     *
+     * The material is read again here rather than reused from the briefing, because the user may
+     * have edited it by hand since the conversation started — and a card has to show what the
+     * change would do to the lesson as it stands now, not as the tutor was told about it.
+     */
+    private suspend fun proposalFrom(calls: List<ToolCall>): EditProposal? {
+        if (calls.isEmpty()) return null
+        val proposal = when (val s = scope) {
+            is ChatScope.Node -> repo.subtopic(s.pathId, s.nodeId)?.let { proposeLessonEdits(it, calls) }
+            is ChatScope.Block -> repo.subtopic(s.pathId, s.nodeId)?.let { proposeLessonEdits(it, calls) }
+            is ChatScope.Path -> repo.learningPath(s.pathId)?.let { proposeRoadmapEdits(it, calls) }
+            // The model was given no tools in these scopes, so a call here is one it invented.
+            is ChatScope.General, is ChatScope.Guide, is ChatScope.Step -> null
+        }
+        return proposal?.takeUnless { it.isEmpty }
+    }
+
+    override fun onAcceptProposal(messageId: String) {
+        // Taken out of the map before anything suspends, so a second tap on the same card while
+        // the first is still writing finds nothing to apply.
+        val proposal = openProposals.remove(messageId) ?: return
+        if (proposal.changes.isEmpty()) {
+            settle(messageId, ProposalOutcome.REJECTED, proposal)
+            return
+        }
+        uiScope.launch {
+            val applied = applyToMaterial(proposal)
+            settle(
+                messageId,
+                if (applied) ProposalOutcome.ACCEPTED else ProposalOutcome.FAILED,
+                proposal,
+            )
+        }
+    }
+
+    override fun onRejectProposal(messageId: String) {
+        val proposal = openProposals.remove(messageId) ?: return
+        settle(messageId, ProposalOutcome.REJECTED, proposal)
+    }
+
+    /**
+     * The accepted changes, written through the repository.
+     *
+     * The same call the editing UI makes, differing only in [EditAuthor] — which is the whole
+     * point of phase 1's one operation set: an AI edit is not a second kind of edit, so it gets
+     * the same validation, the same partial write and the same undo entry as a hand-made one.
+     */
+    private suspend fun applyToMaterial(proposal: EditProposal): Boolean = when (val s = scope) {
+        is ChatScope.Node ->
+            repo.editLesson(s.pathId, s.nodeId, proposal.lessonEdits(), EditAuthor.ASSISTANT) != null
+        is ChatScope.Block ->
+            repo.editLesson(s.pathId, s.nodeId, proposal.lessonEdits(), EditAuthor.ASSISTANT) != null
+        is ChatScope.Path ->
+            repo.editRoadmap(s.pathId, proposal.roadmapEdits()) != null
+        is ChatScope.General, is ChatScope.Guide, is ChatScope.Step -> false
+    }
+
+    /** Record the decision on the card, and tell the model about it for its next turn. */
+    private fun settle(messageId: String, outcome: ProposalOutcome, proposal: EditProposal) {
+        val word = when (outcome) {
+            ProposalOutcome.ACCEPTED -> "accepted by the user and applied"
+            ProposalOutcome.REJECTED -> "rejected by the user"
+            ProposalOutcome.FAILED -> "accepted, but it no longer fitted the material"
+        }
+        proposal.changes.forEach { session?.settle(it.id, word) }
+
+        val idx = messages.indexOfFirst { it.id == messageId }
+        if (idx >= 0) {
+            messages[idx] = messages[idx].copy(proposalOutcome = outcome)
             view?.showMessages(messages.toList())
         }
     }
@@ -178,6 +311,38 @@ class ChatPresenter(
             is ChatScope.Guide -> appendGuideTier(s.pathId, focusStepId = null)
             is ChatScope.Step -> appendGuideTier(s.pathId, focusStepId = s.stepId)
         }
+
+        if (toolset != TutorToolset.NONE) appendEditingBriefing()
+    }
+
+    /**
+     * How to use the tools, and when not to (FR5.4).
+     *
+     * Appended last, after the material, because everything it refers to — the ids in square
+     * brackets — only exists in what came above it. Written at all because the tools' own
+     * descriptions can say what each one does but not what a good tutor does with them: the
+     * failure that actually shows up is not a malformed call, it is a model that answers "what
+     * does this mean?" by rewriting the paragraph.
+     */
+    private fun StringBuilder.appendEditingBriefing() {
+        appendLine()
+        appendLine("---")
+        appendLine("You can also offer to CHANGE this material, using the tools you have been given.")
+        appendLine(
+            "Calling a tool does not change anything by itself. It becomes a before/after card " +
+                "the user taps Accept or Reject on, so nothing you propose takes effect unless " +
+                "they say so — never tell them you have already made a change.",
+        )
+        appendLine("- Propose a change only when they ask for one, or when they have agreed to a")
+        appendLine("  problem you just pointed out. A question deserves an answer, not an edit.")
+        appendLine("- Refer to a part by the id in square brackets beside it. Never invent an id.")
+        appendLine("- Keep it to the smallest set of changes that does what they asked, and to at")
+        appendLine("  most $MAX_CHANGES_PER_PROPOSAL at a time.")
+        appendLine("- Say in words what you are proposing and why, in the same reply as the change.")
+        appendLine(
+            "- You CANNOT mark anything complete or tick anything off, and must not offer to. " +
+                "Whether they have learnt something is theirs alone to say.",
+        )
     }
 
     /** Used whenever the material can't be loaded — [context] is the title the user is looking at. */
@@ -225,6 +390,10 @@ class ChatPresenter(
                 if (node.completed) append("x ")
                 append(node.title)
                 if (node.estMinutes > 0) append(" (${node.estMinutes} min)")
+                // The handle the tutor names a section by when it proposes a change to one. Only
+                // when it has roadmap tools: an id it can do nothing with is noise it may repeat
+                // back at the user.
+                if (toolset == TutorToolset.ROADMAP) append(" [${node.id}]")
                 appendLine()
             }
             node.children.forEach { walk(it, depth + 1) }
@@ -314,18 +483,26 @@ class ChatPresenter(
      *
      * Visuals are described, not reproduced — the user can see them, and the tutor needs to know
      * what they are looking at when they ask about one.
+     *
+     * Each is prefixed with its [LessonBlock.id] when the tutor can propose changes to the lesson,
+     * because that id is the ONLY way it can name the paragraph it wants to rewrite: a proposal
+     * has to survive the user editing something else in the meantime, and a position doesn't.
      */
     private fun StringBuilder.appendBlock(block: LessonBlock) {
-        when (block) {
-            is LessonBlock.Heading -> appendLine().appendLine("## ${block.text}")
-            is LessonBlock.Paragraph -> appendLine(block.text)
-            is LessonBlock.Code -> appendLine("```${block.language}\n${block.text}\n```")
-            is LessonBlock.Diagram -> appendLine(
+        val rendered = when (block) {
+            is LessonBlock.Heading -> "## ${block.text}"
+            is LessonBlock.Paragraph -> block.text
+            is LessonBlock.Code -> "```${block.language}\n${block.text}\n```"
+            is LessonBlock.Diagram ->
                 "[${block.kind.name.lowercase()} diagram: ${block.text}] " +
-                    block.items.joinToString(" -> ") { it.label },
-            )
-            is LessonBlock.Image -> appendLine("[image: ${block.text}]")
+                    block.items.joinToString(" -> ") { it.label }
+            is LessonBlock.Image -> "[image: ${block.text}]"
         }
+        // A heading still opens with a blank line, so the lesson reads as sections rather than
+        // one run-on wall.
+        if (block is LessonBlock.Heading) appendLine()
+        if (toolset == TutorToolset.LESSON) append("[${block.id}] ")
+        appendLine(rendered)
     }
 
     private companion object {
@@ -334,5 +511,12 @@ class ChatPresenter(
          * the same action — try again — and the ones they cannot act on are not their problem.
          */
         const val FAILURE_TEXT = "Couldn't reach the tutor just now."
+
+        /**
+         * Stands in when the tutor proposes a change and says nothing at all about it, which the
+         * briefing asks it not to do but cannot guarantee. Neutral on purpose: it must not read as
+         * the assistant vouching for a change the user hasn't looked at yet.
+         */
+        const val PROPOSAL_ONLY_TEXT = "Here's a change I could make:"
     }
 }
