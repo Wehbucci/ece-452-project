@@ -66,6 +66,8 @@ internal fun ChatPane(
     onSend: () -> Unit,
     onAttach: () -> Unit,
     onRetry: (String) -> Unit,
+    onAcceptProposal: (String) -> Unit,
+    onRejectProposal: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -84,7 +86,19 @@ internal fun ChatPane(
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(history, key = { it.id }) { message ->
-                MessageBubble(message, onRetry = { onRetry(message.id) })
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MessageBubble(message, onRetry = { onRetry(message.id) })
+                    // Under the words that introduced them, not in a bubble of their own: the
+                    // sentence explaining the change and the change itself are one reply.
+                    message.proposal?.let { proposal ->
+                        ProposalCards(
+                            proposal = proposal,
+                            outcome = message.proposalOutcome,
+                            onAccept = { onAcceptProposal(message.id) },
+                            onReject = { onRejectProposal(message.id) },
+                        )
+                    }
+                }
             }
         }
         ChatInputBar(

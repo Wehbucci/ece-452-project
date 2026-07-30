@@ -178,6 +178,8 @@ private fun ChatPanel(
                 },
                 onAttach = presenter::onAttachImage,
                 onRetry = presenter::onRetry,
+                onAcceptProposal = presenter::onAcceptProposal,
+                onRejectProposal = presenter::onRejectProposal,
                 modifier = Modifier.fillMaxSize(),
             )
         }
