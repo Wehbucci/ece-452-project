@@ -137,8 +137,10 @@ fun GraspNavHost(
             TinkerScreen(
                 guideId = guideId,
                 onBack = navController::popBackStack,
-                onOpenChat = { ctx, pathId ->
-                    navController.navigate(GraspDestinations.chat(ctx, pathId, tinkerer = true))
+                onOpenChat = { ctx, pathId, stepId ->
+                    navController.navigate(
+                        GraspDestinations.chat(ctx, pathId, stepId = stepId, tinkerer = true),
+                    )
                 },
             )
         }
@@ -181,6 +183,10 @@ fun GraspNavHost(
                     type = NavType.StringType
                     defaultValue = ""
                 },
+                navArgument(GraspDestinations.ARG_STEP_ID) {
+                    type = NavType.StringType
+                    defaultValue = ""
+                },
                 navArgument(GraspDestinations.ARG_TINKERER) {
                     type = NavType.BoolType
                     defaultValue = false
@@ -193,6 +199,7 @@ fun GraspNavHost(
                     pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
                     nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
                     blockId = entry.arguments?.getString(GraspDestinations.ARG_BLOCK_ID).orEmpty(),
+                    stepId = entry.arguments?.getString(GraspDestinations.ARG_STEP_ID).orEmpty(),
                     tinkerer = entry.arguments?.getBoolean(GraspDestinations.ARG_TINKERER) ?: false,
                 ),
                 onBack = navController::popBackStack,

@@ -76,7 +76,7 @@ import com.example.grasp.ui.theme.PathScreenBg
 fun TinkerScreen(
     guideId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String) -> Unit,
+    onOpenChat: (context: String, pathId: String, stepId: String) -> Unit,
     presenterFactory: (String) -> TinkerContract.Presenter = { TinkerPresenter(it) },
 ) {
     var currentGuide by remember { mutableStateOf<TinkerGuide?>(null) }
@@ -88,7 +88,8 @@ fun TinkerScreen(
         object : TinkerContract.View {
             override fun showGuide(guide: TinkerGuide) { currentGuide = guide; notFound = false }
             override fun showNotFound() { notFound = true }
-            override fun openChat(context: String, pathId: String) = onOpenChat(context, pathId)
+            override fun openChat(context: String, pathId: String, stepId: String) =
+                onOpenChat(context, pathId, stepId)
             override fun showChatIndicator(hasHistory: Boolean) { hasChatHistory = hasHistory }
         }
     }
@@ -114,7 +115,11 @@ fun TinkerScreen(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         items(current.steps, key = { it.id }) { step ->
-                            StepCard(step = step, onToggle = { presenter.onToggleStep(step) })
+                            StepCard(
+                                step = step,
+                                onToggle = { presenter.onToggleStep(step) },
+                                onAsk = { presenter.onAskAboutStep(step) },
+                            )
                         }
                     }
 
@@ -210,7 +215,7 @@ private fun GuideHud(guide: TinkerGuide?, onBack: () -> Unit) {
 
 /** One step. The whole card is the toggle; the bubble shows the step number until it's done. */
 @Composable
-private fun StepCard(step: TinkerStep, onToggle: () -> Unit) {
+private fun StepCard(step: TinkerStep, onToggle: () -> Unit, onAsk: () -> Unit) {
     GameCard(onClick = onToggle, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -249,6 +254,27 @@ private fun StepCard(step: TinkerStep, onToggle: () -> Unit) {
                     )
                 }
             }
+
+            // Asking about a step has to be its own target: the card itself means "done", and a
+            // user stuck halfway through a step is the last person who should have to tick it
+            // off to ask why it isn't working.
+            AskStepButton(onClick = onAsk)
+        }
+    }
+}
+
+/** The small tutor target on a step card — quiet enough not to compete with ticking it off. */
+@Composable
+private fun AskStepButton(onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        shape = CircleShape,
+        color = Color.White,
+        contentColor = PathNodeBranch,
+        modifier = Modifier.size(32.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(text = "✦", fontSize = 15.sp, color = PathNodeBranch)
         }
     }
 }

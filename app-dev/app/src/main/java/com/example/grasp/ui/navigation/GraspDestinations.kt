@@ -37,6 +37,7 @@ object GraspDestinations {
     const val ARG_NODE_ID = "nodeId"
     const val ARG_CONTEXT = "context"
     const val ARG_BLOCK_ID = "blockId"
+    const val ARG_STEP_ID = "stepId"
     const val ARG_TINKERER = "tinkerer"
 
     // ---- Learner: roadmap (list + tree views live behind one route) ----
@@ -52,7 +53,7 @@ object GraspDestinations {
     fun subtopic(pathId: String, nodeId: String) = "subtopic/$pathId/$nodeId"
 
     // ---- Multi-modal AI chat. `context` is the display title; the rest identify the chat's scope. ----
-    const val CHAT = "chat?$ARG_CONTEXT={$ARG_CONTEXT}&$ARG_PATH_ID={$ARG_PATH_ID}&$ARG_NODE_ID={$ARG_NODE_ID}&$ARG_BLOCK_ID={$ARG_BLOCK_ID}&$ARG_TINKERER={$ARG_TINKERER}"
+    const val CHAT = "chat?$ARG_CONTEXT={$ARG_CONTEXT}&$ARG_PATH_ID={$ARG_PATH_ID}&$ARG_NODE_ID={$ARG_NODE_ID}&$ARG_BLOCK_ID={$ARG_BLOCK_ID}&$ARG_STEP_ID={$ARG_STEP_ID}&$ARG_TINKERER={$ARG_TINKERER}"
 
     /**
      * Every value is percent-encoded on the way in.
@@ -67,11 +68,13 @@ object GraspDestinations {
         pathId: String = "",
         nodeId: String = "",
         blockId: String = "",
+        stepId: String = "",
         tinkerer: Boolean = false,
     ) = "chat?$ARG_CONTEXT=${enc(context)}" +
         "&$ARG_PATH_ID=${enc(pathId)}" +
         "&$ARG_NODE_ID=${enc(nodeId)}" +
         "&$ARG_BLOCK_ID=${enc(blockId)}" +
+        "&$ARG_STEP_ID=${enc(stepId)}" +
         "&$ARG_TINKERER=$tinkerer"
 
     /**

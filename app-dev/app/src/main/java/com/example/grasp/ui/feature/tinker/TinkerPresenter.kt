@@ -57,4 +57,9 @@ class TinkerPresenter(
     override fun onAskAi() {
         view?.openChat(guide?.title ?: "your task", guideId)
     }
+
+    override fun onAskAboutStep(step: TinkerStep) {
+        // The step's own words name the chat, matching how a tapped lesson paragraph names its own.
+        view?.openChat("Step ${step.order}: ${step.instruction.take(50)}", guideId, step.id)
+    }
 }
