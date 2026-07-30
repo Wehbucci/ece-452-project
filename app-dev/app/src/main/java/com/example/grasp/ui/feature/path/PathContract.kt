@@ -168,5 +168,12 @@ interface PathContract {
 
         /** Apply one change to the roadmap's own shape, and save it. */
         fun onRoadmapEdit(edit: RoadmapEdit)
+
+        /**
+         * The chat overlay closed. The roadmap may not be the one this screen loaded any more —
+         * the tutor can change its shape from inside the chat once the user accepts (FR5.4) — so
+         * the board is re-read. An overlay never detaches the presenter, so it has to be told.
+         */
+        fun onChatClosed()
     }
 }

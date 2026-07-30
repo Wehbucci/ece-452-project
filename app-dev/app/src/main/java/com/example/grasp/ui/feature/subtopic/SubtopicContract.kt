@@ -27,9 +27,10 @@ interface SubtopicContract {
 
         /**
          * The chat overlay closed. A conversation that did not exist when this screen loaded may
-         * exist now, so the "Continue chat" indicators are re-read. Back when the chat was a
-         * separate destination the navigation lifecycle did this for free; an overlay never
-         * detaches the presenter, so it has to be asked.
+         * exist now, so the "Continue chat" indicators are re-read — and so is the lesson itself,
+         * which the tutor may have rewritten in there with the user's say-so (FR5.4). Back when
+         * the chat was a separate destination the navigation lifecycle did this for free; an
+         * overlay never detaches the presenter, so it has to be asked.
          */
         fun onChatClosed()
     }

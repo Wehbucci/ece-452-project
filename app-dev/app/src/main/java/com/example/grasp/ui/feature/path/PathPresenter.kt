@@ -64,20 +64,39 @@ class PathPresenter(
     private var movingId: String? = null
 
     override fun onViewAttached() {
-        scope.launch {
-            val path = repo.learningPath(pathId)
-            if (path == null) {
-                view?.showNotFound()
-                return@launch
-            }
-            title = path.title
-            // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.
-            // Growing the path starts from a real lesson now, so the board shows lessons only.
-            nodes = path.nodes.filterNot { it.isBranchOut }
-            completed.clear()
-            completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
-            emit()
+        scope.launch { load(firstLoad = true) }
+    }
+
+    /**
+     * Read the roadmap and render it.
+     *
+     * [firstLoad] is the difference between "there is no such roadmap" and "we couldn't reach it
+     * just now": on the way in, nothing found means nothing to show; on a re-read there is already
+     * a board on screen, and replacing it with an error because one fetch missed would be worse
+     * than leaving it as it was.
+     */
+    private suspend fun load(firstLoad: Boolean) {
+        val path = repo.learningPath(pathId)
+        if (path == null) {
+            if (firstLoad) view?.showNotFound()
+            return
         }
+        title = path.title
+        // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.
+        // Growing the path starts from a real lesson now, so the board shows lessons only.
+        nodes = path.nodes.filterNot { it.isBranchOut }
+        completed.clear()
+        completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
+        emit()
+    }
+
+    /**
+     * The chat overlay closed. The tutor can reshape the roadmap from in there with the user's
+     * say-so (FR5.4), so the board is read again — the overlay never detaches this presenter, and
+     * a section that was added or renamed behind it would otherwise only appear on the next visit.
+     */
+    override fun onChatClosed() {
+        scope.launch { load(firstLoad = false) }
     }
 
     override fun detach() {

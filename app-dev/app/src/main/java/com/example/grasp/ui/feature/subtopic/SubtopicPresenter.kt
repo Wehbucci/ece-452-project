@@ -40,6 +40,23 @@ class SubtopicPresenter(
         }
     }
 
+    /**
+     * Re-read the lesson, quietly.
+     *
+     * Unlike the first load, a miss here changes nothing on screen: there is already a lesson in
+     * front of the user, and swapping it for "not found" because one fetch failed would lose the
+     * thing they were reading.
+     */
+    private fun reloadLesson() {
+        scope.launch {
+            val loaded = repo.subtopic(pathId, nodeId) ?: return@launch
+            subtopic = loaded
+            completed = loaded.completed
+            view?.showSubtopic(loaded)
+            view?.showCompleted(completed)
+        }
+    }
+
     override fun detach() {
         scope.cancel()
         super.detach()
@@ -68,6 +85,10 @@ class SubtopicPresenter(
     }
 
     override fun onChatClosed() {
+        // The lesson first: the tutor can rewrite it from inside the chat once the user accepts
+        // (FR5.4), and closing the panel onto the paragraph they just replaced would read as the
+        // change having been lost.
+        reloadLesson()
         loadChatIndicators()
     }
 

@@ -325,7 +325,13 @@ fun PathScreen(
         }
     }
 
-    ChatOverlay(request = chat, onDismiss = { chat = null })
+    ChatOverlay(
+        request = chat,
+        onDismiss = {
+            chat = null
+            presenter.onChatClosed()
+        },
+    )
 }
 
 /**
