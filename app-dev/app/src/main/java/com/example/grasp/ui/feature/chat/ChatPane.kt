@@ -11,13 +11,19 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -25,6 +31,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -32,6 +39,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +65,7 @@ internal fun ChatPane(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttach: () -> Unit,
+    onRetry: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -74,7 +83,9 @@ internal fun ChatPane(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            items(history, key = { it.id }) { message -> MessageBubble(message) }
+            items(history, key = { it.id }) { message ->
+                MessageBubble(message, onRetry = { onRetry(message.id) })
+            }
         }
         ChatInputBar(
             value = input,
@@ -86,17 +97,23 @@ internal fun ChatPane(
 }
 
 @Composable
-private fun MessageBubble(message: ChatMessage) {
+private fun MessageBubble(message: ChatMessage, onRetry: () -> Unit) {
     val isUser = message.author == ChatMessage.Author.USER
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start,
     ) {
         Surface(
-            color = if (isUser) MaterialTheme.colorScheme.primary
-            else MaterialTheme.colorScheme.surfaceVariant,
-            contentColor = if (isUser) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurface,
+            color = when {
+                message.failed -> MaterialTheme.colorScheme.errorContainer
+                isUser -> MaterialTheme.colorScheme.primary
+                else -> MaterialTheme.colorScheme.surfaceVariant
+            },
+            contentColor = when {
+                message.failed -> MaterialTheme.colorScheme.onErrorContainer
+                isUser -> MaterialTheme.colorScheme.onPrimary
+                else -> MaterialTheme.colorScheme.onSurface
+            },
             shape = RoundedCornerShape(
                 topStart = 16.dp,
                 topEnd = 16.dp,
@@ -123,13 +140,43 @@ private fun MessageBubble(message: ChatMessage) {
                     }
                 }
                 when {
+                    // Nothing has arrived yet: the dots are the whole message.
                     message.pending && message.text.isEmpty() -> TypingIndicator()
-                    message.text.isNotBlank() -> MarkdownText(
-                        message.text,
-                        style = MaterialTheme.typography.bodyLarge,
-                    )
+
+                    message.failed -> FailedReply(message.text, onRetry)
+
+                    message.text.isNotBlank() -> {
+                        MarkdownText(message.text, style = MaterialTheme.typography.bodyLarge)
+                        // Text has started but the stream is still open. Without this the reply
+                        // looks finished the moment the first chunk lands, and a user who reads
+                        // fast enough sees a sentence cut off mid-thought and assumes it broke.
+                        if (message.pending) {
+                            Spacer(Modifier.height(6.dp))
+                            TypingIndicator()
+                        }
+                    }
                 }
             }
+        }
+    }
+}
+
+/** A reply that never arrived. Says so plainly and offers the one action that helps. */
+@Composable
+private fun FailedReply(text: String, onRetry: () -> Unit) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(text, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f, false))
+        TextButton(onClick = onRetry, contentPadding = PaddingValues(horizontal = 10.dp)) {
+            Icon(
+                Icons.Filled.Refresh,
+                contentDescription = null,
+                modifier = Modifier.size(16.dp),
+            )
+            Spacer(Modifier.width(4.dp))
+            Text("Try again", style = MaterialTheme.typography.labelLarge)
         }
     }
 }
@@ -164,8 +211,10 @@ private fun ChatInputBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .navigationBarsPadding()
-                .imePadding()
+                // The MAX of the two, not the sum. Stacking `navigationBarsPadding()` and
+                // `imePadding()` added both, and since the IME's inset already spans the gesture
+                // bar it sat the composer a nav-bar's height above the keyboard.
+                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp),

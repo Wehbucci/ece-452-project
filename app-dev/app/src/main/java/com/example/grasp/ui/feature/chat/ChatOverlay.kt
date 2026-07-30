@@ -177,6 +177,7 @@ private fun ChatPanel(
                     input = ""
                 },
                 onAttach = presenter::onAttachImage,
+                onRetry = presenter::onRetry,
                 modifier = Modifier.fillMaxSize(),
             )
         }
