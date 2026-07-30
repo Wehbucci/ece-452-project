@@ -61,6 +61,9 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.navigation.compose)
+    // Only to read the arguments off a tool call — firebase-ai returns them as JsonElement but
+    // ships the library at runtime scope, so nothing can name that type without this.
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
     // Presenters launch on Dispatchers.Main, which does not exist in a JVM unit test until
     // Dispatchers.setMain installs one.
