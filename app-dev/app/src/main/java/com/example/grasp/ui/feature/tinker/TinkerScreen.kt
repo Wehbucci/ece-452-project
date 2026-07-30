@@ -47,6 +47,9 @@ import com.example.grasp.ui.components.GameButton
 import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameProgressBar
 import com.example.grasp.ui.components.GameTag
+import com.example.grasp.ui.feature.chat.ChatOverlay
+import com.example.grasp.ui.feature.chat.ChatRequest
+import com.example.grasp.ui.feature.chat.ChatScope
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.GameTintNeutral
 import com.example.grasp.ui.theme.NunitoFamily
@@ -70,26 +73,34 @@ import com.example.grasp.ui.theme.PathScreenBg
  *
  * @param guideId navigation argument
  * @param onBack pop the back stack
- * @param onOpenChat open the AI chat with a context string
  */
 @Composable
 fun TinkerScreen(
     guideId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String, stepId: String) -> Unit,
     presenterFactory: (String) -> TinkerContract.Presenter = { TinkerPresenter(it) },
 ) {
     var currentGuide by remember { mutableStateOf<TinkerGuide?>(null) }
     var notFound by remember { mutableStateOf(false) }
     var hasChatHistory by remember { mutableStateOf(false) }
 
+    // The tutor is hosted here rather than navigated to, so the checklist stays on screen behind
+    // it — a step you are stuck on is the thing you want to keep reading while you ask about it.
+    var chat by remember { mutableStateOf<ChatRequest?>(null) }
+
     val presenter = remember(guideId) { presenterFactory(guideId) }
-    val view = remember(onOpenChat) {
+    val view = remember {
         object : TinkerContract.View {
             override fun showGuide(guide: TinkerGuide) { currentGuide = guide; notFound = false }
             override fun showNotFound() { notFound = true }
-            override fun openChat(context: String, pathId: String, stepId: String) =
-                onOpenChat(context, pathId, stepId)
+            override fun openChat(context: String, pathId: String, stepId: String) {
+                // `tinkerer` is set here, by the screen that knows which half of the app it is:
+                // a Learner roadmap and a Tinkerer guide are both just a bare path id.
+                chat = ChatRequest(
+                    context = context,
+                    scope = ChatScope.of(pathId = pathId, stepId = stepId, tinkerer = true),
+                )
+            }
             override fun showChatIndicator(hasHistory: Boolean) { hasChatHistory = hasHistory }
         }
     }
@@ -153,6 +164,14 @@ fun TinkerScreen(
             }
         }
     }
+
+    ChatOverlay(
+        request = chat,
+        onDismiss = {
+            chat = null
+            presenter.onChatClosed()
+        },
+    )
 }
 
 /** The fixed header: back tile, title, "2 of 6 done" and the progress bar. */

@@ -46,6 +46,9 @@ import com.example.grasp.ui.components.LessonDiagram
 import com.example.grasp.ui.components.LessonImage
 import com.example.grasp.ui.components.SectionHeader
 import com.example.grasp.ui.components.StatusPill
+import com.example.grasp.ui.feature.chat.ChatOverlay
+import com.example.grasp.ui.feature.chat.ChatRequest
+import com.example.grasp.ui.feature.chat.ChatScope
 import com.example.grasp.ui.theme.NodeActive
 import com.example.grasp.ui.theme.NodeCompleted
 
@@ -54,14 +57,12 @@ import com.example.grasp.ui.theme.NodeCompleted
  *
  * @param pathId / nodeId navigation arguments identifying which content to load
  * @param onBack pop the back stack
- * @param onOpenChat open the AI chat with a context string
  */
 @Composable
 fun SubtopicScreen(
     pathId: String,
     nodeId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String, nodeId: String, blockId: String) -> Unit,
     presenterFactory: (String, String) -> SubtopicContract.Presenter = { p, n -> SubtopicPresenter(p, n) },
 ) {
     var content by remember { mutableStateOf<Subtopic?>(null) }
@@ -70,15 +71,23 @@ fun SubtopicScreen(
     var fabHasHistory by remember { mutableStateOf(false) }
     var blocksWithHistory by remember { mutableStateOf(emptySet<String>()) }
 
+    // Asking about a paragraph used to replace the paragraph. The tutor is a layer over the
+    // lesson now, so the text being asked about is still there to look at.
+    var chat by remember { mutableStateOf<ChatRequest?>(null) }
+
     val uriHandler = LocalUriHandler.current
     val presenter = remember(pathId, nodeId) { presenterFactory(pathId, nodeId) }
-    val view = remember(onOpenChat) {
+    val view = remember {
         object : SubtopicContract.View {
             override fun showSubtopic(subtopic: Subtopic) { content = subtopic; notFound = false }
             override fun showNotFound() { notFound = true }
             override fun showCompleted(completed: Boolean) { isComplete = completed }
-            override fun openChat(context: String, pathId: String, nodeId: String, blockId: String) =
-                onOpenChat(context, pathId, nodeId, blockId)
+            override fun openChat(context: String, pathId: String, nodeId: String, blockId: String) {
+                chat = ChatRequest(
+                    context = context,
+                    scope = ChatScope.of(pathId = pathId, nodeId = nodeId, blockId = blockId),
+                )
+            }
             override fun showChatIndicators(hasFabHistory: Boolean, blockHistoryIds: Set<String>) {
                 fabHasHistory = hasFabHistory
                 blocksWithHistory = blockHistoryIds
@@ -212,6 +221,14 @@ fun SubtopicScreen(
             }
         }
     }
+
+    ChatOverlay(
+        request = chat,
+        onDismiss = {
+            chat = null
+            presenter.onChatClosed()
+        },
+    )
 }
 
 @Composable

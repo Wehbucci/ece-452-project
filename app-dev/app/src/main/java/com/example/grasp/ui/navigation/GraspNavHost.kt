@@ -11,8 +11,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.grasp.ui.feature.about.AboutScreen
 import com.example.grasp.ui.feature.auth.LoginScreen
-import com.example.grasp.ui.feature.chat.ChatScope
-import com.example.grasp.ui.feature.chat.ChatScreen
 import com.example.grasp.ui.feature.home.HomeScreen
 import com.example.grasp.ui.feature.library.LibraryScreen
 import com.example.grasp.ui.feature.notifications.NotificationsScreen
@@ -115,17 +113,9 @@ fun GraspNavHost(
             arguments = listOf(navArgument(GraspDestinations.ARG_PATH_ID) { type = NavType.StringType }),
         ) { entry ->
             val pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty()
-            PathScreen(
-                pathId = pathId,
-                onBack = navController::popBackStack,
-                // The subtopic detail is now an in-path bottom sheet, so the roadmap navigates
-                // out only for "Ask AI" → the existing chat feature.
-                onOpenChat = { ctx, p, n, blockId ->
-                    navController.navigate(
-                        GraspDestinations.chat(context = ctx, pathId = p, nodeId = n, blockId = blockId),
-                    )
-                },
-            )
+            // The subtopic detail is an in-path bottom sheet and the tutor is an in-path overlay,
+            // so the roadmap no longer navigates anywhere but back.
+            PathScreen(pathId = pathId, onBack = navController::popBackStack)
         }
 
         // ---- Tinkerer guide ----
@@ -134,15 +124,7 @@ fun GraspNavHost(
             arguments = listOf(navArgument(GraspDestinations.ARG_PATH_ID) { type = NavType.StringType }),
         ) { entry ->
             val guideId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty()
-            TinkerScreen(
-                guideId = guideId,
-                onBack = navController::popBackStack,
-                onOpenChat = { ctx, pathId, stepId ->
-                    navController.navigate(
-                        GraspDestinations.chat(ctx, pathId, stepId = stepId, tinkerer = true),
-                    )
-                },
-            )
+            TinkerScreen(guideId = guideId, onBack = navController::popBackStack)
         }
 
         // ---- Subtopic detail ----
@@ -157,54 +139,11 @@ fun GraspNavHost(
                 pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
                 nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
                 onBack = navController::popBackStack,
-                onOpenChat = { ctx, pathId, nodeId, blockId ->
-                    navController.navigate(GraspDestinations.chat(ctx, pathId, nodeId, blockId))
-                },
             )
         }
 
-        // ---- Multi-modal AI chat ----
-        composable(
-            route = GraspDestinations.CHAT,
-            arguments = listOf(
-                navArgument(GraspDestinations.ARG_CONTEXT) {
-                    type = NavType.StringType
-                    defaultValue = "your material"
-                },
-                navArgument(GraspDestinations.ARG_PATH_ID) {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument(GraspDestinations.ARG_NODE_ID) {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument(GraspDestinations.ARG_BLOCK_ID) {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument(GraspDestinations.ARG_STEP_ID) {
-                    type = NavType.StringType
-                    defaultValue = ""
-                },
-                navArgument(GraspDestinations.ARG_TINKERER) {
-                    type = NavType.BoolType
-                    defaultValue = false
-                },
-            ),
-        ) { entry ->
-            ChatScreen(
-                chatContext = entry.arguments?.getString(GraspDestinations.ARG_CONTEXT) ?: "your material",
-                scope = ChatScope.of(
-                    pathId = entry.arguments?.getString(GraspDestinations.ARG_PATH_ID).orEmpty(),
-                    nodeId = entry.arguments?.getString(GraspDestinations.ARG_NODE_ID).orEmpty(),
-                    blockId = entry.arguments?.getString(GraspDestinations.ARG_BLOCK_ID).orEmpty(),
-                    stepId = entry.arguments?.getString(GraspDestinations.ARG_STEP_ID).orEmpty(),
-                    tinkerer = entry.arguments?.getBoolean(GraspDestinations.ARG_TINKERER) ?: false,
-                ),
-                onBack = navController::popBackStack,
-            )
-        }
+        // The AI chat has no route. It is an overlay owned by whichever screen opened it — see
+        // `ui/feature/chat/ChatOverlay.kt` — so that asking about a lesson does not replace it.
     }
 }
 

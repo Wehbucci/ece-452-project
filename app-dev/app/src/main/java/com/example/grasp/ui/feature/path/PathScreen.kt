@@ -48,6 +48,9 @@ import com.example.grasp.ui.components.PathLayout
 import com.example.grasp.ui.components.PathNode
 import com.example.grasp.ui.components.PathToast
 import com.example.grasp.ui.components.RegionLabel
+import com.example.grasp.ui.feature.chat.ChatOverlay
+import com.example.grasp.ui.feature.chat.ChatRequest
+import com.example.grasp.ui.feature.chat.ChatScope
 import com.example.grasp.ui.feature.subtopic.SubtopicLoadingContent
 import com.example.grasp.ui.feature.subtopic.SectionShape
 import com.example.grasp.ui.feature.subtopic.SubtopicSheetContent
@@ -69,13 +72,11 @@ import com.example.grasp.ui.theme.PathScreenBg
  *
  * @param pathId roadmap id (navigation argument).
  * @param onBack pop the back stack.
- * @param onOpenChat route to the existing AI chat ("Ask AI" in the detail sheet).
  */
 @Composable
 fun PathScreen(
     pathId: String,
     onBack: () -> Unit,
-    onOpenChat: (context: String, pathId: String, nodeId: String, blockId: String) -> Unit,
     presenterFactory: (String) -> PathContract.Presenter = { PathPresenter(it) },
 ) {
     // (1) UI state
@@ -99,6 +100,9 @@ fun PathScreen(
     // The section the board is asking about, between the tap that picked it and the answer.
     var deleteTarget by remember { mutableStateOf<DeleteTarget?>(null) }
 
+    // The tutor, layered over the board rather than replacing it.
+    var chat by remember { mutableStateOf<ChatRequest?>(null) }
+
     // One-shot motion signals
     var confettiTrigger by remember { mutableIntStateOf(0) }
     var levelUp by remember { mutableStateOf<Int?>(null) }
@@ -113,7 +117,7 @@ fun PathScreen(
     val presenter = remember(pathId) { presenterFactory(pathId) }
 
     // (3) View
-    val view = remember(onOpenChat) {
+    val view = remember {
         object : PathContract.View {
             override fun showPath(s: PathUiState) { state = s; notFound = false }
             override fun showNotFound() { notFound = true }
@@ -166,9 +170,15 @@ fun PathScreen(
             override fun showLevelUp(level: Int) { levelUp = level }
             override fun showToast(message: String) { toast = message }
             override fun openChat(context: String, pathId: String, nodeId: String, blockId: String) {
+                // The detail sheet still has to close first. A ModalBottomSheet is its own window
+                // on some versions and would sit above the overlay, so leaving it open would bury
+                // the chat rather than layer it.
                 sheetSubtopic = null
                 sheetLoadingTitle = null
-                onOpenChat(context, pathId, nodeId, blockId)
+                chat = ChatRequest(
+                    context = context,
+                    scope = ChatScope.of(pathId = pathId, nodeId = nodeId, blockId = blockId),
+                )
             }
         }
     }
@@ -314,6 +324,8 @@ fun PathScreen(
             )
         }
     }
+
+    ChatOverlay(request = chat, onDismiss = { chat = null })
 }
 
 /**

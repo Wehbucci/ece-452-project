@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
-
 package com.example.grasp.ui.feature.chat
 
 import androidx.compose.animation.core.LinearEasing
@@ -11,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.FilledIconButton
@@ -32,17 +30,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -51,81 +43,45 @@ import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.ui.components.MarkdownText
 
 /**
- * Multi-modal AI chat screen (View). MVP wiring matches
- * [com.example.grasp.ui.feature.auth.LoginScreen].
+ * The conversation itself: the message list and the composer, and nothing that knows where it is
+ * being shown.
  *
- * @param chatContext what we're chatting about (shown in the header, sent to the AI later)
- * @param onBack pop the back stack
+ * Split out from the chrome so the tutor can be hosted as a panel over a lesson without the
+ * message rendering being duplicated per host. It holds no presenter and no state of its own —
+ * whoever shows it owns both.
  */
 @Composable
-fun ChatScreen(
-    chatContext: String,
-    scope: ChatScope = ChatScope.General,
-    onBack: () -> Unit,
-    presenterFactory: (String, ChatScope) -> ChatContract.Presenter = { ctx, s -> ChatPresenter(ctx, s) },
+internal fun ChatPane(
+    history: List<ChatMessage>,
+    input: String,
+    onInputChange: (String) -> Unit,
+    onSend: () -> Unit,
+    onAttach: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var history by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
-    var input by remember { mutableStateOf("") }
-
-    val presenter = remember(chatContext, scope) { presenterFactory(chatContext, scope) }
-    val view = remember {
-        object : ChatContract.View {
-            override fun showMessages(messages: List<ChatMessage>) { history = messages }
-        }
-    }
-    DisposableEffect(presenter, view) {
-        presenter.attach(view)
-        onDispose { presenter.detach() }
-    }
-
     val listState = rememberLazyListState()
     // Stay pinned to the bottom as new messages arrive and as streaming text grows.
     LaunchedEffect(history.size, history.lastOrNull()?.text) {
         if (history.isNotEmpty()) listState.animateScrollToItem(history.lastIndex)
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text("Ask AI", style = MaterialTheme.typography.titleLarge)
-                        Text(
-                            "About: $chatContext",
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            ChatInputBar(
-                value = input,
-                onValueChange = { input = it },
-                onSend = {
-                    presenter.onSend(input)
-                    input = ""
-                },
-                onAttach = presenter::onAttachImage,
-            )
-        },
-    ) { padding ->
+    Column(modifier = modifier) {
         LazyColumn(
             state = listState,
             modifier = Modifier
-                .fillMaxSize()
-                .padding(padding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                .fillMaxWidth()
+                .weight(1f),
+            contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             items(history, key = { it.id }) { message -> MessageBubble(message) }
         }
+        ChatInputBar(
+            value = input,
+            onValueChange = onInputChange,
+            onSend = onSend,
+            onAttach = onAttach,
+        )
     }
 }
 
