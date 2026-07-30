@@ -41,5 +41,11 @@ interface TinkerContract {
          * whole recipe, and a tutor that can't tell which step you are on has to guess.
          */
         fun onAskAboutStep(step: TinkerStep)
+
+        /**
+         * The chat overlay closed, so the history badge is re-read. The chat used to be its own
+         * destination and coming back re-attached the presenter; an overlay never detaches it.
+         */
+        fun onChatClosed()
     }
 }

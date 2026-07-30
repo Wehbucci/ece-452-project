@@ -24,5 +24,13 @@ interface SubtopicContract {
         /** [blockId] is the tapped block's stable id — not its position, which editing changes. */
         fun onBlockClicked(blockText: String, blockId: String)
         fun onResourceClicked(link: ResourceLink)
+
+        /**
+         * The chat overlay closed. A conversation that did not exist when this screen loaded may
+         * exist now, so the "Continue chat" indicators are re-read. Back when the chat was a
+         * separate destination the navigation lifecycle did this for free; an overlay never
+         * detaches the presenter, so it has to be asked.
+         */
+        fun onChatClosed()
     }
 }

@@ -30,9 +30,13 @@ class TinkerPresenter(
                 guide = loaded
                 view?.showGuide(loaded)
             }
-            val hasHistory = chatRepo.existingChatIds("tinker__$guideId").isNotEmpty()
-            view?.showChatIndicator(hasHistory)
+            loadChatIndicator()
         }
+    }
+
+    private suspend fun loadChatIndicator() {
+        val hasHistory = chatRepo.existingChatIds("tinker__$guideId").isNotEmpty()
+        view?.showChatIndicator(hasHistory)
     }
 
     override fun detach() {
@@ -61,5 +65,9 @@ class TinkerPresenter(
     override fun onAskAboutStep(step: TinkerStep) {
         // The step's own words name the chat, matching how a tapped lesson paragraph names its own.
         view?.openChat("Step ${step.order}: ${step.instruction.take(50)}", guideId, step.id)
+    }
+
+    override fun onChatClosed() {
+        scope.launch { loadChatIndicator() }
     }
 }

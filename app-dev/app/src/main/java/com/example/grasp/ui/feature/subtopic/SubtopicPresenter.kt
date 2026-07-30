@@ -67,6 +67,10 @@ class SubtopicPresenter(
         view?.openResource(link.url)
     }
 
+    override fun onChatClosed() {
+        loadChatIndicators()
+    }
+
     private fun loadChatIndicators() {
         scope.launch {
             val prefix = "${pathId}__${nodeId}"
