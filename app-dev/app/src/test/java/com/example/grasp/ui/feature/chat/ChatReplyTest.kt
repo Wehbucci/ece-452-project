@@ -2,6 +2,7 @@ package com.example.grasp.ui.feature.chat
 
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.data.model.UserPreferences
+import com.example.grasp.data.repository.ChatChunk
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.ChatSession
 import com.example.grasp.data.repository.FakePathRepository
@@ -65,13 +66,13 @@ class ChatReplyTest {
         var calls = 0
             private set
 
-        override fun sendMessageStream(userText: String): Flow<String> = flow {
+        override fun sendMessageStream(userText: String): Flow<ChatChunk> = flow {
             calls++
             if (failures > 0) {
                 failures--
                 throw IllegalStateException("network is down")
             }
-            chunks.forEach { emit(it) }
+            chunks.forEach { emit(ChatChunk.Text(it)) }
         }
     }
 
@@ -82,7 +83,7 @@ class ChatReplyTest {
             repo = FakePathRepository,
             chatRepo = NoChats,
             userRepo = DefaultPrefs,
-            sessionFactory = { session },
+            sessionFactory = { _, _ -> session },
         )
         val view = RecordingView()
         presenter.attach(view)
