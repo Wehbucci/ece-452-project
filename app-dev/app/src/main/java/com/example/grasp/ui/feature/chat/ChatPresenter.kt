@@ -12,6 +12,7 @@ import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.GeminiChatSession
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -25,6 +26,7 @@ class ChatPresenter(
     // reading (it falls back to the fake data when signed out).
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<ChatContract.View>(), ChatContract.Presenter {
 
     private val chatId: String = scope.chatId
@@ -124,8 +126,10 @@ class ChatPresenter(
      * user is pointing at. The wider material stays in because it is still true and the tutor
      * needs it to answer "why does this matter" — it just stops being the subject.
      */
-    private suspend fun buildSystemInstruction(): String = buildString {
-        val prefs = FirebaseUserRepository().getPreferences()
+    // internal, not private, so the tier assembly can be asserted on directly in unit tests —
+    // it is the whole point of the class and there is no other way to observe it.
+    internal suspend fun buildSystemInstruction(): String = buildString {
+        val prefs = userRepo.getPreferences()
 
         appendLine("You are a helpful AI tutor in the Grasp learning app.")
         appendLine("Be concise, clear, and encouraging.")
