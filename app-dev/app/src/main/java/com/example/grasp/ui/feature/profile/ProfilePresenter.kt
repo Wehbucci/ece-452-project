@@ -5,7 +5,9 @@ import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.repository.FirebasePathRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import com.example.grasp.ui.feature.path.PathPresenter
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
@@ -25,6 +27,7 @@ import kotlinx.coroutines.withContext
  */
 class ProfilePresenter(
     private val repo: PathRepository = FirebasePathRepository(),
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<ProfileContract.View>(), ProfileContract.Presenter {
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
@@ -33,15 +36,16 @@ class ProfilePresenter(
     override fun onViewAttached() {
         val user = auth.currentUser
         val email = user?.email.orEmpty()
-        view?.showProfile(
-            // Email+password accounts have no display name, so fall back to the mailbox name
-            // ("ada@grasp.dev" → "Ada") instead of showing a generic "User".
-            name = user?.displayName?.takeIf { it.isNotBlank() }
-                ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }.ifBlank { "Learner" },
-            email = email,
-        )
 
         scope.launch {
+            // fallback to the mailbox name for accounts created before usernames existed
+            val username = withContext(Dispatchers.IO) { userRepo.getUsername() }
+            view?.showProfile(
+                name = username?.takeIf { it.isNotBlank() }
+                    ?: email.substringBefore("@").replaceFirstChar { it.uppercase() }.ifBlank { "Learner" },
+                email = email,
+            )
+
             // Repository reads still block (see PathRepository's NOTE) — keep them off Main.
             val stats = withContext(Dispatchers.IO) { statsFor(repo.savedItems()) }
             view?.showStats(stats)
