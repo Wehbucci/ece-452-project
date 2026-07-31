@@ -16,7 +16,9 @@ private const val TAG = "GeminiJson"
 /** Sends [prompt] and returns the parsed JSON answer, or null if the call or the parse failed. */
 internal suspend fun geminiJson(systemInstruction: String, prompt: String): JSONObject? = try {
     val answer = StringBuilder()
-    GeminiChatSession(systemInstruction).sendMessageStream(prompt).collect { answer.append(it) }
+    GeminiChatSession(systemInstruction).sendMessageStream(prompt).collect { chunk ->
+        if (chunk is ChatChunk.Text) answer.append(chunk.text)
+    }
     extractJsonObject(answer.toString())
 } catch (e: Exception) {
     Log.e(TAG, "Gemini request failed", e)
