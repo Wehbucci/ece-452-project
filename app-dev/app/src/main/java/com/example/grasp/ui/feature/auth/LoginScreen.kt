@@ -85,6 +85,7 @@ fun LoginScreen(
 ) {
     // (1) UI state
     var email by remember { mutableStateOf("") }
+    var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var errorText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
@@ -163,6 +164,16 @@ fun LoginScreen(
                     placeholder = "you@example.com",
                     keyboardType = KeyboardType.Email,
                 )
+                if (isSignUpMode) {
+                    Spacer(Modifier.height(16.dp))
+                    FieldLabel("USERNAME")
+                    AuthField(
+                        value = username,
+                        onValueChange = { username = it; errorText = null },
+                        placeholder = "e.g. jordan_uw",
+                        keyboardType = KeyboardType.Text,
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
                 FieldLabel("PASSWORD")
                 AuthField(
@@ -199,7 +210,7 @@ fun LoginScreen(
         GameButton(
             label = if (isSignUpMode) "Create account" else "Log in",
             onClick = {
-                if (isSignUpMode) presenter.onSignUp(email, password)
+                if (isSignUpMode) presenter.onSignUp(email, password, username)
                 else presenter.onLogin(email, password)
             },
             enabled = !isLoading,

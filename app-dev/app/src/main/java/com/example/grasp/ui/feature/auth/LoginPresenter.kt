@@ -1,7 +1,14 @@
 package com.example.grasp.ui.feature.auth
 
 import com.example.grasp.core.mvp.BasePresenter
+import com.example.grasp.data.repository.FirebaseUserRepository
+import com.example.grasp.data.repository.UserRepository
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Logic for the Login screen. Plain Kotlin, no Android imports — unit-testable with a fake View.
@@ -10,9 +17,17 @@ import com.google.firebase.auth.FirebaseAuth
  * the body of [onSubmit] with a real (coroutine-based) call to the auth backend; surface
  * failures via `view?.showError(...)` so the UI never crashes.
  */
-class LoginPresenter : BasePresenter<LoginContract.View>(), LoginContract.Presenter {
+class LoginPresenter(
+    private val userRepo: UserRepository = FirebaseUserRepository(),
+) : BasePresenter<LoginContract.View>(), LoginContract.Presenter {
 
     private val auth: FirebaseAuth by lazy { FirebaseAuth.getInstance() }
+    private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    override fun detach() {
+        scope.cancel()
+        super.detach()
+    }
 
     override fun onLogin(email: String, password: String) {
         if (email.isBlank() || password.isBlank()) {
@@ -33,9 +48,13 @@ class LoginPresenter : BasePresenter<LoginContract.View>(), LoginContract.Presen
             }
     }
 
-    override fun onSignUp(email: String, password: String) {
+    override fun onSignUp(email: String, password: String, username: String) {
         if (email.isBlank() || password.isBlank()) {
             view?.showError("Enter an email and password to create your account.")
+            return
+        }
+        if (username.isBlank()) {
+            view?.showError("Choose a username to create your account.")
             return
         }
         view?.showError(null)
@@ -43,8 +62,11 @@ class LoginPresenter : BasePresenter<LoginContract.View>(), LoginContract.Presen
 
         auth.createUserWithEmailAndPassword(email.trim(), password)
             .addOnSuccessListener {
-                view?.showLoading(false)
-                view?.onLoggedIn()
+                scope.launch {
+                    userRepo.setUsername(username.trim())
+                    view?.showLoading(false)
+                    view?.onLoggedIn()
+                }
             }
             .addOnFailureListener { e ->
                 view?.showLoading(false)

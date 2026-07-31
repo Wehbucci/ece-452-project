@@ -29,6 +29,6 @@ interface LoginContract {
         fun onLogin(email: String, password: String)
 
         /** User tapped "Sign Up". */
-        fun onSignUp(email: String, password: String)
+        fun onSignUp(email: String, password: String, username: String)
     }
 }

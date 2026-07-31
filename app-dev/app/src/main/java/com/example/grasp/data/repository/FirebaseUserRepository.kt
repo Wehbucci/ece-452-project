@@ -49,4 +49,25 @@ class FirebaseUserRepository : UserRepository {
             Log.e("FirebaseUserRepo", "setPreferences failed", e)
         }
     }
+
+    override suspend fun getUsername(): String? {
+        val uid = uid ?: return null
+        return try {
+            db.collection("users").document(uid).get().await().getString("username")
+        } catch (e: Exception) {
+            Log.e("FirebaseUserRepo", "getUsername failed", e)
+            null
+        }
+    }
+
+    override suspend fun setUsername(username: String) {
+        val uid = uid ?: return
+        try {
+            db.collection("users").document(uid)
+                .set(mapOf("username" to username), SetOptions.merge())
+                .await()
+        } catch (e: Exception) {
+            Log.e("FirebaseUserRepo", "setUsername failed", e)
+        }
+    }
 }
