@@ -43,7 +43,11 @@ suspend fun buildLearnerTree(
     val generated = geminiJson(SYSTEM_INSTRUCTION, treePrompt(title, prefs))
         ?.let(::parseGeneratedNodes)
         .orEmpty()
-    return if (generated.isEmpty()) fallbackTree(pathId, title) else normalizeTree(pathId, generated)
+    val tree = if (generated.isEmpty()) fallbackTree(pathId, title) else normalizeTree(pathId, generated)
+    // The prompt already asks for short titles; this is what happens when it doesn't get them.
+    // Titles are shortened HERE, before anything is stored, so the board and the saved roadmap
+    // never disagree about what a section is called (see [withShortTitles]).
+    return withShortTitles(title, tree)
 }
 
 /** Reads the `nodes` array of a tree response, dropping entries missing an id or a title. */
@@ -257,7 +261,11 @@ private fun treePrompt(title: String, prefs: UserPreferences) = """
 
     Each node must contain:
     - id: lowercase hyphen-separated string
-    - title: concise lesson title
+    - title: the lesson's name in AT MOST $MAX_TITLE_WORDS WORDS. This is a label under a small
+    circle on a map, not a sentence — "Labelled Data", not "Understanding the Role of
+    Labelled Data". Drop filler openers ("Introduction to", "Understanding",
+    "The Basics of") and keep the subject's own terms. Two nodes must never share a title.
+    A detour still starts with "Explore: " and counts that as one of its $MAX_TITLE_WORDS words.
     - children: list of child node ids (usually exactly one id; 2 ids only
     at a deliberate detour point; empty list only for the final node in
     the main path, or the end of a side branch)

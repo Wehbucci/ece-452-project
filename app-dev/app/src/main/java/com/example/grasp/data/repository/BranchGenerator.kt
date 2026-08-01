@@ -41,7 +41,10 @@ suspend fun buildBranch(
     // The model's own ids are ignored: they collide with what's already on the path often enough
     // that assigning them here is simpler than reconciling them. Its `children` are ignored too —
     // a branch is deliberately a straight chain, which is what [chain] builds below.
-    val titles = generated.map { it.title }.ifEmpty { listOf(wanted) }
+    // Titles are cut to board size first, because the ids below are slugged FROM them: shortening
+    // afterwards would leave a node called "Backpropagation" sitting at
+    // "understanding-how-backpropagation-works".
+    val titles = shortenTitles(pathTitle, generated.map { it.title }.ifEmpty { listOf(wanted) })
     return chain(pathId, titles, generated.map { it.estMinutes }, takenIds)
 }
 
@@ -113,7 +116,8 @@ private fun branchPrompt(pathTitle: String, fromTitle: String, topic: String) = 
     the basics, and do not re-teach it.
     - Stay inside what the learner asked for ("$topic"). If that request is too small for several
     nodes, return fewer nodes rather than padding it with loosely related material.
-    - Titles are concise lesson names, no numbering, no "Part 1".
+    - Each title is AT MOST $MAX_TITLE_WORDS WORDS — it becomes a label under a small circle on a
+    map. No numbering, no "Part 1", no filler openers like "Introduction to" or "Understanding".
     - estMinutes is an honest whole-minute estimate for that one node, between 3 and 25.
     - If "$topic" describes something dangerous or harmful to carry out, return an empty
     "nodes" list instead.
