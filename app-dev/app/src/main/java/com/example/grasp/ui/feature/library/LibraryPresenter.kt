@@ -24,8 +24,20 @@ class LibraryPresenter(
     private val items = mutableListOf<SavedItem>()
     private val scope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 
-    override fun onViewAttached() {
+    override fun onViewAttached() = reload()
+
+    /**
+     * Fetches the library, saying so while it happens.
+     *
+     * The loading flag is raised BEFORE the first suspension point, so the View never gets a frame
+     * in which it has no items and no reason given for that.
+     */
+    private fun reload() {
+        view?.showLoading(true)
         scope.launch {
+            // A brand-new account gets the starter examples first, so its "library" is never
+            // genuinely empty on the first visit. Idempotent and free after the first run.
+            withContext(Dispatchers.IO) { repo.seedStarterLibrary() }
             // The repository's reads still block (see PathRepository's NOTE) and the Firebase
             // implementation waits on network inside them, so they run off the main thread —
             // otherwise the Library stutters every time it loads or a delete refreshes it.
@@ -33,6 +45,7 @@ class LibraryPresenter(
             items.clear()
             items.addAll(saved)
             view?.showSaved(items.toList())
+            view?.showLoading(false)
         }
     }
 
@@ -54,7 +67,7 @@ class LibraryPresenter(
                 is LearningPath -> repo.deleteTopic(item.id)
                 is TinkerGuide -> repo.deleteTopic(item.id)
             }
-            onViewAttached()
+            reload()
         }
     }
 }

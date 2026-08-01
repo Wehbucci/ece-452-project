@@ -16,6 +16,15 @@ interface ProfileContract {
         /** Render the level / XP / totals card once the saved paths have been read. */
         fun showStats(stats: ProfileStats)
 
+        /**
+         * Whether the progress numbers are still being read from the cloud.
+         *
+         * The stats card has no honest zero state: "Level 1 · 0 XP" is what a brand-new account
+         * looks like, so showing it while the real numbers are in flight tells a returning user
+         * their progress has been wiped. Better to show nothing than to show a wrong number.
+         */
+        fun showStatsLoading(loading: Boolean)
+
         /** Navigate to the detailed preferences screen. */
         fun openPreferences()
 

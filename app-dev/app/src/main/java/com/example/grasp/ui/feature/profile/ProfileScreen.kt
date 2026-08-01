@@ -102,6 +102,9 @@ fun ProfileScreen(
     var userName by remember { mutableStateOf("") }
     var userEmail by remember { mutableStateOf("") }
     var playerStats by remember { mutableStateOf(ProfileStats.Empty) }
+    // Starts true for the same reason the Library's does: this screen is rebuilt on every tab
+    // switch, and [ProfileStats.Empty] is a real account state, not a placeholder.
+    var statsLoading by remember { mutableStateOf(true) }
     var confirmLogout by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
@@ -109,6 +112,7 @@ fun ProfileScreen(
         object : ProfileContract.View {
             override fun showProfile(name: String, email: String) { userName = name; userEmail = email }
             override fun showStats(stats: ProfileStats) { playerStats = stats }
+            override fun showStatsLoading(loading: Boolean) { statsLoading = loading }
             override fun openPreferences() = onOpenPreferences()
             override fun onLoggedOut() = navigateToLogin()
         }
@@ -140,12 +144,12 @@ fun ProfileScreen(
             GameScreenHeader(title = "Profile")
             Spacer(Modifier.height(16.dp))
 
-            PlayerCard(name = userName, email = userEmail, stats = playerStats)
+            PlayerCard(name = userName, email = userEmail, stats = playerStats, loading = statsLoading)
             Spacer(Modifier.height(18.dp))
 
             GameSectionHeader(text = "Your progress")
             Spacer(Modifier.height(10.dp))
-            StatsRow(stats = playerStats)
+            StatsRow(stats = playerStats, loading = statsLoading)
             Spacer(Modifier.height(20.dp))
 
             GameSectionHeader(text = "Settings")
@@ -243,7 +247,7 @@ fun ProfileScreen(
  * made on any path shows up here in the same visual language.
  */
 @Composable
-private fun PlayerCard(name: String, email: String, stats: ProfileStats) {
+private fun PlayerCard(name: String, email: String, stats: ProfileStats, loading: Boolean) {
     GameCard(
         modifier = Modifier.fillMaxWidth(),
         brush = Brush.linearGradient(listOf(GameHeroStart, GameHeroEnd)),
@@ -295,28 +299,47 @@ private fun PlayerCard(name: String, email: String, stats: ProfileStats) {
 
             Spacer(Modifier.height(18.dp))
 
-            // Same three pieces as the journey HUD's second row: level · bar · numeric XP.
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                LevelBadge(level = stats.level)
-                XpBar(fraction = stats.xpFraction, modifier = Modifier.weight(1f))
+            if (loading) {
+                // "Level 1 · 0/200 XP" is indistinguishable from a real brand-new account, so
+                // while the totals are in flight the card says what it is doing instead of
+                // showing a number that will be wrong for anyone who has earned anything.
                 Text(
-                    text = "${stats.xpInLevel}/${stats.xpPerLevel} XP",
+                    text = "Syncing your progress…",
                     fontFamily = NunitoFamily,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 12.sp,
-                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.5.sp,
+                    color = Color.White.copy(alpha = 0.82f),
                 )
+            } else {
+                // Same three pieces as the journey HUD's second row: level · bar · numeric XP.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    LevelBadge(level = stats.level)
+                    XpBar(fraction = stats.xpFraction, modifier = Modifier.weight(1f))
+                    Text(
+                        text = "${stats.xpInLevel}/${stats.xpPerLevel} XP",
+                        fontFamily = NunitoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 12.sp,
+                        color = Color.White,
+                    )
+                }
             }
         }
     }
 }
 
-/** Three real totals rolled up from the user's saved paths. */
+/**
+ * Three real totals rolled up from the user's saved paths.
+ *
+ * [loading] shows an em dash rather than a zero, for the same reason the card above hides its
+ * level: a zero here is a claim about the user's work, and it isn't one we can make yet.
+ */
 @Composable
-private fun StatsRow(stats: ProfileStats) {
+private fun StatsRow(stats: ProfileStats, loading: Boolean) {
+    fun total(value: Int) = if (loading) "—" else value.toString()
     GameCard(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -325,21 +348,21 @@ private fun StatsRow(stats: ProfileStats) {
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             GameStatTile(
-                value = stats.lessonsMastered.toString(),
+                value = total(stats.lessonsMastered),
                 label = "LESSONS\nMASTERED",
                 accent = PathNodeDone,
                 tint = PathNodeDoneTint,
                 modifier = Modifier.weight(1f),
             )
             GameStatTile(
-                value = stats.pathsStarted.toString(),
+                value = total(stats.pathsStarted),
                 label = "PATHS\nSTARTED",
                 accent = PathNodeCurrent,
                 tint = PathNodeCurrentTint,
                 modifier = Modifier.weight(1f),
             )
             GameStatTile(
-                value = stats.pathsFinished.toString(),
+                value = total(stats.pathsFinished),
                 label = "PATHS\nFINISHED",
                 accent = PathNodeBranch,
                 tint = GameTintAmber,

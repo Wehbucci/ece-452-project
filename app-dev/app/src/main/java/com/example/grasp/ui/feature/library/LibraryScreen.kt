@@ -45,6 +45,7 @@ import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameChip
 import com.example.grasp.ui.components.GameEmptyState
 import com.example.grasp.ui.components.GameIconTile
+import com.example.grasp.ui.components.GameLoadingState
 import com.example.grasp.ui.components.GameProgressBar
 import com.example.grasp.ui.components.GameScreenHeader
 import com.example.grasp.ui.components.GameTag
@@ -88,6 +89,10 @@ fun LibraryScreen(
     presenterFactory: () -> LibraryContract.Presenter = { LibraryPresenter() },
 ) {
     var savedItems by remember { mutableStateOf<List<SavedItem>>(emptyList()) }
+    // Starts true: this screen is rebuilt from scratch every time the tab is selected, and the
+    // library it is about to show lives in the cloud. Assuming "empty" until told otherwise is
+    // what made switching to this tab flash "Your library is empty" at everyone.
+    var isLoading by remember { mutableStateOf(true) }
     // null = "All"; otherwise only that mode's items are listed.
     var filter by remember { mutableStateOf<Mode?>(null) }
     var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
@@ -95,6 +100,7 @@ fun LibraryScreen(
     val presenter = remember { presenterFactory() }
     val view = remember(onOpenLearner, onOpenTinker) {
         object : LibraryContract.View {
+            override fun showLoading(loading: Boolean) { isLoading = loading }
             override fun showSaved(items: List<SavedItem>) { savedItems = items }
             override fun openLearner(id: String) = onOpenLearner(id)
             override fun openTinker(id: String) = onOpenTinker(id)
@@ -112,7 +118,22 @@ fun LibraryScreen(
         containerColor = PathScreenBg,
         bottomBar = { GraspBottomBar(selected = TopLevelDestination.LIBRARY, onSelect = onSelectTab) },
     ) { padding ->
-        if (savedItems.isEmpty()) {
+        if (isLoading && savedItems.isEmpty()) {
+            // Only when there is nothing on screen yet. A REFRESH (after a delete) keeps the list
+            // visible and updates it in place — replacing a library the user is looking at with a
+            // spinner would be a worse flicker than the one this whole state exists to remove.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                GameLoadingState(
+                    title = "Fetching your library",
+                    message = "Getting your roadmaps and guides from the cloud…",
+                )
+            }
+        } else if (savedItems.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()

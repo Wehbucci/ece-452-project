@@ -10,6 +10,16 @@ import com.example.grasp.data.model.SavedItem
 interface LibraryContract {
 
     interface View : MvpView {
+        /**
+         * Show (or clear) the "fetching your library" state.
+         *
+         * Its own signal rather than "the list is empty and we haven't been told otherwise",
+         * because those two states look identical from the View and are not the same thing at
+         * all. Switching to this tab rebuilds the screen with no items, so without this every
+         * visit flashed "Your library is empty" at a user whose library is full.
+         */
+        fun showLoading(loading: Boolean)
+
         /** Render the saved items (paths + guides together). */
         fun showSaved(items: List<SavedItem>)
 

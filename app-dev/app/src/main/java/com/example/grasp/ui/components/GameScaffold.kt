@@ -21,6 +21,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -43,6 +44,7 @@ import com.example.grasp.ui.theme.PathCard
 import com.example.grasp.ui.theme.PathFaint
 import com.example.grasp.ui.theme.PathInk
 import com.example.grasp.ui.theme.PathMuted
+import com.example.grasp.ui.theme.PathNodeCurrent
 
 /**
  * Page furniture for the game shell: screen titles, section headers, settings rows, stat tiles,
@@ -324,6 +326,50 @@ fun GameEmptyState(
             Spacer(Modifier.height(22.dp))
             action()
         }
+    }
+}
+
+/**
+ * The "we're getting your things from the cloud" state.
+ *
+ * Grasp keeps everything on the account rather than on the device, so opening a tab means a
+ * network round-trip — and a screen that renders its empty state during that trip tells the user
+ * their work is gone every single time they switch tabs. This says what is actually happening
+ * instead, and is shown INSTEAD of the empty state rather than before it: "nothing here" is only
+ * true once the fetch has come back.
+ *
+ * @param message what is being fetched, named. "Loading…" is not worth a whole screen.
+ */
+@Composable
+fun GameLoadingState(
+    message: String,
+    modifier: Modifier = Modifier,
+    title: String = "One moment",
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CircularProgressIndicator(color = PathNodeCurrent, strokeWidth = 4.dp)
+        Spacer(Modifier.height(20.dp))
+        Text(
+            text = title,
+            fontFamily = FredokaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 20.sp,
+            color = PathInk,
+            textAlign = TextAlign.Center,
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = message,
+            fontFamily = NunitoFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 14.sp,
+            lineHeight = 20.sp,
+            color = PathMuted,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
