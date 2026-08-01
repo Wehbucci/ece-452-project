@@ -1,6 +1,7 @@
 package com.example.grasp.ui.feature.chat
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -9,14 +10,11 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -29,11 +27,26 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.grasp.core.edit.EditProposal
 import com.example.grasp.core.edit.ProposedChange
 import com.example.grasp.data.model.ProposalOutcome
+import com.example.grasp.ui.components.GameButton
+import com.example.grasp.ui.theme.FredokaFamily
+import com.example.grasp.ui.theme.GameCardBevel
+import com.example.grasp.ui.theme.GameDanger
+import com.example.grasp.ui.theme.NunitoFamily
+import com.example.grasp.ui.theme.PathCard
+import com.example.grasp.ui.theme.PathChipNeutralBg
+import com.example.grasp.ui.theme.PathFaint
+import com.example.grasp.ui.theme.PathInk
+import com.example.grasp.ui.theme.PathMuted
+import com.example.grasp.ui.theme.PathNodeCurrent
+import com.example.grasp.ui.theme.PathNodeCurrentBevel
+import com.example.grasp.ui.theme.PathNodeDone
 
 /**
  * The changes the tutor offered, and the only way they ever reach the lesson (FR5.4).
@@ -57,14 +70,26 @@ internal fun ProposalCards(
 ) {
     var confirming by remember { mutableStateOf(false) }
 
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(16.dp),
-        modifier = modifier.fillMaxWidth(),
-    ) {
+    // A white card on the app's hard bevel, matching the reply bubble it hangs under — the
+    // proposal is part of that reply, so it is built from the same material rather than being
+    // dropped in as a dialog-shaped foreign object.
+    Box(modifier = modifier.fillMaxWidth().padding(bottom = CardBevel)) {
+        Box(
+            Modifier
+                .matchParentSize()
+                // OFFSET, not padding: the bevel has to escape the content bounds into the space
+                // the wrapper reserved below. Padding shrinks it inwards instead, leaving it
+                // covered by the card face and the bevel invisible.
+                .offset(y = CardBevel)
+                .background(GameCardBevel, CardShape),
+        )
         Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+            Modifier
+                .fillMaxWidth()
+                .clip(CardShape)
+                .background(PathCard)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             if (proposal.changes.isNotEmpty()) {
                 Label(
@@ -80,8 +105,11 @@ internal fun ProposalCards(
             proposal.declined.forEach { reason ->
                 Text(
                     text = reason,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp,
+                    color = PathMuted,
                 )
             }
 
@@ -90,30 +118,37 @@ internal fun ProposalCards(
             if (proposal.changes.isNotEmpty()) {
                 when (outcome) {
                     null -> Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        OutlinedButton(onClick = onReject, modifier = Modifier.weight(1f)) {
-                            Text("No thanks")
-                        }
-                        Button(
+                        // Declining is quiet and accepting is the accent slab: the offer is the
+                        // tutor's, so saying no should cost nothing and take no persuading.
+                        QuietButton(
+                            label = "No thanks",
+                            onClick = onReject,
+                            modifier = Modifier.weight(1f),
+                        )
+                        GameButton(
+                            label = if (proposal.changes.size == 1) "Make it" else "Make them",
                             // Anything that writes over the user's own words is asked twice.
                             onClick = {
                                 if (proposal.overwritesUserWork) confirming = true else onAccept()
                             },
+                            height = 46.dp,
                             modifier = Modifier.weight(1f),
-                        ) {
-                            Text(if (proposal.changes.size == 1) "Make it" else "Make them")
-                        }
+                        )
                     }
 
                     else -> Text(
                         text = outcome.settledText(),
-                        style = MaterialTheme.typography.labelLarge,
+                        fontFamily = NunitoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
                         color = when (outcome) {
-                            ProposalOutcome.ACCEPTED -> MaterialTheme.colorScheme.primary
-                            ProposalOutcome.REJECTED -> MaterialTheme.colorScheme.onSurfaceVariant
-                            ProposalOutcome.FAILED -> MaterialTheme.colorScheme.error
+                            ProposalOutcome.ACCEPTED -> PathNodeDone
+                            ProposalOutcome.REJECTED -> PathMuted
+                            ProposalOutcome.FAILED -> GameDanger
                         },
                     )
                 }
@@ -133,23 +168,26 @@ internal fun ProposalCards(
 /** One change: what it is called, what is there now, and what would be there instead. */
 @Composable
 private fun ChangeRow(change: ProposedChange) {
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
                 text = change.title,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold,
-                color = MaterialTheme.colorScheme.onSurface,
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 13.sp,
+                color = PathInk,
             )
             if (change.overwritesUserWork) {
                 Text(
                     text = "· YOUR WORDS",
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.error,
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Black,
+                    fontSize = 10.sp,
+                    letterSpacing = 0.5.sp,
+                    color = GameDanger,
                 )
             }
         }
@@ -159,12 +197,12 @@ private fun ChangeRow(change: ProposedChange) {
         if (change.before.isNotBlank()) {
             DiffLine(
                 text = change.before,
-                tint = MaterialTheme.colorScheme.error,
+                tint = GameDanger,
                 struckThrough = change.after.isBlank(),
             )
         }
         if (change.after.isNotBlank()) {
-            DiffLine(text = change.after, tint = MaterialTheme.colorScheme.primary)
+            DiffLine(text = change.after, tint = PathNodeDone)
         }
     }
 }
@@ -175,21 +213,57 @@ private fun DiffLine(text: String, tint: Color, struckThrough: Boolean = false) 
     Row(
         // The bar has no height of its own, so the row is measured from the text and the bar then
         // fills it. Without this it collapses to nothing and the diff loses its only colour cue.
-        modifier = Modifier.height(IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier
+            .height(IntrinsicSize.Min)
+            .clip(RoundedCornerShape(10.dp))
+            .background(PathChipNeutralBg),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             Modifier
-                .width(3.dp)
+                .width(4.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(2.dp))
-                .background(tint.copy(alpha = 0.6f)),
+                .background(tint),
         )
         Text(
             text = text,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
+            fontFamily = NunitoFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 13.sp,
+            lineHeight = 19.sp,
+            color = PathInk,
             textDecoration = if (struckThrough) TextDecoration.LineThrough else null,
+            modifier = Modifier.padding(top = 9.dp, bottom = 9.dp, end = 10.dp),
+        )
+    }
+}
+
+/**
+ * The secondary half of the accept/decline pair.
+ *
+ * Flat and unbevelled on purpose: the bevel in this design system means "this is the thing to
+ * press", and declining an offer nobody asked for should not be competing for that.
+ */
+@Composable
+private fun QuietButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            // Reserves the same strip [GameButton] leaves for its bevel, so the pair line up
+            // instead of this one floating a few dp above its neighbour.
+            .padding(bottom = ButtonBevelReserve)
+            .height(46.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(PathChipNeutralBg)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            fontFamily = FredokaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+            color = PathMuted,
+            textAlign = TextAlign.Center,
         )
     }
 }
@@ -209,30 +283,69 @@ private fun OverwriteConfirmation(
 ) {
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Replace your own writing?") },
+        containerColor = PathCard,
+        shape = RoundedCornerShape(24.dp),
+        title = {
+            Text(
+                text = "Replace your own writing?",
+                fontFamily = NunitoFamily,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 18.sp,
+                color = PathInk,
+            )
+        },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    if (changes.size == 1) "This change replaces something you wrote yourself:"
+                    text = if (changes.size == 1) "This change replaces something you wrote yourself:"
                     else "These changes replace things you wrote yourself:",
-                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = PathMuted,
                 )
                 changes.forEach { change ->
                     Text(
                         text = "• ${change.before.ifBlank { change.title }}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontFamily = NunitoFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        color = PathInk,
                     )
                 }
                 Text(
-                    "You can undo it afterwards from the lesson's edit mode.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "You can undo it afterwards from the lesson's edit mode.",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.5.sp,
+                    color = PathFaint,
                 )
             }
         },
-        confirmButton = { TextButton(onClick = onConfirm) { Text("Replace") } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("Keep mine") } },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text(
+                    text = "Replace",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                    color = GameDanger,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = "Keep mine",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp,
+                    color = PathMuted,
+                )
+            }
+        },
     )
 }
 
@@ -240,11 +353,20 @@ private fun OverwriteConfirmation(
 private fun Label(text: String) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelSmall,
+        fontFamily = NunitoFamily,
         fontWeight = FontWeight.Black,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontSize = 10.5.sp,
+        letterSpacing = 1.sp,
+        color = PathNodeCurrent,
     )
 }
+
+/** Matches the reply bubble it hangs under, one step larger because it is a card, not a bubble. */
+private val CardShape = RoundedCornerShape(18.dp)
+private val CardBevel = 4.dp
+
+/** [GameButton]'s own bevel thickness, which the flat button beside it has to match. */
+private val ButtonBevelReserve = 5.dp
 
 private fun ProposalOutcome.settledText(): String = when (this) {
     ProposalOutcome.ACCEPTED -> "✓ Done — the change is in"

@@ -10,6 +10,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -18,14 +19,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -39,11 +39,23 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.ChatMessage
 import com.example.grasp.ui.components.AiDisclaimer
 import com.example.grasp.ui.components.CHAT_AI_DISCLAIMER
+import com.example.grasp.ui.components.GameIconTile
+import com.example.grasp.ui.theme.FredokaFamily
+import com.example.grasp.ui.theme.NunitoFamily
+import com.example.grasp.ui.theme.PathCard
+import com.example.grasp.ui.theme.PathConnector
+import com.example.grasp.ui.theme.PathInk
+import com.example.grasp.ui.theme.PathMuted
+import com.example.grasp.ui.theme.PathNodeCurrent
+import com.example.grasp.ui.theme.PathNodeCurrentTint
+import com.example.grasp.ui.theme.PathScreenBg
 
 /**
  * What a host screen holds while the tutor is open over it.
@@ -158,7 +170,7 @@ private fun ChatPanel(
     }
 
     Surface(
-        color = MaterialTheme.colorScheme.surface,
+        color = PathCard,
         shape = RoundedCornerShape(topStart = PanelCorner, topEnd = PanelCorner),
         shadowElevation = 16.dp,
         modifier = modifier
@@ -175,7 +187,7 @@ private fun ChatPanel(
             AiDisclaimer(
                 text = CHAT_AI_DISCLAIMER,
                 compact = true,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 10.dp),
             )
             ChatPane(
                 history = history,
@@ -195,37 +207,66 @@ private fun ChatPanel(
     }
 }
 
+/**
+ * The panel's title bar, built from the shell's own furniture: the tutor's sparkle in a tinted
+ * tile, the display face for the name, and the same rounded square the roadmap HUD uses for its
+ * back control.
+ */
 @Composable
 private fun ChatPanelHeader(context: String, onDismiss: () -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         // Grab handle. Purely a signal that this is a layer over something, not a screen.
-        Box(Modifier.fillMaxWidth().padding(top = 8.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
             Box(
                 Modifier
-                    .width(32.dp)
-                    .height(4.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)),
+                    .width(36.dp)
+                    .height(5.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(PathConnector),
             )
         }
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                .padding(start = 20.dp, end = 16.dp, top = 12.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            GameIconTile(tint = PathNodeCurrentTint, size = 40.dp, corner = 14.dp) {
+                Text("✦", fontSize = 19.sp, color = PathNodeCurrent)
+            }
             Column(Modifier.weight(1f)) {
-                Text("Ask AI", style = MaterialTheme.typography.titleLarge)
                 Text(
-                    "About: $context",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = "Ask AI",
+                    fontFamily = FredokaFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 19.sp,
+                    color = PathInk,
+                )
+                Text(
+                    // The label is dropped: "About:" cost a third of a single line that a long
+                    // lesson title or a quoted paragraph needs all of.
+                    text = context,
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = PathMuted,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onDismiss) {
-                Icon(Icons.Filled.Close, contentDescription = "Close chat")
+            Surface(
+                onClick = onDismiss,
+                shape = RoundedCornerShape(12.dp),
+                color = PathScreenBg,
+                contentColor = PathInk,
+                modifier = Modifier.size(34.dp),
+            ) {
+                Icon(
+                    Icons.Filled.Close,
+                    contentDescription = "Close chat",
+                    modifier = Modifier.padding(8.dp),
+                )
             }
         }
     }
