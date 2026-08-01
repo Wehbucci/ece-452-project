@@ -5,6 +5,7 @@ import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.layout.layoutBoard
 import com.example.grasp.core.mvp.BasePresenter
+import com.example.grasp.core.progress.Xp
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
@@ -39,6 +40,16 @@ class PathPresenter(
     /** Source of truth for progress: the set of completed (non-branch) node ids. */
     private val completed: MutableSet<String> = mutableSetOf()
 
+    /**
+     * Lessons finished on every OTHER saved path and guide.
+     *
+     * The HUD's level is the ACCOUNT's level (see `core.progress.Xp`), so it has to know about work
+     * done elsewhere — otherwise opening a second roadmap reads as having been reset to zero. Held
+     * as "everything except this path" and added to the live [completed] set, so marking a lesson
+     * complete moves the bar immediately instead of waiting on a re-read of the whole library.
+     */
+    private var lessonsMasteredElsewhere = 0
+
     /** Node whose lesson is being loaded into the sheet — a late result for anything else is stale. */
     private var openingNodeId: String? = null
 
@@ -63,8 +74,41 @@ class PathPresenter(
     /** The section picked to move, while the board is asking where it should go. */
     private var movingId: String? = null
 
+    /**
+     * The lesson the tutor was opened FROM, so closing the tutor goes back to it rather than to
+     * the board.
+     *
+     * The detail sheet has to close before the chat opens (a `ModalBottomSheet` is its own window
+     * and would sit over the overlay), so without this the user is dropped two levels back from
+     * where they were reading. Null for a chat about the roadmap itself, which was opened from the
+     * board and so belongs back on it.
+     */
+    private var chatOpenedFromNodeId: String? = null
+
     override fun onViewAttached() {
-        scope.launch { load(firstLoad = true) }
+        scope.launch {
+            load(firstLoad = true)
+            tidyTitles()
+        }
+    }
+
+    /**
+     * Shortens any section title too long to read under a node, then re-renders (FR2.1).
+     *
+     * After the board is already on screen, never before it: this may cost an AI round-trip, and
+     * holding the roadmap back behind one so that a few labels arrive tidier would be the wrong
+     * trade. Roadmaps generated since titles were constrained have nothing to shorten, so for them
+     * the repository returns immediately without calling anything.
+     */
+    private suspend fun tidyTitles() {
+        val tidied = repo.shortenNodeTitles(pathId) ?: return
+        // The user may have grown or deleted a section while we were waiting; keep the board's own
+        // shape and take only the names.
+        val titles = tidied.nodes.associate { it.id to it.title }
+        nodes = nodes.map { node -> titles[node.id]?.let { node.copy(title = it) } ?: node }
+        emit()
+        // The open sheet is showing one of those titles in its header.
+        showOpenLesson()
     }
 
     /**
@@ -87,6 +131,11 @@ class PathPresenter(
         nodes = path.nodes.filterNot { it.isBranchOut }
         completed.clear()
         completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
+        // The account total, minus what this path contributes to it — the rest is added back from
+        // the live set above. A failed read leaves this at zero rather than going negative, which
+        // would show the user LESS XP than they have earned on this roadmap alone.
+        lessonsMasteredElsewhere =
+            (repo.totalLessonsMastered() - completed.size).coerceAtLeast(0)
         emit()
     }
 
@@ -94,9 +143,20 @@ class PathPresenter(
      * The chat overlay closed. The tutor can reshape the roadmap from in there with the user's
      * say-so (FR5.4), so the board is read again — the overlay never detaches this presenter, and
      * a section that was added or renamed behind it would otherwise only appear on the next visit.
+     *
+     * Then the lesson the question was asked FROM comes back. Asking about a paragraph and being
+     * returned to the tree reads as having lost your place; the material is what the user was in
+     * the middle of, and the answer only makes sense next to it. It is re-read rather than
+     * re-shown from memory, for the same reason the board is: the tutor may have just rewritten it.
      */
     override fun onChatClosed() {
-        scope.launch { load(firstLoad = false) }
+        val resumeId = chatOpenedFromNodeId
+        chatOpenedFromNodeId = null
+        scope.launch {
+            load(firstLoad = false)
+            // A lesson the tutor deleted while the chat was open has nothing to go back to.
+            nodes.firstOrNull { it.id == resumeId }?.let { openSubtopic(it) }
+        }
     }
 
     override fun detach() {
@@ -258,9 +318,9 @@ class PathPresenter(
         if (newCurrent != null && newCurrent != previousCurrent) {
             view?.playAdvance(newCurrent)
         }
-        // Crossed a level boundary (every [XP_PER_LEVEL] XP).
-        val newLevel = levelFor(newXp)
-        if (newLevel > levelFor(previousXp)) {
+        // Crossed a level boundary (every [Xp.PER_LEVEL] XP).
+        val newLevel = Xp.levelFor(newXp)
+        if (newLevel > Xp.levelFor(previousXp)) {
             view?.showLevelUp(newLevel)
         }
     }
@@ -304,15 +364,19 @@ class PathPresenter(
 
     override fun onAskAi(nodeId: String) {
         val node = nodes.firstOrNull { it.id == nodeId }
+        chatOpenedFromNodeId = nodeId
         view?.openChat(node?.title ?: "your material", pathId, nodeId, blockId = "")
     }
 
     override fun onAskAboutRoadmap() {
+        // Asked from the board, so the board is where closing it belongs.
+        chatOpenedFromNodeId = null
         // No node id: that absence is exactly what tells the chat it is scoped to the whole path.
         view?.openChat(title.ifEmpty { "your roadmap" }, pathId, nodeId = "", blockId = "")
     }
 
     override fun onAskAboutBlock(nodeId: String, blockText: String, blockId: String) {
+        chatOpenedFromNodeId = nodeId
         // Same convention as the full subtopic screen: the block's opening words name the chat.
         view?.openChat(blockText.take(60), pathId, nodeId, blockId)
     }
@@ -488,8 +552,17 @@ class PathPresenter(
         else -> PathNodeState.OPEN
     }
 
-    private fun xp(): Int = completed.count { id -> nodes.any { it.id == id && !it.isBranchOut } } * XP_PER_LESSON
-    private fun levelFor(xp: Int): Int = xp / XP_PER_LEVEL + 1
+    /** Lessons finished on THIS roadmap — what the "{n} of {m} mastered" line counts. */
+    private fun masteredHere(): Int =
+        completed.count { id -> nodes.any { it.id == id && !it.isBranchOut } }
+
+    /**
+     * The ACCOUNT's XP, not this roadmap's.
+     *
+     * Which is the whole point: a level that dropped back to 1 every time the user opened a
+     * different roadmap made the reward for finishing a lesson look like it had been taken away.
+     */
+    private fun xp(): Int = Xp.forLessons(lessonsMasteredElsewhere + masteredHere())
 
     /**
      * Assemble the immutable snapshot the View renders.
@@ -533,13 +606,16 @@ class PathPresenter(
                 regions = regions,
                 boardMode = boardMode,
                 movingTitle = movingId?.let { id -> nodes.firstOrNull { it.id == id }?.title },
-                masteredCount = completed.size,
+                // Path-scoped: this line is about the roadmap on screen. The level and XP beside
+                // it are not — they are the account's, and deliberately keep counting across every
+                // roadmap the user has.
+                masteredCount = masteredHere(),
                 totalLessons = nodes.count { !it.isBranchOut },
                 streak = STREAK,
-                level = levelFor(xp),
-                xpInLevel = xp % XP_PER_LEVEL,
-                xpPerLevel = XP_PER_LEVEL,
-                xpFraction = (xp % XP_PER_LEVEL).toFloat() / XP_PER_LEVEL,
+                level = Xp.levelFor(xp),
+                xpInLevel = Xp.inLevel(xp),
+                xpPerLevel = Xp.PER_LEVEL,
+                xpFraction = Xp.fractionOfLevel(xp),
                 rowCount = (layout.rows.values.maxOrNull() ?: 0) + 1,
                 columnSpan = layout.columnSpan,
             ),
@@ -547,12 +623,6 @@ class PathPresenter(
     }
 
     companion object {
-        /** XP granted per lesson completed (README §Interactions: "+40 XP"). */
-        const val XP_PER_LESSON = 40
-
-        /** XP needed to advance a level. Level = xp / this + 1 (README §Interactions). */
-        const val XP_PER_LEVEL = 200
-
         /** Demo streak count shown in the HUD (real value would come from UserRepository). */
         const val STREAK = 6
     }

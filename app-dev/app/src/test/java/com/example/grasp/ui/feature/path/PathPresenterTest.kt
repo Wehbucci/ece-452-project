@@ -5,6 +5,7 @@ import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.FakePathRepository
+import com.example.grasp.data.repository.PathRepository
 import com.example.grasp.ui.feature.subtopic.SectionShape
 import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertEquals
@@ -99,14 +100,31 @@ class PathPresenterTest {
         override fun dispatch(context: CoroutineContext, block: Runnable) = block.run()
     }
 
+    /**
+     * The canned library with every OTHER path's progress hidden.
+     *
+     * XP is account-wide now (see `core.progress.Xp`), so a presenter's HUD numbers depend on work
+     * done on paths these tests are not about — and the canned Cooking path and omelette guide
+     * both ship with completions. Narrowing the account total to this one roadmap keeps each XP
+     * assertion below a statement about the roadmap under test. The account-wide behaviour itself
+     * is asserted separately, against the unmodified fake.
+     */
+    private class OnlyThisPath(private val pathId: String) : PathRepository by FakePathRepository {
+        override suspend fun totalLessonsMastered(): Int =
+            FakePathRepository.learningPath(pathId)?.lessonsMastered ?: 0
+    }
+
     /** The fake is a singleton, so each test starts from the canned content, not the last one's. */
     @Before
     fun clearFakeEdits() = FakePathRepository.clearEdits()
 
     private fun PathUiState.node(id: String) = nodes.first { it.id == id }
 
-    private fun attach(pathId: String = "ml-101"): Pair<PathPresenter, FakeView> {
-        val presenter = PathPresenter(pathId, FakePathRepository, DirectDispatcher())
+    private fun attach(
+        pathId: String = "ml-101",
+        repo: PathRepository = OnlyThisPath(pathId),
+    ): Pair<PathPresenter, FakeView> {
+        val presenter = PathPresenter(pathId, repo, DirectDispatcher())
         val view = FakeView()
         presenter.attach(view)
         return presenter to view
@@ -156,6 +174,36 @@ class PathPresenterTest {
         assertEquals(PathNodeState.CURRENT, state.node("unsupervised").state)
         assertTrue("unsupervised" in view.advances)
         assertTrue(view.levelUps.isEmpty()) // still level 1
+    }
+
+    /**
+     * The reason XP moved out of this presenter: a level that only counted the roadmap on screen
+     * dropped back to 1 every time the user opened a different one, which reads as the app having
+     * taken their progress away.
+     */
+    @Test
+    fun `the HUD level counts lessons finished on every other path too`() {
+        // The unmodified fake library: 3 done here, plus 2 in the Cooking path and 2 omelette
+        // steps elsewhere — 7 lessons, 280 XP, level 2.
+        val (_, view) = attach(repo = FakePathRepository)
+
+        val state = view.lastState!!
+        assertEquals("still this roadmap's own count", 3, state.masteredCount)
+        assertEquals(2, state.level)
+        assertEquals(80, state.xpInLevel)
+    }
+
+    /** Work done elsewhere counts, and finishing a lesson here still moves the same bar. */
+    @Test
+    fun `completing a lesson adds to the account total, not a per-path one`() {
+        val (presenter, view) = attach(repo = FakePathRepository)
+
+        presenter.onMarkComplete("supervised")
+
+        val state = view.lastState!!
+        assertEquals(4, state.masteredCount)
+        assertEquals("8 lessons across the account = 320 XP", 2, state.level)
+        assertEquals(120, state.xpInLevel)
     }
 
     @Test
@@ -564,6 +612,61 @@ class PathPresenterTest {
 
         assertEquals(listOf("supervised"), view.chats)
         assertEquals(listOf("b-labelled"), view.chatBlockIds)
+    }
+
+    /**
+     * Closing the tutor puts the user back where they asked from. The sheet has to be closed for
+     * the chat to be shown at all, so without this a question about a paragraph costs you the
+     * lesson you were reading it in.
+     */
+    @Test
+    fun `closing the tutor reopens the lesson it was asked from`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("supervised")
+        presenter.onAskAi("supervised")
+        view.subtopicSheet = null // the real screen closes the sheet to make room for the chat
+
+        presenter.onChatClosed()
+
+        assertEquals("supervised", view.subtopicSheet?.nodeId)
+    }
+
+    @Test
+    fun `closing a tutor opened from a paragraph reopens that paragraph's lesson`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("regression")
+        presenter.onAskAboutBlock("regression", "Some paragraph.", "b-1")
+        view.subtopicSheet = null
+
+        presenter.onChatClosed()
+
+        assertEquals("regression", view.subtopicSheet?.nodeId)
+    }
+
+    /** The roadmap tutor was opened from the board, so the board is where closing it belongs. */
+    @Test
+    fun `closing the roadmap tutor leaves the board alone`() {
+        val (presenter, view) = attach()
+        presenter.onAskAboutRoadmap()
+        view.subtopicSheet = null
+
+        presenter.onChatClosed()
+
+        assertNull(view.subtopicSheet)
+    }
+
+    /** A lesson the tutor deleted while the chat was open has nothing to go back to. */
+    @Test
+    fun `closing the tutor on a section that is gone does not reopen anything`() {
+        val (presenter, view) = attach()
+        presenter.onNodeTapped("clustering")
+        presenter.onAskAi("clustering")
+        presenter.onDeleteSectionConfirmed("clustering", withDescendants = false)
+        view.subtopicSheet = null
+
+        presenter.onChatClosed()
+
+        assertNull(view.subtopicSheet)
     }
 
     @Test
