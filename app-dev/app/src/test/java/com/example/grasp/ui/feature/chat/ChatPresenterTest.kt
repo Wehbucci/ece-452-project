@@ -29,6 +29,9 @@ class ChatPresenterTest {
     private object DefaultPrefs : UserRepository {
         override suspend fun getPreferences() = UserPreferences()
         override suspend fun setPreferences(prefs: UserPreferences) = Unit
+        // Nothing in the tutor's briefing depends on the user's name.
+        override suspend fun getUsername(): String? = null
+        override suspend fun setUsername(username: String) = Unit
     }
 
     private fun presenter(scope: ChatScope, context: String = "your material") =
