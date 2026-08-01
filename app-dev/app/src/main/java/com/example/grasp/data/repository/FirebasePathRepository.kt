@@ -20,7 +20,6 @@ import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
-import com.example.grasp.data.model.TopicSuggestion
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
@@ -60,7 +59,85 @@ class FirebasePathRepository : PathRepository {
     private fun revisionsRef(uid: String, topicId: String, nodeId: String) =
         nodesRef(uid, topicId).document(nodeId).collection("revisions")
 
-    override fun popularTopics(): List<TopicSuggestion> = FakePathRepository.popularTopics()
+    /**
+     * Writes the [StarterLibrary] examples into this user's library, exactly once per account.
+     *
+     * Guarded by a flag on the user document rather than by "is the library empty", because those
+     * differ in the one case that matters: a user who deleted the examples has an empty library
+     * and must NOT get them back. Deleting a starter is a decision, not a gap to be refilled.
+     *
+     * Also guarded in-process by [seedCheckedForUid], so the tabs that call this on every attach
+     * pay one document read per app run instead of one per visit.
+     */
+    override suspend fun seedStarterLibrary() {
+        val uid = uid ?: return
+        if (seedCheckedForUid == uid) return
+        try {
+            val userDoc = userDocRef(uid).get().await()
+            if (userDoc.getBoolean(STARTERS_SEEDED) == true) {
+                seedCheckedForUid = uid
+                return
+            }
+
+            StarterLibrary.learnerExamples().forEach { path -> writeStarterPath(uid, path) }
+            StarterLibrary.tinkerExamples().forEach { guide -> writeStarterGuide(uid, guide) }
+
+            // Last, so a run that died halfway is retried rather than remembered as done.
+            userDocRef(uid)
+                .set(mapOf(STARTERS_SEEDED to true), SetOptions.merge())
+                .await()
+            seedCheckedForUid = uid
+        } catch (e: Exception) {
+            // A library without its examples is a worse library, not a broken one — and leaving
+            // the flag unset means the next launch simply tries again.
+            Log.e("FirebasePathRepo", "seedStarterLibrary failed", e)
+        }
+    }
+
+    private suspend fun writeStarterPath(uid: String, path: LearningPath) {
+        topicsRef(uid).document(path.id).set(
+            mapOf(
+                "title" to path.title,
+                "mode" to "learner",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "status" to "active",
+                StarterLibrary.STARTER_FIELD to true,
+            ),
+            SetOptions.merge(),
+        ).await()
+        path.nodes.forEachIndexed { index, node ->
+            // No `content`, so [nodeDoc] marks it "not_generated" and the lesson is written by
+            // the AI on first open — in the reader's own preferences, rather than canned here.
+            nodesRef(uid, path.id).document(node.id)
+                .set(nodeDoc(node, index), SetOptions.merge())
+                .await()
+        }
+    }
+
+    private suspend fun writeStarterGuide(uid: String, guide: TinkerGuide) {
+        topicsRef(uid).document(guide.id).set(
+            mapOf(
+                "title" to guide.title,
+                "mode" to "tinker",
+                "createdAt" to FieldValue.serverTimestamp(),
+                "updatedAt" to FieldValue.serverTimestamp(),
+                "status" to "active",
+                StarterLibrary.STARTER_FIELD to true,
+                "steps" to guide.steps.map { step ->
+                    mapOf(
+                        "id" to step.id,
+                        "order" to step.order,
+                        "instruction" to step.instruction,
+                        "detail" to step.detail,
+                        "estMinutes" to step.estMinutes,
+                        "done" to step.done,
+                    )
+                },
+            ),
+            SetOptions.merge(),
+        ).await()
+    }
 
     override fun savedItems(): List<SavedItem> {
         val uid = uid ?: return emptyList()
@@ -349,8 +426,16 @@ class FirebasePathRepository : PathRepository {
                 SetOptions.merge(),
             ).await()
 
-            val editedNodeIds = nodesRef(uid, normalizedId).get().await().documents
+            val storedNodes = nodesRef(uid, normalizedId).get().await().documents
+            val editedNodeIds = storedNodes
                 .filter { it.getBoolean("edited") == true }
+                .mapTo(mutableSetOf()) { it.id }
+            // Which sections the user had already finished. A freshly generated tree is completed
+            // nowhere, so writing its `completed` over the stored one wiped the user's progress —
+            // and with it the XP that progress was worth — for the sole crime of asking for a
+            // topic they already had. Progress belongs to the user, not to the generation run.
+            val completedNodeIds = storedNodes
+                .filter { it.getBoolean("completed") == true }
                 .mapTo(mutableSetOf()) { it.id }
 
             val parentByNodeId = linkedMapOf<String, String?>()
@@ -361,7 +446,7 @@ class FirebasePathRepository : PathRepository {
                 nodesRef(uid, normalizedId).document(node.id)
                     .set(
                         nodeDoc(
-                            node,
+                            node.copy(completed = node.completed || node.id in completedNodeIds),
                             index,
                             parentByNodeId[node.id],
                             content[node.id],
@@ -371,8 +456,11 @@ class FirebasePathRepository : PathRepository {
                     )
                     .await()
             }
-            val withTimes = nodes.map { node -> content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node }
-            LearningPath(id = normalizedId, title = title, nodes = withTimes)
+            val hydrated = nodes.map { node ->
+                val timed = content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
+                timed.copy(completed = timed.completed || timed.id in completedNodeIds)
+            }
+            LearningPath(id = normalizedId, title = title, nodes = hydrated)
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "createLearnerTopic failed for $title", e)
             FakePathRepository.createTopic(title, Mode.LEARNER)
@@ -634,6 +722,41 @@ class FirebasePathRepository : PathRepository {
             after
         }
 
+    /**
+     * Cuts this roadmap's over-long section titles down to board size, once.
+     *
+     * Roadmaps generated before titles were constrained are full of names too long to read under a
+     * node, and re-generating the roadmap to fix that would throw away the user's progress and
+     * their lessons. So only the titles are rewritten, in place: one AI call, a title-only write
+     * per changed node, and nothing else about the roadmap touched.
+     *
+     * Self-limiting — afterwards every title is short, so the guard at the top finds nothing to do
+     * and no further call is ever made for this path.
+     */
+    override suspend fun shortenNodeTitles(pathId: String): LearningPath? =
+        withContext(Dispatchers.IO) {
+            val path = learningPath(pathId) ?: return@withContext null
+            if (path.nodes.none { isTitleTooLong(it.title) }) return@withContext null
+
+            val shortened = withShortTitles(path.title, path.nodes)
+            val changed = shortened.filterIndexed { index, node -> node.title != path.nodes[index].title }
+            if (changed.isEmpty()) return@withContext null
+
+            val uid = uid ?: return@withContext path.copy(nodes = shortened)
+            try {
+                changed.forEach { node ->
+                    nodesRef(uid, pathId).document(node.id).set(
+                        mapOf("title" to node.title, "updatedAt" to FieldValue.serverTimestamp()),
+                        SetOptions.merge(),
+                    ).await()
+                }
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "shortenNodeTitles failed for $pathId", e)
+                // The board can still show them short for this session even if the write missed.
+            }
+            path.copy(nodes = shortened)
+        }
+
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
         Log.d("FirebasePathRepo", "Cloud sync: Node $nodeId -> completed=$completed")
@@ -788,6 +911,18 @@ class FirebasePathRepository : PathRepository {
     private companion object {
         /** `contentStatus` marking a node whose lesson has been written and cached. */
         const val CONTENT_GENERATED = "generated"
+
+        /** User-document flag: this account has already been given its starter examples. */
+        const val STARTERS_SEEDED = "startersSeeded"
+
+        /**
+         * The uid whose seeding has already been settled this run.
+         *
+         * Static because every screen builds its own repository instance, and without it the
+         * "have we seeded?" read would happen once per presenter rather than once per session.
+         */
+        @Volatile
+        var seedCheckedForUid: String? = null
 
         /** How many lessons to write at once when generating a whole roadmap or branch. */
         const val MAX_PARALLEL_GENERATIONS = 4
