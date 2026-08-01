@@ -10,8 +10,9 @@ import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
-import com.example.grasp.data.model.TopicSuggestion
 import com.example.grasp.data.model.TreeNode
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * The Model layer's boundary for paths, guides and content (overview.md §5).
@@ -27,11 +28,38 @@ import com.example.grasp.data.model.TreeNode
  */
 interface PathRepository {
 
-    /** Popular topics for the Home screen carousel/list. */
-    fun popularTopics(): List<TopicSuggestion>
-
     /** Everything the signed-in user has saved, for the Library (FR7.1/7.2). */
     fun savedItems(): List<SavedItem>
+
+    /**
+     * Lessons and steps the user has finished across EVERY saved item — the account's XP total
+     * (`core.progress.Xp`).
+     *
+     * A single number rather than something each screen adds up for itself, so a roadmap's HUD and
+     * the Profile card can never disagree about the same account. Suspending, and off the main
+     * thread inside, because it reads the whole library.
+     */
+    suspend fun totalLessonsMastered(): Int = withContext(Dispatchers.IO) {
+        savedItems().sumOf { it.lessonsMastered }
+    }
+
+    /**
+     * Puts the hand-authored example roadmaps in a brand-new user's library, once.
+     *
+     * They are the app's front door: somewhere to look before the user has generated anything of
+     * their own. Once seeded the flag stays set, so removing one is permanent — an example the
+     * user threw away must not come back the next time they open the Library.
+     */
+    suspend fun seedStarterLibrary() = Unit
+
+    /**
+     * Rewrites over-long section titles on [pathId] into board-sized ones (FR2.1), returning the
+     * roadmap as it now stands — or null if nothing needed shortening or it couldn't be done.
+     *
+     * A repair pass for roadmaps generated before titles were constrained. New ones come back
+     * short from the generator, so for them this finds nothing to do and never calls the model.
+     */
+    suspend fun shortenNodeTitles(pathId: String): LearningPath? = null
 
     /** A Learner roadmap by id, or null if not found. */
     fun learningPath(id: String): LearningPath?

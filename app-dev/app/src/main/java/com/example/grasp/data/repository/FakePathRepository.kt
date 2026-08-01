@@ -18,7 +18,6 @@ import com.example.grasp.data.model.SavedItem
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
-import com.example.grasp.data.model.TopicSuggestion
 import com.example.grasp.data.model.TreeNode
 
 /**
@@ -31,20 +30,22 @@ import com.example.grasp.data.model.TreeNode
  */
 object FakePathRepository : PathRepository {
 
-    // ---- Home: popular topics -------------------------------------------------------
-    override fun popularTopics(): List<TopicSuggestion> = listOf(
-        TopicSuggestion("cooking-101", "Cooking for beginners", 6, Mode.LEARNER),
-        TopicSuggestion("ml-101", "Machine learning", 8, Mode.LEARNER),
-        TopicSuggestion("omelette", "Make a breakfast omelette", 6, Mode.TINKERER),
-        TopicSuggestion("guitar-101", "Play your first song on guitar", 7, Mode.LEARNER),
-    )
-
     // ---- Library: saved paths & guides ---------------------------------------------
     override fun savedItems(): List<SavedItem> = listOf(
         cookingPath(),
         machineLearningPath(),
         omeletteGuide(),
     )
+
+    /**
+     * The same sum the interface's default computes, minus the thread hop.
+     *
+     * The default wraps its read in `withContext(Dispatchers.IO)`, which is right for a repository
+     * that talks to Firestore and wrong for one that returns a constant: it turns an instant answer
+     * into a suspension, so a presenter test driving its coroutines inline would race the assertion
+     * that follows. Nothing here blocks, so nothing here needs to leave the caller's thread.
+     */
+    override suspend fun totalLessonsMastered(): Int = savedItems().sumOf { it.lessonsMastered }
 
     // ---- Learner roadmaps -----------------------------------------------------------
     /**

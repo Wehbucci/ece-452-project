@@ -1,14 +1,12 @@
 package com.example.grasp.ui.feature.profile
 
 import com.example.grasp.core.mvp.BasePresenter
-import com.example.grasp.data.model.LearningPath
+import com.example.grasp.core.progress.Xp
 import com.example.grasp.data.model.SavedItem
-import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.PathRepository
 import com.example.grasp.data.repository.UserRepository
-import com.example.grasp.ui.feature.path.PathPresenter
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -21,9 +19,8 @@ import kotlinx.coroutines.withContext
  * Logic for the Profile tab: who is signed in, how far they have got, and signing out.
  *
  * The stats are computed HERE (not in the View) from the same saved paths the Library lists, so
- * the player card can never drift from the roadmap: one completed lesson is worth
- * [PathPresenter.XP_PER_LESSON] XP and [PathPresenter.XP_PER_LEVEL] XP makes a level — exactly
- * the rule the journey HUD uses.
+ * the player card can never drift from the roadmap: one completed lesson is worth [Xp.PER_LESSON]
+ * and [Xp.PER_LEVEL] makes a level — literally the same object the journey HUD reads.
  */
 class ProfilePresenter(
     private val repo: PathRepository = FirebasePathRepository(),
@@ -37,6 +34,7 @@ class ProfilePresenter(
         val user = auth.currentUser
         val email = user?.email.orEmpty()
 
+        view?.showStatsLoading(true)
         scope.launch {
             // fallback to the mailbox name for accounts created before usernames existed
             val username = withContext(Dispatchers.IO) { userRepo.getUsername() }
@@ -49,6 +47,7 @@ class ProfilePresenter(
             // Repository reads still block (see PathRepository's NOTE) — keep them off Main.
             val stats = withContext(Dispatchers.IO) { statsFor(repo.savedItems()) }
             view?.showStats(stats)
+            view?.showStatsLoading(false)
         }
     }
 
@@ -69,25 +68,21 @@ class ProfilePresenter(
     /**
      * Rolls every saved path/guide up into one player card.
      *
-     * "Branch out" nodes are affordances rather than lessons, so they are excluded from the
-     * count — the same exclusion [PathPresenter] applies when it awards XP.
+     * Both what counts as a finished lesson ([SavedItem.lessonsMastered]) and what it is worth
+     * ([Xp]) come from shared definitions rather than being re-stated here, which is what keeps
+     * this card and the roadmap HUD showing the same level for the same account.
      */
     private fun statsFor(items: List<SavedItem>): ProfileStats {
-        val lessonsMastered = items.sumOf { item ->
-            when (item) {
-                is LearningPath -> item.nodes.count { it.completed && !it.isBranchOut }
-                is TinkerGuide -> item.steps.count { it.done }
-            }
-        }
-        val xp = lessonsMastered * PathPresenter.XP_PER_LESSON
+        val lessonsMastered = items.sumOf { it.lessonsMastered }
+        val xp = Xp.forLessons(lessonsMastered)
         return ProfileStats(
             pathsStarted = items.size,
             pathsFinished = items.count { it.progress >= 1f },
             lessonsMastered = lessonsMastered,
-            level = xp / PathPresenter.XP_PER_LEVEL + 1,
-            xpInLevel = xp % PathPresenter.XP_PER_LEVEL,
-            xpPerLevel = PathPresenter.XP_PER_LEVEL,
-            xpFraction = (xp % PathPresenter.XP_PER_LEVEL).toFloat() / PathPresenter.XP_PER_LEVEL,
+            level = Xp.levelFor(xp),
+            xpInLevel = Xp.inLevel(xp),
+            xpPerLevel = Xp.PER_LEVEL,
+            xpFraction = Xp.fractionOfLevel(xp),
         )
     }
 }

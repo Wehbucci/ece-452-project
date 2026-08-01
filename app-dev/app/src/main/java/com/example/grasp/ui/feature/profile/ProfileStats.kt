@@ -4,9 +4,9 @@ package com.example.grasp.ui.feature.profile
  * The player card: everything the Profile header needs to show, already computed.
  *
  * These are REAL numbers derived from the user's saved paths (see [ProfilePresenter]), not
- * decoration — the level/XP maths is the same rule the roadmap HUD uses
- * ([com.example.grasp.ui.feature.path.PathPresenter.XP_PER_LESSON] /
- * `XP_PER_LEVEL`), so a lesson completed on the journey moves this card by the same amount.
+ * decoration — the level/XP maths comes from [com.example.grasp.core.progress.Xp], the same
+ * object the roadmap HUD reads, so a lesson completed on the journey moves this card by the same
+ * amount and to the same level.
  *
  * @property pathsStarted how many paths/guides are saved
  * @property pathsFinished how many of those are 100% complete
@@ -26,7 +26,13 @@ data class ProfileStats(
     val xpFraction: Float,
 ) {
     companion object {
-        /** Placeholder shown before the repository answers (a fresh, level-1 card). */
+        /**
+         * What the card holds before the repository answers.
+         *
+         * NOT safe to show: it is identical to a real brand-new account, so a returning user
+         * would read it as their progress having been wiped. The View gates it behind
+         * `showStatsLoading` and shows the loading treatment instead.
+         */
         val Empty = ProfileStats(
             pathsStarted = 0,
             pathsFinished = 0,

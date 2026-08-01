@@ -17,6 +17,19 @@ sealed interface SavedItem {
 
     /** Completion in the range 0f..1f, for the progress bar. */
     val progress: Float
+
+    /**
+     * How many lessons/steps of this item the user has finished — the unit XP is earned in
+     * (`core.progress.Xp`).
+     *
+     * Declared HERE, on the type, rather than being counted at each call site: the Profile card,
+     * the roadmap HUD and the repository's account total must agree on what "one lesson" is, and
+     * three separate `count { }`s over the same list is exactly how they stopped agreeing.
+     */
+    val lessonsMastered: Int
+
+    /** How many lessons/steps this item contains in total — the denominator of [progress]. */
+    val lessonCount: Int
 }
 
 /**
@@ -29,12 +42,21 @@ data class LearningPath(
     val nodes: List<TreeNode>,
 ) : SavedItem {
     override val mode: Mode = Mode.LEARNER
-    override val subtitle: String get() = "${nodes.size} subtopics"
+
+    /**
+     * Lessons only. A "branch out" affordance is a spot to grow the roadmap from, not something
+     * that can be finished, so counting it would leave a path stuck at 90% with nothing left to
+     * do — and would put a lesson's worth of XP on the board that no lesson ever earned.
+     */
+    override val lessonCount: Int get() = nodes.count { !it.isBranchOut }
+    override val lessonsMastered: Int get() = nodes.count { it.completed && !it.isBranchOut }
+
+    override val subtitle: String get() = "$lessonCount subtopics"
     override val progress: Float
-        get() = if (nodes.isEmpty()) 0f else nodes.count { it.completed }.toFloat() / nodes.size
+        get() = if (lessonCount == 0) 0f else lessonsMastered.toFloat() / lessonCount
 
     /** e.g. "3 of 8 complete" for the list-view header (overview.md §8, screen 2). */
-    val progressLabel: String get() = "${nodes.count { it.completed }} of ${nodes.size} complete"
+    val progressLabel: String get() = "$lessonsMastered of $lessonCount complete"
 }
 
 /**
@@ -47,10 +69,15 @@ data class TinkerGuide(
     val steps: List<TinkerStep>,
 ) : SavedItem {
     override val mode: Mode = Mode.TINKERER
-    override val subtitle: String get() = "${steps.size} steps"
+
+    /** A finished step is worth exactly what a finished lesson is — same XP, same profile. */
+    override val lessonCount: Int get() = steps.size
+    override val lessonsMastered: Int get() = steps.count { it.done }
+
+    override val subtitle: String get() = "$lessonCount steps"
     override val progress: Float
-        get() = if (steps.isEmpty()) 0f else steps.count { it.done }.toFloat() / steps.size
+        get() = if (lessonCount == 0) 0f else lessonsMastered.toFloat() / lessonCount
 
     /** e.g. "2 of 6 done" for the checklist header. */
-    val progressLabel: String get() = "${steps.count { it.done }} of ${steps.size} done"
+    val progressLabel: String get() = "$lessonsMastered of $lessonCount done"
 }
