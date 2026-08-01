@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -58,19 +57,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
-import com.example.grasp.data.model.TopicSuggestion
 import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameIconTile
 import com.example.grasp.ui.components.GameModeToggle
 import com.example.grasp.ui.components.GameScreenHeader
 import com.example.grasp.ui.components.GameSectionHeader
-import com.example.grasp.ui.components.GameSkeletonCard
-import com.example.grasp.ui.components.GameTag
 import com.example.grasp.ui.components.GraspBottomBar
 import com.example.grasp.ui.components.ModeGlyph
 import com.example.grasp.ui.components.accent
 import com.example.grasp.ui.components.bevel
-import com.example.grasp.ui.components.tint
 import com.example.grasp.ui.navigation.TopLevelDestination
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.GameDanger
@@ -84,6 +79,7 @@ import com.example.grasp.ui.theme.PathInk
 import com.example.grasp.ui.theme.PathMuted
 import com.example.grasp.ui.theme.PathNodeCurrent
 import com.example.grasp.ui.theme.PathNodeCurrentBevel
+import com.example.grasp.ui.theme.PathNodeCurrentTint
 import com.example.grasp.ui.theme.PathScreenBg
 import kotlin.math.roundToInt
 
@@ -110,9 +106,6 @@ fun HomeScreen(
     onOpenTinker: (String) -> Unit,
     presenterFactory: () -> HomeContract.Presenter = { HomePresenter() },
 ) {
-    var popularTopics by remember { mutableStateOf<List<TopicSuggestion>>(emptyList()) }
-    // Distinguishes "still loading" (show skeletons) from "loaded, but there are none".
-    var topicsLoaded by remember { mutableStateOf(false) }
     var resumable by remember { mutableStateOf<SavedItem?>(null) }
     var mode by remember { mutableStateOf(Mode.LEARNER) }
     var query by remember { mutableStateOf("") }
@@ -124,10 +117,6 @@ fun HomeScreen(
     val presenter = remember { presenterFactory() }
     val view = remember(onOpenLearner, onOpenTinker) {
         object : HomeContract.View {
-            override fun showPopularTopics(topics: List<TopicSuggestion>) {
-                popularTopics = topics
-                topicsLoaded = true
-            }
             override fun showContinue(item: SavedItem?) { resumable = item }
             override fun showGenerating(topic: String?) {
                 generatingTopic = topic
@@ -223,17 +212,13 @@ fun HomeScreen(
 
             item {
                 GameSectionHeader(
-                    text = "Popular topics",
+                    text = "New here?",
                     modifier = Modifier.padding(top = 6.dp, bottom = 2.dp),
                 )
             }
 
-            if (!topicsLoaded) {
-                items(3) { GameSkeletonCard() }
-            } else {
-                items(popularTopics, key = { it.id }) { topic ->
-                    TopicCard(topic = topic, onClick = { presenter.onPopularTopicClicked(topic) })
-                }
+            item {
+                ExamplesCard(onClick = { onSelectTab(TopLevelDestination.LIBRARY) })
             }
         }
     }
@@ -500,23 +485,31 @@ private fun ContinueCard(
     }
 }
 
-/** A tappable popular-topic card showing its subtopic count and which mode it starts. */
+/**
+ * The way in to the ready-made examples, which live in the Library rather than here.
+ *
+ * This replaced a list of "popular topics". Those were only ever suggestions — each one pointed
+ * at a path id that had never been generated, so tapping one opened a roadmap with nothing in it.
+ * The examples are real saved items now (see `StarterLibrary`), already sitting in the Library
+ * alongside the user's own work, which is where a thing you can open, finish and delete belongs.
+ * So Home links to them instead of pretending to hold its own copies.
+ */
 @Composable
-private fun TopicCard(topic: TopicSuggestion, onClick: () -> Unit) {
+private fun ExamplesCard(onClick: () -> Unit) {
     GameCard(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            GameIconTile(tint = topic.mode.tint) {
-                ModeGlyph(mode = topic.mode, tint = topic.mode.accent, size = 24.dp)
+            GameIconTile(tint = PathNodeCurrentTint) {
+                ModeGlyph(mode = Mode.LEARNER, tint = PathNodeCurrent, size = 24.dp)
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = topic.title,
+                    text = "Check out the ready-made examples",
                     fontFamily = NunitoFamily,
                     fontWeight = FontWeight.ExtraBold,
                     fontSize = 15.sp,
@@ -525,24 +518,16 @@ private fun TopicCard(topic: TopicSuggestion, onClick: () -> Unit) {
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    GameTag(
-                        text = topic.mode.label,
-                        accent = topic.mode.accent,
-                        tint = topic.mode.tint,
-                    )
-                    Text(
-                        text = "${topic.subtopicCount} subtopics",
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 12.sp,
-                        color = PathMuted,
-                    )
-                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "A couple of roadmaps and a guide are already in your library — " +
+                        "open one to see how this works.",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 12.5.sp,
+                    lineHeight = 17.sp,
+                    color = PathMuted,
+                )
             }
             Icon(
                 Icons.AutoMirrored.Filled.KeyboardArrowRight,
