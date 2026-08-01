@@ -38,6 +38,7 @@ import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.AiDisclaimer
 import com.example.grasp.ui.components.LessonCode
 import com.example.grasp.ui.components.LessonDiagram
 import com.example.grasp.ui.components.LessonImage
@@ -235,6 +236,11 @@ fun SubtopicSheetContent(
                 ResourceRow(link) { onOpenResource(link.url) }
             }
         }
+
+        // Sits at the END of the lesson, where someone has just finished reading generated
+        // material and is about to mark it learned — not at the top, where it would be a banner
+        // over every lesson before there is anything to be sceptical about.
+        AiDisclaimer(modifier = Modifier.padding(top = 4.dp))
 
         Spacer(Modifier.height(4.dp))
 

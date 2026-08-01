@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
+import com.example.grasp.ui.components.AiDisclaimer
+import com.example.grasp.ui.components.GUIDE_AI_DISCLAIMER
 import com.example.grasp.ui.components.GameButton
 import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameProgressBar
@@ -130,6 +132,13 @@ fun TinkerScreen(
                                 step = step,
                                 onToggle = { presenter.onToggleStep(step) },
                                 onAsk = { presenter.onAskAboutStep(step) },
+                            )
+                        }
+                        // Below the steps, where a guide the user is about to act on ends.
+                        item {
+                            AiDisclaimer(
+                                text = GUIDE_AI_DISCLAIMER,
+                                modifier = Modifier.padding(top = 6.dp),
                             )
                         }
                     }

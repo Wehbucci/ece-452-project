@@ -35,6 +35,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.grasp.data.model.Mode
+import com.example.grasp.ui.components.AiDisclaimer
 import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameIconTile
 import com.example.grasp.ui.components.GameSectionHeader
@@ -135,6 +136,14 @@ fun AboutScreen(onBack: () -> Unit) {
                     }
                 }
 
+                // The long-form version of the notice that rides along with every lesson and every
+                // tutor answer. It belongs here as well as there: this is the page someone opens
+                // when they want to know what the app actually is before trusting it.
+                Spacer(Modifier.height(22.dp))
+                GameSectionHeader(text = "About the AI")
+                Spacer(Modifier.height(10.dp))
+                AiHonestyCard()
+
                 Spacer(Modifier.height(22.dp))
                 GameSectionHeader(text = "The team")
                 Spacer(Modifier.height(10.dp))
@@ -173,6 +182,42 @@ fun AboutScreen(onBack: () -> Unit) {
                 )
                 Spacer(Modifier.height(28.dp))
             }
+        }
+    }
+}
+
+/**
+ * What Grasp is prepared to claim about the material it writes.
+ *
+ * Every roadmap, lesson and answer in the app is generated on demand, which means there is no
+ * author to appeal to and no edition to check against — so the limits are stated plainly here
+ * rather than left for the user to discover from a confidently-worded wrong answer.
+ */
+@Composable
+private fun AiHonestyCard() {
+    GameCard(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = "Everything here is AI-generated",
+                fontFamily = FredokaFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 16.sp,
+                color = PathInk,
+            )
+            AI_HONESTY_POINTS.forEach { point ->
+                Text(
+                    text = "•  $point",
+                    fontFamily = NunitoFamily,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    color = PathMuted,
+                )
+            }
+            AiDisclaimer(modifier = Modifier.padding(top = 2.dp))
         }
     }
 }
@@ -400,6 +445,23 @@ private fun MemberPill(name: String) {
         )
     }
 }
+
+/**
+ * What the "About the AI" card says, in the order it says it.
+ *
+ * Specific rather than a blanket "may contain errors": each line names a way generated material
+ * actually goes wrong, because that is what tells someone when to go and check.
+ */
+private val AI_HONESTY_POINTS = listOf(
+    "Your roadmap, every lesson on it and every answer from the tutor are written by Gemini " +
+        "when you ask for them. No part of it is reviewed by a person first.",
+    "That means it can be confidently wrong — dates, figures, code and step-by-step " +
+        "instructions especially. It can also be out of date on anything that changed recently.",
+    "Treat Grasp as a starting point and a study companion, not as a source. Anything you are " +
+        "going to rely on, act on or be graded on is worth checking elsewhere.",
+    "Lessons are yours to correct: open one, tap “Edit this lesson”, and your version is what " +
+        "the app keeps.",
+)
 
 /** The team, as listed in the repository README. */
 private val TEAM = listOf("Hasan", "Leo", "Ali", "Andria", "Ady", "Richard")

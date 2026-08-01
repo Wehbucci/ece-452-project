@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.ui.components.AiDisclaimer
 import com.example.grasp.ui.components.LessonCode
 import com.example.grasp.ui.components.LessonDiagram
 import com.example.grasp.ui.components.LessonImage
@@ -201,6 +202,10 @@ fun SubtopicScreen(
                 current.resources.forEach { link ->
                     ResourceRow(link = link, onClick = { presenter.onResourceClicked(link) })
                 }
+
+                // Same placement as the roadmap's lesson sheet: at the end of generated material,
+                // before it gets marked as learned.
+                AiDisclaimer(modifier = Modifier.padding(top = 4.dp))
 
                 Spacer(Modifier.height(8.dp))
 

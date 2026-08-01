@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.ui.components.AiDisclaimer
+import com.example.grasp.ui.components.CHAT_AI_DISCLAIMER
 
 /**
  * What a host screen holds while the tutor is open over it.
@@ -168,6 +170,13 @@ private fun ChatPanel(
     ) {
         Column(Modifier.fillMaxSize()) {
             ChatPanelHeader(context = request.context, onDismiss = onDismiss)
+            // Under the header rather than beside the composer: it should be read on the way IN to
+            // the conversation, not discovered underneath an answer already acted on.
+            AiDisclaimer(
+                text = CHAT_AI_DISCLAIMER,
+                compact = true,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            )
             ChatPane(
                 history = history,
                 input = input,
