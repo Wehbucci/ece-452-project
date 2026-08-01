@@ -5,11 +5,17 @@ import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.layout.layoutBoard
 import com.example.grasp.core.mvp.BasePresenter
+import com.example.grasp.core.progress.StudyStreak
 import com.example.grasp.core.progress.Xp
+import com.example.grasp.core.progress.asOf
+import com.example.grasp.core.progress.recordingStudy
+import com.example.grasp.core.progress.todayEpochDay
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import com.example.grasp.ui.feature.subtopic.SectionShape
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +33,7 @@ class PathPresenter(
     private val pathId: String,
     private val repo: PathRepository = FirebasePathRepository(),
     dispatcher: CoroutineDispatcher = Dispatchers.Main,
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<PathContract.View>(), PathContract.Presenter {
 
     private val scope = CoroutineScope(dispatcher + SupervisorJob())
@@ -49,6 +56,14 @@ class PathPresenter(
      * complete moves the bar immediately instead of waiting on a re-read of the whole library.
      */
     private var lessonsMasteredElsewhere = 0
+
+    /**
+     * How many days in a row the user has studied — the flame in the HUD.
+     *
+     * The record as STORED. How long it is today is asked of it on every render, because a streak
+     * that reached nine days last week is still a nine-day record and is no longer a live streak.
+     */
+    private var streak: StudyStreak = StudyStreak.None
 
     /** Node whose lesson is being loaded into the sheet — a late result for anything else is stale. */
     private var openingNodeId: String? = null
@@ -136,6 +151,7 @@ class PathPresenter(
         // would show the user LESS XP than they have earned on this roadmap alone.
         lessonsMasteredElsewhere =
             (repo.totalLessonsMastered() - completed.size).coerceAtLeast(0)
+        streak = userRepo.studyStreak()
         emit()
     }
 
@@ -198,9 +214,15 @@ class PathPresenter(
                 applyRoadmapEdit(RoadmapEdit.ReparentNode(moving, node.id), "↕️ Section moved")
             }
 
-            // Every lesson is open: the roadmap suggests an order, it doesn't enforce one.
             BoardMode.BROWSING, BoardMode.MENU -> {
                 if (boardMode == BoardMode.MENU) leaveBoardEdit()
+                // A locked lesson says what is in the way rather than nothing at all. A tap that
+                // does nothing reads as a broken button; a tap that names the one lesson standing
+                // between the user and this one is a direction to go in.
+                if (node.id !in completed && !isUnlocked(node.id)) {
+                    view?.showToast(lockedMessage(node.id))
+                    return
+                }
                 openSubtopic(node)
             }
         }
@@ -301,9 +323,15 @@ class PathPresenter(
 
         completed += nodeId
 
+        // Today counts as studied. Applied to the local record FIRST so the flame moves with the
+        // rest of the celebration rather than a round-trip later; the repository applies the same
+        // pure rule to the stored record, so the two cannot disagree.
+        streak = streak.recordingStudy(todayEpochDay())
+
         // Persist change to cloud
         scope.launch {
             repo.updateNodeCompletion(pathId, nodeId, true)
+            userRepo.recordStudyToday()
         }
 
         val newXp = xp()
@@ -537,19 +565,71 @@ class PathPresenter(
     }
 
     /**
-     * The current node = the first non-branch, not-yet-complete node in order.
+     * Whether [nodeId] can be opened yet: everything feeding into it is finished.
      *
-     * Purely a "you are here" marker for where the roadmap picks up — it gates nothing, since any
-     * node can be opened whenever the user likes. Depth-first ordering is what makes it land on the
-     * main line rather than in a detour.
+     * The roadmap is a prerequisite graph — a connector means "this builds on that" — so a lesson
+     * is available exactly when its parents are done. The root has no parents and is therefore
+     * always open, which guarantees every roadmap has somewhere to start.
+     *
+     * A converge (two parents naming the same child) needs BOTH, which is the only reading that
+     * matches what the board draws: two lines arriving into one lesson because it depends on both.
+     *
+     * Note this is about opening a lesson, not about editing the roadmap — adding, moving and
+     * deleting sections stay available everywhere (see [isPickable]). Locking is a statement about
+     * what the user is ready to read, never about what they are allowed to change.
      */
-    private fun currentId(): String? = nodes.firstOrNull { !it.isBranchOut && it.id !in completed }?.id
+    private fun isUnlocked(nodeId: String, parents: Map<String, List<String>> = parentsMap()): Boolean =
+        parents[nodeId].orEmpty().all { it in completed }
 
-    private fun stateOf(node: TreeNode, current: String? = currentId()): PathNodeState = when {
+    /**
+     * The current node = the first not-yet-complete node that is actually open.
+     *
+     * The "you are here" marker, and now also the frontier: with the board gated, this is the
+     * lesson the roadmap has arrived at. Depth-first ordering is what makes it land on the main
+     * line rather than in a detour.
+     */
+    private fun currentId(): String? {
+        val parents = parentsMap()
+        return nodes.firstOrNull {
+            !it.isBranchOut && it.id !in completed && isUnlocked(it.id, parents)
+        }?.id
+    }
+
+    private fun stateOf(
+        node: TreeNode,
+        current: String? = currentId(),
+        parents: Map<String, List<String>> = parentsMap(),
+    ): PathNodeState = when {
         node.isBranchOut -> PathNodeState.BRANCH
+        // Completion outranks locking. A roadmap reshaped after the fact — a section moved under
+        // an unfinished one — must never take back a lesson the user has already done.
         node.id in completed -> PathNodeState.DONE
         node.id == current -> PathNodeState.CURRENT
+        !isUnlocked(node.id, parents) -> PathNodeState.LOCKED
         else -> PathNodeState.OPEN
+    }
+
+    /** What the user has to finish before [nodeId] opens, named so the toast can say it. */
+    private fun blockingTitles(nodeId: String): List<String> =
+        parentsMap()[nodeId].orEmpty()
+            .filter { it !in completed }
+            .mapNotNull { id -> nodes.firstOrNull { it.id == id }?.title }
+
+    /**
+     * Why a locked lesson wouldn't open, in one line.
+     *
+     * Names the blocker when there is exactly one, because that is a thing the user can go and do.
+     * With two it lists both; beyond that the sentence stops being a direction and becomes a wall
+     * of titles, so it just counts them.
+     */
+    private fun lockedMessage(nodeId: String): String {
+        val blockers = blockingTitles(nodeId)
+        return when (blockers.size) {
+            0 -> "🔒 Finish the sections leading here first"
+            1 -> "🔒 Finish “${blockers.single()}” first"
+            2 -> "🔒 Finish “${blockers[0]}” and “${blockers[1]}” first"
+            else -> "🔒 Finish the ${blockers.size} sections leading here first"
+        }
     }
 
     /** Lessons finished on THIS roadmap — what the "{n} of {m} mastered" line counts. */
@@ -582,22 +662,22 @@ class PathPresenter(
                 id = n.id,
                 title = n.title,
                 estMinutes = n.estMinutes,
-                state = stateOf(n, current),
+                state = stateOf(n, current, parents),
                 column = layout.columns.getValue(n.id),
                 row = layout.rows.getValue(n.id),
                 parentIds = parents[n.id].orEmpty(),
                 pickable = !boardMode.picking || isPickable(n.id),
             )
         }
-        // One pill per tier, anchored at the tier's first (shallowest) row — several nodes may
-        // declare the same tier. Only hand-authored roadmaps set one; nothing generated or grown
-        // does, so in practice the board carries no pills.
-        val regions = nodes
-            .filter { !it.tier.isNullOrBlank() }
-            .map { RegionUi(it.tier!!, layout.rows.getValue(it.id)) }
-            .groupBy { it.label }
-            .map { (_, group) -> group.minBy { it.row } }
-            .sortedBy { it.row }
+        // Bands down the board, from hand-authored tiers where they exist and from the tree's own
+        // depth where they don't — which is every generated roadmap. See [regionsFor] for why a
+        // roadmap gets a full set of bands or none at all, never a lone one.
+        val regions = regionsFor(
+            rowByNode = layout.rows,
+            tierByNode = nodes
+                .filter { !it.tier.isNullOrBlank() }
+                .associate { it.id to it.tier!! },
+        )
 
         view?.showPath(
             PathUiState(
@@ -611,7 +691,7 @@ class PathPresenter(
                 // roadmap the user has.
                 masteredCount = masteredHere(),
                 totalLessons = nodes.count { !it.isBranchOut },
-                streak = STREAK,
+                streak = streak.asOf(todayEpochDay()),
                 level = Xp.levelFor(xp),
                 xpInLevel = Xp.inLevel(xp),
                 xpPerLevel = Xp.PER_LEVEL,
@@ -622,8 +702,4 @@ class PathPresenter(
         )
     }
 
-    companion object {
-        /** Demo streak count shown in the HUD (real value would come from UserRepository). */
-        const val STREAK = 6
-    }
 }

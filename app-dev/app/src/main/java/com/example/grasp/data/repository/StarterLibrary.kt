@@ -43,7 +43,7 @@ object StarterLibrary {
         title = "How Learning Works",
         nodes = listOf(
             node("example-how-learning-works", "How Learning Works", 6,
-                children = listOf("hlw-memory", "hlw-practice"), tier = "FOUNDATIONS"),
+                children = listOf("hlw-memory", "hlw-practice")),
 
             node("hlw-memory", "How Memory Works", 8, children = listOf("hlw-forgetting")),
             node("hlw-forgetting", "The Forgetting Curve", 7, children = listOf("hlw-spacing")),
@@ -67,7 +67,7 @@ object StarterLibrary {
         title = "Space Exploration",
         nodes = listOf(
             node("example-space-exploration", "Space Exploration", 5,
-                children = listOf("se-orbit", "se-race"), tier = "FOUNDATIONS"),
+                children = listOf("se-orbit", "se-race")),
 
             node("se-orbit", "What Orbit Is", 8, children = listOf("se-rockets")),
             node("se-rockets", "How Rockets Work", 10, children = listOf("se-reusable")),
@@ -129,19 +129,24 @@ object StarterLibrary {
         )
     }
 
+    /**
+     * No `tier`, deliberately. A hand-authored tier overrides the board's derived bands
+     * (see `ui.feature.path.regionsFor`), and these roadmaps have nothing to say about their own
+     * structure that depth does not already say — an earlier version tagged only the root
+     * "FOUNDATIONS", which put a banner at the top with nothing after it and made the whole
+     * roadmap read as foundational.
+     */
     private fun node(
         id: String,
         title: String,
         estMinutes: Int,
         children: List<String> = emptyList(),
-        tier: String? = null,
     ) = TreeNode(
         id = id,
         title = title,
         estMinutes = estMinutes,
         children = children,
         contentReady = false,
-        tier = tier,
     )
 
     private fun step(order: Int, instruction: String, detail: String, estMinutes: Int) =
