@@ -7,7 +7,9 @@ import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +20,7 @@ class TinkerPresenter(
     private val guideId: String,
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<TinkerContract.View>(), TinkerContract.Presenter {
 
     private var guide: TinkerGuide? = null
@@ -55,6 +58,9 @@ class TinkerPresenter(
 
         scope.launch {
             repo.updateTinkerStepCompletion(guideId, step.id, newDone)
+            // A finished step is worth what a finished lesson is (see `core.progress.Xp`), so it
+            // keeps a streak alive too. Un-ticking one does not.
+            if (newDone) userRepo.recordStudyToday()
         }
     }
 

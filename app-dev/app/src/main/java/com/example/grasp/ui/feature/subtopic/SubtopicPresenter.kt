@@ -7,7 +7,9 @@ import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.repository.ChatRepository
 import com.example.grasp.data.repository.FirebaseChatRepository
 import com.example.grasp.data.repository.FirebasePathRepository
+import com.example.grasp.data.repository.FirebaseUserRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -19,6 +21,7 @@ class SubtopicPresenter(
     private val nodeId: String,
     private val repo: PathRepository = FirebasePathRepository(),
     private val chatRepo: ChatRepository = FirebaseChatRepository(),
+    private val userRepo: UserRepository = FirebaseUserRepository(),
 ) : BasePresenter<SubtopicContract.View>(), SubtopicContract.Presenter {
 
     private var subtopic: Subtopic? = null
@@ -65,10 +68,13 @@ class SubtopicPresenter(
     override fun onToggleComplete() {
         completed = !completed
         view?.showCompleted(completed)
-        
+
         // Persist change to cloud
         scope.launch {
             repo.updateNodeCompletion(pathId, nodeId, completed)
+            // Only finishing something counts as studying. Un-ticking a lesson is a correction,
+            // and taking a day off the streak for it would punish fixing a mistake.
+            if (completed) userRepo.recordStudyToday()
         }
     }
 
