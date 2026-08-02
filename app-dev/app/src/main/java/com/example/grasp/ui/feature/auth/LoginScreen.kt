@@ -90,6 +90,7 @@ fun LoginScreen(
     var errorText by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(false) }
     var isSignUpMode by remember { mutableStateOf(false) }
+    var verificationEmailSent by remember { mutableStateOf<String?>(null) }
 
     // (2) Presenter
     val presenter = remember { presenterFactory() }
@@ -100,6 +101,11 @@ fun LoginScreen(
             override fun showError(message: String?) { errorText = message }
             override fun showLoading(loading: Boolean) { isLoading = loading }
             override fun onLoggedIn() = onAuthenticated()
+            override fun showVerificationSent(email: String) {
+                verificationEmailSent = email
+                isSignUpMode = false
+                errorText = null
+            }
         }
     }
 
@@ -155,34 +161,66 @@ fun LoginScreen(
 
         Spacer(Modifier.height(28.dp))
 
-        GameCard(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(18.dp)) {
-                FieldLabel("EMAIL")
-                AuthField(
-                    value = email,
-                    onValueChange = { email = it; errorText = null },
-                    placeholder = "you@example.com",
-                    keyboardType = KeyboardType.Email,
-                )
-                if (isSignUpMode) {
+        if (verificationEmailSent != null) {
+            GameCard(
+                modifier = Modifier.fillMaxWidth(),
+                color = com.example.grasp.ui.theme.PathChipNeutralBg,
+            ) {
+                Column(modifier = Modifier.padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Verify your email",
+                        fontFamily = NunitoFamily,
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 18.sp,
+                        color = PathInk,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "We've sent a verification link to $verificationEmailSent. Please check your inbox and follow the link to activate your account.",
+                        fontFamily = NunitoFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 14.sp,
+                        color = PathMuted,
+                        textAlign = TextAlign.Center,
+                    )
                     Spacer(Modifier.height(16.dp))
-                    FieldLabel("USERNAME")
-                    AuthField(
-                        value = username,
-                        onValueChange = { username = it; errorText = null },
-                        placeholder = "e.g. jordan_uw",
-                        keyboardType = KeyboardType.Text,
+                    com.example.grasp.ui.components.OutlinedGameButton(
+                        label = "Got it",
+                        onClick = { verificationEmailSent = null },
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-                Spacer(Modifier.height(16.dp))
-                FieldLabel("PASSWORD")
-                AuthField(
-                    value = password,
-                    onValueChange = { password = it; errorText = null },
-                    placeholder = "••••••••",
-                    keyboardType = KeyboardType.Password,
-                    isPassword = true,
-                )
+            }
+        } else {
+            GameCard(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    FieldLabel("EMAIL")
+                    AuthField(
+                        value = email,
+                        onValueChange = { email = it; errorText = null },
+                        placeholder = "you@example.com",
+                        keyboardType = KeyboardType.Email,
+                    )
+                    if (isSignUpMode) {
+                        Spacer(Modifier.height(16.dp))
+                        FieldLabel("USERNAME")
+                        AuthField(
+                            value = username,
+                            onValueChange = { username = it; errorText = null },
+                            placeholder = "e.g. jordan_uw",
+                            keyboardType = KeyboardType.Text,
+                        )
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    FieldLabel("PASSWORD")
+                    AuthField(
+                        value = password,
+                        onValueChange = { password = it; errorText = null },
+                        placeholder = "••••••••",
+                        keyboardType = KeyboardType.Password,
+                        isPassword = true,
+                    )
+                }
             }
         }
 

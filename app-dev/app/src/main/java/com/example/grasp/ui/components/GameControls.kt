@@ -39,6 +39,7 @@ import com.example.grasp.ui.theme.GameCardBevel
 import com.example.grasp.ui.theme.GameTintAmber
 import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathCard
+import com.example.grasp.ui.theme.PathInk
 import com.example.grasp.ui.theme.PathMuted
 import com.example.grasp.ui.theme.PathNodeBranch
 import com.example.grasp.ui.theme.PathNodeBranchBevel
@@ -149,6 +150,37 @@ fun GameButton(
                 fontSize = 16.sp,
             )
         }
+    }
+}
+
+/**
+ * A lighter version of the game button: no bevel, just a simple outline.
+ */
+@Composable
+fun OutlinedGameButton(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    borderColor: Color = GameCardBevel,
+    textColor: Color = PathInk,
+    height: Dp = 54.dp,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(height)
+            .border(1.5.dp, borderColor, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(18.dp))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = textColor,
+            fontFamily = FredokaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 15.sp,
+        )
     }
 }
 

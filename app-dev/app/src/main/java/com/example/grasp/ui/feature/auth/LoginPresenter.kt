@@ -38,9 +38,19 @@ class LoginPresenter(
         view?.showLoading(true)
 
         auth.signInWithEmailAndPassword(email.trim(), password)
-            .addOnSuccessListener {
-                view?.showLoading(false)
-                view?.onLoggedIn()
+            .addOnSuccessListener { result ->
+                val user = result.user
+                if (user != null && user.isEmailVerified) {
+                    view?.showLoading(false)
+                    view?.onLoggedIn()
+                } else if (user != null) {
+                    auth.signOut()
+                    view?.showLoading(false)
+                    view?.showError("Please verify your email address before logging in. Check your inbox for a verification link.")
+                } else {
+                    view?.showLoading(false)
+                    view?.showError("Login failed. Please try again.")
+                }
             }
             .addOnFailureListener { e ->
                 view?.showLoading(false)
@@ -61,11 +71,25 @@ class LoginPresenter(
         view?.showLoading(true)
 
         auth.createUserWithEmailAndPassword(email.trim(), password)
-            .addOnSuccessListener {
-                scope.launch {
-                    userRepo.setUsername(username.trim())
+            .addOnSuccessListener { result ->
+                val user = result.user
+                if (user != null) {
+                    user.sendEmailVerification()
+                        .addOnCompleteListener { task ->
+                            scope.launch {
+                                userRepo.setUsername(username.trim())
+                                auth.signOut() // Sign out so they have to log in AFTER verifying.
+                                view?.showLoading(false)
+                                if (task.isSuccessful) {
+                                    view?.showVerificationSent(email.trim())
+                                } else {
+                                    view?.showError("Account created, but we couldn't send a verification email. Please log in to try again.")
+                                }
+                            }
+                        }
+                } else {
                     view?.showLoading(false)
-                    view?.onLoggedIn()
+                    view?.showError("Account creation failed. Please try again.")
                 }
             }
             .addOnFailureListener { e ->

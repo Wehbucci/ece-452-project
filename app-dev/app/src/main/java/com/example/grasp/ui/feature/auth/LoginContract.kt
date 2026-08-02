@@ -22,6 +22,9 @@ interface LoginContract {
 
         /** Auth succeeded — the screen should navigate on to the app. */
         fun onLoggedIn()
+
+        /** Verification email sent — show a confirmation message. */
+        fun showVerificationSent(email: String)
     }
 
     interface Presenter : MvpPresenter<View> {
