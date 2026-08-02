@@ -142,6 +142,16 @@ val PathNodeCurrentBevel = Color(0xFF5346D6)
 val PathNodeCurrentTint = Color(0xFFEDEAFE) // "current" state-chip background
 val PathNodeOpenBevel = Color(0xFFE4E1F0)   // soft bevel under an available (open) node
 
+// ---- Node: LOCKED (grey — a lesson whose prerequisites aren't finished) ----
+/**
+ * Deliberately the quietest thing on the board, and NOT the danger red: a locked lesson is not a
+ * mistake or a warning, it is simply further along than the user has reached. Grey also keeps the
+ * indigo of the one available node the only thing competing for attention.
+ */
+val PathNodeLocked = Color(0xFFEDEBF5)
+val PathNodeLockedBevel = Color(0xFFDCD9EA)
+val PathNodeLockedInk = Color(0xFFA8A5BC) // padlock glyph + title of a locked node
+
 // ---- Node: BRANCH + XP (amber "grow your path") ----
 val PathNodeBranch = Color(0xFFF5A524)
 val PathNodeBranchBevel = Color(0xFFEBDFC7)

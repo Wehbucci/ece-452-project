@@ -29,6 +29,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
@@ -67,6 +68,9 @@ import com.example.grasp.ui.theme.PathNodeCurrent
 import com.example.grasp.ui.theme.PathNodeCurrentBevel
 import com.example.grasp.ui.theme.PathNodeDone
 import com.example.grasp.ui.theme.PathNodeDoneBevel
+import com.example.grasp.ui.theme.PathNodeLocked
+import com.example.grasp.ui.theme.PathNodeLockedBevel
+import com.example.grasp.ui.theme.PathNodeLockedInk
 import com.example.grasp.ui.theme.PathNodeOpenBevel
 import com.example.grasp.ui.theme.PathScreenBg
 import com.example.grasp.ui.theme.PathStreak
@@ -142,6 +146,9 @@ object PathLayout {
         PathNodeState.CURRENT -> 82.dp
         PathNodeState.DONE -> 70.dp
         PathNodeState.OPEN -> 70.dp
+        // Smaller than an available lesson, so the board's rhythm reads as "here is what you can
+        // do" with the rest receding, rather than as a wall of equally-weighted circles.
+        PathNodeState.LOCKED -> 62.dp
         PathNodeState.BRANCH -> 60.dp
     }
 }
@@ -273,6 +280,7 @@ fun PathNode(
                 overflow = TextOverflow.Ellipsis,
                 color = when (node.state) {
                     PathNodeState.BRANCH -> PathMuted
+                    PathNodeState.LOCKED -> PathNodeLockedInk
                     else -> PathInk
                 },
             )
@@ -395,6 +403,7 @@ private fun NodeCircle(state: PathNodeState) {
             PathNodeState.DONE -> PathNodeDone to PathNodeDoneBevel
             PathNodeState.CURRENT -> PathNodeCurrent to PathNodeCurrentBevel
             PathNodeState.OPEN -> PathCard to PathNodeOpenBevel
+            PathNodeState.LOCKED -> PathNodeLocked to PathNodeLockedBevel
             PathNodeState.BRANCH -> PathCard to PathNodeBranchBevel
         }
         // Hard (0-blur) bevel directly beneath, then the fill on top.
@@ -428,6 +437,13 @@ private fun NodeGlyph(state: PathNodeState) {
             Icon(Icons.Filled.Add, contentDescription = "Grow your path", tint = PathNodeBranch, modifier = Modifier.size(glyphSize))
         PathNodeState.OPEN ->
             LessonBookGlyph(modifier = Modifier.size(glyphSize))
+        PathNodeState.LOCKED ->
+            Icon(
+                Icons.Filled.Lock,
+                contentDescription = "Locked until the sections before it are done",
+                tint = PathNodeLockedInk,
+                modifier = Modifier.size(glyphSize),
+            )
     }
 }
 

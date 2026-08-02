@@ -561,15 +561,18 @@ private fun PathScreenPreview() {
     val sample = PathUiState(
         title = "Machine Learning",
         nodes = listOf(
+            // States as the presenter would derive them for this shape: a lesson is open once its
+            // parents are done, so the two strands the root leads to are available and everything
+            // behind an unfinished lesson is locked.
             n("a", "What is ML?", 5, PathNodeState.DONE, 1f, 0, emptyList()),
             n("b", "Supervised", 12, PathNodeState.DONE, 0f, 1, listOf("a")),
             n("e", "Regression", 10, PathNodeState.CURRENT, 0f, 2, listOf("b")),
-            n("h", "Overfitting", 9, PathNodeState.OPEN, 0f, 3, listOf("e")),
+            n("h", "Overfitting", 9, PathNodeState.LOCKED, 0f, 3, listOf("e")),
             n("c", "Unsupervised", 12, PathNodeState.OPEN, 1f, 1, listOf("a")),
-            n("f", "Clustering", 10, PathNodeState.OPEN, 1f, 2, listOf("c")),
+            n("f", "Clustering", 10, PathNodeState.LOCKED, 1f, 2, listOf("c")),
             n("d", "Model Evaluation", 9, PathNodeState.OPEN, 2f, 1, listOf("a")),
-            n("g", "Cross-validation", 11, PathNodeState.OPEN, 2f, 2, listOf("d")),
-            n("i", "Neural Networks", 15, PathNodeState.OPEN, 2f, 3, listOf("g")),
+            n("g", "Cross-validation", 11, PathNodeState.LOCKED, 2f, 2, listOf("d")),
+            n("i", "Neural Networks", 15, PathNodeState.LOCKED, 2f, 3, listOf("g")),
         ),
         regions = listOf(
             RegionUi("FOUNDATIONS", 0),

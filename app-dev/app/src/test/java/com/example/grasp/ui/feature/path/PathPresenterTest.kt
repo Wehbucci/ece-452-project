@@ -4,8 +4,13 @@ import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.Subtopic
+import com.example.grasp.core.progress.StudyStreak
+import com.example.grasp.core.progress.recordingStudy
+import com.example.grasp.core.progress.todayEpochDay
+import com.example.grasp.data.model.UserPreferences
 import com.example.grasp.data.repository.FakePathRepository
 import com.example.grasp.data.repository.PathRepository
+import com.example.grasp.data.repository.UserRepository
 import com.example.grasp.ui.feature.subtopic.SectionShape
 import kotlinx.coroutines.CoroutineDispatcher
 import org.junit.Assert.assertEquals
@@ -114,6 +119,22 @@ class PathPresenterTest {
             FakePathRepository.learningPath(pathId)?.lessonsMastered ?: 0
     }
 
+    /**
+     * An in-memory user record, so a presenter test never reaches for Firebase.
+     *
+     * The streak is real state rather than a stub: [recordStudyToday] applies the same pure rule
+     * the Firestore-backed one does, which is what lets the tests below assert on the flame.
+     */
+    private class FakeUser(var streak: StudyStreak = StudyStreak.None) : UserRepository {
+        override suspend fun getPreferences() = UserPreferences()
+        override suspend fun setPreferences(prefs: UserPreferences) = Unit
+        override suspend fun getUsername(): String? = null
+        override suspend fun setUsername(username: String) = Unit
+        override suspend fun studyStreak(): StudyStreak = streak
+        override suspend fun recordStudyToday(): StudyStreak =
+            streak.recordingStudy(todayEpochDay()).also { streak = it }
+    }
+
     /** The fake is a singleton, so each test starts from the canned content, not the last one's. */
     @Before
     fun clearFakeEdits() = FakePathRepository.clearEdits()
@@ -123,29 +144,92 @@ class PathPresenterTest {
     private fun attach(
         pathId: String = "ml-101",
         repo: PathRepository = OnlyThisPath(pathId),
+        user: UserRepository = FakeUser(),
     ): Pair<PathPresenter, FakeView> {
-        val presenter = PathPresenter(pathId, repo, DirectDispatcher())
+        val presenter = PathPresenter(pathId, repo, DirectDispatcher(), user)
         val view = FakeView()
         presenter.attach(view)
         return presenter to view
     }
 
     @Test
-    fun `derives done, current and open states from the completed set`() {
+    fun `derives every node's state from the completed set and the tree above it`() {
         val (_, view) = attach()
         val state = view.lastState!!
 
         // whatis / types / data are pre-completed in the fake ML graph.
         assertEquals(PathNodeState.DONE, state.node("data-basics").state)
-        // First incomplete, non-branch node is current; its sibling is merely open.
+        // Both strands hang off the finished data-basics, so both are open. The first incomplete
+        // one in board order carries the marker; its sibling is merely available.
         assertEquals(PathNodeState.CURRENT, state.node("supervised").state)
         assertEquals(PathNodeState.OPEN, state.node("unsupervised").state)
-        // Nothing is gated: a node several steps ahead of the marker is open too.
-        assertEquals(PathNodeState.OPEN, state.node("regression").state)
-        assertEquals(PathNodeState.OPEN, state.node("model-evaluation").state)
+        // Behind an unfinished lesson, and therefore not open yet.
+        assertEquals(PathNodeState.LOCKED, state.node("regression").state)
+        // A converge: neither line feeding it is finished.
+        assertEquals(PathNodeState.LOCKED, state.node("model-evaluation").state)
         // The old standing "Branch out" placeholder is not part of the board any more.
         assertNull(state.nodes.firstOrNull { it.id == "branch-1" })
         assertTrue(state.nodes.none { it.state == PathNodeState.BRANCH })
+    }
+
+    /** The gate is the tree: finishing a lesson is what opens whatever hangs off it. */
+    @Test
+    fun `finishing a lesson unlocks what comes after it`() {
+        val (presenter, view) = attach()
+        assertEquals(PathNodeState.LOCKED, view.lastState!!.node("regression").state)
+
+        presenter.onMarkComplete("supervised")
+
+        // Unlocked, but not the marker: "unsupervised" was already open and comes first in board
+        // order, so that is where the roadmap says it has got to. Being open and being next are
+        // two different things.
+        assertEquals(PathNodeState.OPEN, view.lastState!!.node("regression").state)
+        assertEquals(PathNodeState.CURRENT, view.lastState!!.node("unsupervised").state)
+        // The other strand is untouched — unlocking is local to the line that was finished.
+        assertEquals(PathNodeState.LOCKED, view.lastState!!.node("clustering").state)
+    }
+
+    /** A converge needs both lines in, which is exactly what the board draws arriving into it. */
+    @Test
+    fun `a section fed by two lines waits for both of them`() {
+        val (presenter, _) = attach()
+
+        presenter.onMarkComplete("supervised")
+        presenter.onMarkComplete("regression")
+        val (_, halfway) = attach()
+        // Re-read: one line in, the other still missing.
+        assertEquals(PathNodeState.LOCKED, halfway.lastState!!.node("model-evaluation").state)
+    }
+
+    @Test
+    fun `a locked section will not open, and says what is in the way`() {
+        val (presenter, view) = attach()
+
+        presenter.onNodeTapped("regression")
+
+        assertNull("no lesson opens", view.subtopicSheet)
+        assertTrue(view.loadingTitles.isEmpty())
+        assertTrue(
+            "the toast should name the section standing in the way",
+            view.toasts.any { it.contains("Supervised") },
+        )
+    }
+
+    /**
+     * Completion outranks locking. A roadmap reshaped after the fact must never take back a lesson
+     * the user has already finished.
+     */
+    @Test
+    fun `a finished section stays finished even when moved behind unfinished work`() {
+        val (presenter, view) = attach()
+
+        // supervised is done, then hung under a lesson that is not.
+        presenter.onMarkComplete("supervised")
+        presenter.onMoveSectionChosen()
+        presenter.onNodeTapped("supervised")
+        presenter.onNodeTapped("clustering")
+
+        assertEquals(PathNodeState.DONE, view.lastState!!.node("supervised").state)
     }
 
     @Test
@@ -219,14 +303,14 @@ class PathPresenterTest {
     }
 
     @Test
-    fun `a node further along the path opens like any other`() {
+    fun `an unlocked node off the marker's own line still opens freely`() {
         val (presenter, view) = attach()
 
-        // "regression" sits behind two unfinished lessons — the roadmap suggests an order, it
-        // doesn't enforce one, so this still opens.
-        presenter.onNodeTapped("regression")
+        // The gate is prerequisites, not the marker: "unsupervised" is not the current node but
+        // everything feeding it is done, so nothing stands in the way of reading it.
+        presenter.onNodeTapped("unsupervised")
 
-        assertEquals("regression", view.subtopicSheet?.nodeId)
+        assertEquals("unsupervised", view.subtopicSheet?.nodeId)
         assertTrue(view.toasts.isEmpty())
     }
 
@@ -634,13 +718,13 @@ class PathPresenterTest {
     @Test
     fun `closing a tutor opened from a paragraph reopens that paragraph's lesson`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("regression")
-        presenter.onAskAboutBlock("regression", "Some paragraph.", "b-1")
+        presenter.onNodeTapped("unsupervised")
+        presenter.onAskAboutBlock("unsupervised", "Some paragraph.", "b-1")
         view.subtopicSheet = null
 
         presenter.onChatClosed()
 
-        assertEquals("regression", view.subtopicSheet?.nodeId)
+        assertEquals("unsupervised", view.subtopicSheet?.nodeId)
     }
 
     /** The roadmap tutor was opened from the board, so the board is where closing it belongs. */
@@ -659,9 +743,9 @@ class PathPresenterTest {
     @Test
     fun `closing the tutor on a section that is gone does not reopen anything`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("clustering")
-        presenter.onAskAi("clustering")
-        presenter.onDeleteSectionConfirmed("clustering", withDescendants = false)
+        presenter.onNodeTapped("unsupervised")
+        presenter.onAskAi("unsupervised")
+        presenter.onDeleteSectionConfirmed("unsupervised", withDescendants = true)
         view.subtopicSheet = null
 
         presenter.onChatClosed()
@@ -703,7 +787,7 @@ class PathPresenterTest {
     @Test
     fun `undo puts the lesson back and says so when there is nothing left`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("regression")
+        presenter.onNodeTapped("supervised")
         val blockId = view.subtopicSheet!!.body.first { it is LessonBlock.Paragraph }.id
         val original = view.subtopicSheet!!.body.first { it.id == blockId }.text
 
@@ -719,7 +803,7 @@ class PathPresenterTest {
     @Test
     fun `an edit aimed at a block that is gone changes nothing and says so`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("clustering")
+        presenter.onNodeTapped("supervised")
         val before = view.subtopicSheet!!
 
         presenter.onLessonEdit(LessonEdit.DeleteBlock("never-existed"))
@@ -741,27 +825,101 @@ class PathPresenterTest {
     @Test
     fun `deleting the open section closes its sheet and re-lays the board`() {
         val (presenter, view) = attach()
-        presenter.onNodeTapped("clustering")
+        presenter.onNodeTapped("unsupervised")
         val dismissedBefore = view.dismissCount
 
-        presenter.onDeleteSectionConfirmed("clustering", withDescendants = false)
+        presenter.onDeleteSectionConfirmed("unsupervised", withDescendants = false)
 
-        assertNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
+        assertNull(view.lastState!!.nodes.firstOrNull { it.id == "unsupervised" })
         assertTrue(view.dismissCount > dismissedBefore)
         // What grew beyond it is still there — deleting one section isn't deleting a branch.
-        assertNotNull(view.lastState!!.nodes.firstOrNull { it.id == "model-evaluation" })
+        assertNotNull(view.lastState!!.nodes.firstOrNull { it.id == "clustering" })
     }
 
     @Test
     fun `the open section carries its roadmap name and numbers, and nothing structural`() {
         val (presenter, view) = attach()
 
-        presenter.onNodeTapped("regression")
+        presenter.onNodeTapped("supervised")
 
         val section = view.subtopicSection!!
-        assertEquals("regression", section.nodeId)
-        assertEquals("Regression", section.title)
-        assertEquals(10, section.estMinutes)
+        assertEquals("supervised", section.nodeId)
+        assertEquals("Supervised", section.title)
+        assertEquals(12, section.estMinutes)
+    }
+
+    // ── Streak ──────────────────────────────────────────────────────────────────────────────
+
+    @Test
+    fun `the HUD shows the stored streak, not a hardcoded one`() {
+        val today = todayEpochDay()
+        val (_, view) = attach(user = FakeUser(StudyStreak(days = 9, lastStudyDay = today)))
+
+        assertEquals(9, view.lastState!!.streak)
+    }
+
+    /** A streak that stopped being extended is over, however long it once was. */
+    @Test
+    fun `a streak the user let lapse shows as zero`() {
+        val stale = StudyStreak(days = 9, lastStudyDay = todayEpochDay() - 5)
+        val (_, view) = attach(user = FakeUser(stale))
+
+        assertEquals(0, view.lastState!!.streak)
+    }
+
+    @Test
+    fun `finishing a lesson starts a streak`() {
+        val (presenter, view) = attach(user = FakeUser(StudyStreak.None))
+        assertEquals(0, view.lastState!!.streak)
+
+        presenter.onMarkComplete("supervised")
+
+        assertEquals(1, view.lastState!!.streak)
+    }
+
+    @Test
+    fun `finishing a lesson the day after extends the streak`() {
+        val yesterday = StudyStreak(days = 3, lastStudyDay = todayEpochDay() - 1)
+        val (presenter, view) = attach(user = FakeUser(yesterday))
+        assertEquals("still alive — today is the day to keep it", 3, view.lastState!!.streak)
+
+        presenter.onMarkComplete("supervised")
+
+        assertEquals(4, view.lastState!!.streak)
+    }
+
+    /** A second lesson on the same day is not a second day. */
+    @Test
+    fun `two lessons in one day only count once`() {
+        val (presenter, view) = attach(user = FakeUser(StudyStreak.None))
+
+        presenter.onMarkComplete("supervised")
+        presenter.onMarkComplete("unsupervised")
+
+        assertEquals(1, view.lastState!!.streak)
+    }
+
+    @Test
+    fun `studying after a gap starts again from one`() {
+        val lapsed = StudyStreak(days = 12, lastStudyDay = todayEpochDay() - 4)
+        val (presenter, view) = attach(user = FakeUser(lapsed))
+
+        presenter.onMarkComplete("supervised")
+
+        assertEquals(1, view.lastState!!.streak)
+    }
+
+    /** What the HUD shows and what gets written down have to be the same number. */
+    @Test
+    fun `the streak shown is the streak persisted`() {
+        val user = FakeUser(StudyStreak(days = 3, lastStudyDay = todayEpochDay() - 1))
+        val (presenter, view) = attach(user = user)
+
+        presenter.onMarkComplete("supervised")
+
+        assertEquals(4, view.lastState!!.streak)
+        assertEquals(4, user.streak.days)
+        assertEquals(todayEpochDay(), user.streak.lastStudyDay)
     }
 
     @Test

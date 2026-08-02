@@ -12,8 +12,13 @@ package com.example.grasp.ui.feature.path
 /**
  * Visual state of one node on the journey (README §"Node states & styling").
  *
- * Derived per render from the completed-set — never stored. Nothing on the board is ever gated:
- * every lesson is open from the start, so a node is only ever done, the one you're on, or waiting.
+ * Derived per render from the completed-set and the shape of the tree — never stored.
+ *
+ * The board is GATED: a lesson opens once everything feeding into it is finished. The roadmap is a
+ * prerequisite graph, so a tree where every node was tappable from the start was drawing an order
+ * it did not mean — the connectors said "this builds on that" while the board said "start
+ * anywhere". Locking is what makes the picture true, and it is what makes progress legible: at any
+ * moment there is a visible edge between what you have done and what you have not.
  */
 enum class PathNodeState {
     /** Finished — green with a white check. */
@@ -22,8 +27,11 @@ enum class PathNodeState {
     /** The single "you are here" node — indigo, pulsing ring, star. */
     CURRENT,
 
-    /** Not started and not the current one — white w/ indigo border. */
+    /** Unlocked and not the current one — white w/ indigo border. Free to open. */
     OPEN,
+
+    /** Something feeding into it isn't finished — grey with a padlock, and not tappable. */
+    LOCKED,
 
     /** The amber "grow your path" affordance — white with a dashed amber border + plus. */
     BRANCH,
