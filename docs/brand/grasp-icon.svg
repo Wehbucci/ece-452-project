@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Grasp app icon">
+  <title>Grasp</title>
+
+  <!-- The white rounded tile the mark sits in on the Login and About screens.
+       Corner radius keeps the app's 26:78 ratio (PathCard, RoundedCornerShape(26.dp) on 78.dp). -->
+  <rect x="0" y="0" width="1024" height="1024" rx="341.33" ry="341.33" fill="#FFFFFF"/>
+  <rect x="4" y="4" width="1016" height="1016" rx="337.33" ry="337.33"
+        fill="none" stroke="#E4E1F0" stroke-width="8"/>
+
+  <!-- SproutGlyph, at the same 44:78 scale it has inside the tile.
+       Stem first, leaves over it — the same draw order as the Compose Canvas. -->
+  <g>
+    <line x1="512" y1="754.59" x2="512" y2="396.48"
+          stroke="#1FB980" stroke-width="57.76" stroke-linecap="round"/>
+    <ellipse cx="402.26" cy="465.79" rx="98.19" ry="54.87" fill="#6C5CE7"
+             transform="rotate(-32 402.26 465.79)"/>
+    <ellipse cx="621.74" cy="558.21" rx="98.19" ry="54.87" fill="#6C5CE7"
+             transform="rotate(32 621.74 558.21)"/>
+  </g>
+</svg>

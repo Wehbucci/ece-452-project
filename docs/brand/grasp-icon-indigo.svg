@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024" role="img" aria-label="Grasp app icon on indigo">
+  <title>Grasp</title>
+
+  <!-- Same mark, same tile, on the app's indigo (PathNodeCurrent) instead of the near-white page.
+       For anywhere the white icon would disappear: dark slides, a launcher, a title page. -->
+  <rect x="0" y="0" width="1024" height="1024" rx="228.86" ry="228.86" fill="#6C5CE7"/>
+
+  <rect x="160" y="160" width="704" height="704" rx="234.67" ry="234.67" fill="#FFFFFF"/>
+
+  <g>
+    <line x1="512" y1="678.79" x2="512" y2="432.57"
+          stroke="#1FB980" stroke-width="39.71" stroke-linecap="round"/>
+    <ellipse cx="436.54" cy="480.22" rx="67.51" ry="37.73" fill="#6C5CE7"
+             transform="rotate(-32 436.54 480.22)"/>
+    <ellipse cx="587.45" cy="543.77" rx="67.51" ry="37.73" fill="#6C5CE7"
+             transform="rotate(32 587.45 543.77)"/>
+  </g>
+</svg>

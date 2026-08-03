@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Grasp sprout mark">
+  <title>Grasp mark</title>
+
+  <!-- The sprout on its own, transparent behind it — for placing on any background
+       (slide corners, report headers). Geometry is SproutGlyph at 1:1 with the viewBox. -->
+  <line x1="256" y1="471.04" x2="256" y2="153.6"
+        stroke="#1FB980" stroke-width="51.2" stroke-linecap="round"/>
+  <ellipse cx="158.72" cy="215.04" rx="87.04" ry="48.64" fill="#6C5CE7"
+           transform="rotate(-32 158.72 215.04)"/>
+  <ellipse cx="353.28" cy="296.96" rx="87.04" ry="48.64" fill="#6C5CE7"
+           transform="rotate(32 353.28 296.96)"/>
+</svg>
