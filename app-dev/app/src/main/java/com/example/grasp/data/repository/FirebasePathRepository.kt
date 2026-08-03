@@ -7,6 +7,7 @@ import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.edit.applyEdits
 import com.example.grasp.core.edit.describeLessonEdits
 import com.example.grasp.data.model.DownloadState
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.LessonRevision
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.asRevision
@@ -186,6 +187,8 @@ class FirebasePathRepository : PathRepository {
 
     override suspend fun learningPath(id: String): LearningPath? = withContext(Dispatchers.IO) {
         val uid = uid ?: return@withContext FakePathRepository.learningPath(id)
+        
+        // If we are offline, strictly read from CACHE only.
         val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
         
         try {
@@ -196,6 +199,13 @@ class FirebasePathRepository : PathRepository {
             } catch (e: Exception) {
                 if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
+            
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+                Log.d("FirebasePathRepo", "Topic $id found in cache but not marked for offline use. Denying access.")
+                return@withContext null
+            }
+
             val nodesSnap = nodesRef(uid, id).get(source).await()
             val nodes = nodesSnap.documents
                 .mapNotNull { doc ->
@@ -224,27 +234,34 @@ class FirebasePathRepository : PathRepository {
                 // Try cache on failure
                 try {
                     val topicDoc = topicsRef(uid).document(id).get(Source.CACHE).await()
-                    val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                    val downloadStateStr = topicDoc.getString("downloadState") ?: DownloadState.NONE.name
                     val downloadState = try {
-                        DownloadState.valueOf(topicDoc.getString("downloadState") ?: DownloadState.NONE.name)
+                        DownloadState.valueOf(downloadStateStr)
                     } catch (ex: Exception) {
                         if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
                     }
-                    val nodesSnap = nodesRef(uid, id).get(Source.CACHE).await()
-                    val nodes = nodesSnap.documents
-                        .mapNotNull { doc ->
-                            val node = doc.toTreeNode() ?: return@mapNotNull null
-                            val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
-                            Pair(order, node)
-                        }
-                        .sortedBy { it.first }
-                        .map { it.second }
-                    LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+                    
+                    // If marked AVAILABLE, return it from cache. Otherwise null.
+                    if (downloadState == DownloadState.AVAILABLE) {
+                        val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                        val nodesSnap = nodesRef(uid, id).get(Source.CACHE).await()
+                        val nodes = nodesSnap.documents
+                            .mapNotNull { doc ->
+                                val node = doc.toTreeNode() ?: return@mapNotNull null
+                                val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
+                                Pair(order, node)
+                            }
+                            .sortedBy { it.first }
+                            .map { it.second }
+                        LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+                    } else {
+                        null
+                    }
                 } catch (cacheEx: Exception) {
-                    FakePathRepository.learningPath(id)
+                    null
                 }
             } else {
-                FakePathRepository.learningPath(id)
+                null
             }
         }
     }
@@ -256,13 +273,19 @@ class FirebasePathRepository : PathRepository {
         try {
             val doc = topicsRef(uid).document(id).get(source).await()
             if (!doc.exists()) return@withContext null
-            val title = doc.getString("title")
-                ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+            
             val downloadState = try {
                 DownloadState.valueOf(doc.getString("downloadState") ?: DownloadState.NONE.name)
             } catch (e: Exception) {
                 if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
+            
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+                return@withContext null
+            }
+
+            val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
             val steps = (doc.get("steps") as? List<*>).orEmpty()
                 .filterIsInstance<Map<*, *>>()
                 .mapIndexedNotNull { index, raw ->
@@ -282,27 +305,33 @@ class FirebasePathRepository : PathRepository {
             if (source == Source.DEFAULT) {
                 try {
                     val doc = topicsRef(uid).document(id).get(Source.CACHE).await()
-                    val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                    val downloadStateStr = doc.getString("downloadState") ?: DownloadState.NONE.name
                     val downloadState = try {
-                        DownloadState.valueOf(doc.getString("downloadState") ?: DownloadState.NONE.name)
+                        DownloadState.valueOf(downloadStateStr)
                     } catch (ex: Exception) {
                         if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
                     }
-                    val steps = (doc.get("steps") as? List<*>).orEmpty()
-                        .filterIsInstance<Map<*, *>>()
-                        .mapIndexedNotNull { index, raw ->
-                            val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
-                            TinkerStep(
-                                id = raw["id"] as? String ?: "step-${index + 1}",
-                                order = (raw["order"] as? Long)?.toInt() ?: index + 1,
-                                instruction = instruction,
-                                detail = raw["detail"] as? String ?: "",
-                                estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
-                                done = raw["done"] as? Boolean ?: false,
-                            )
-                        }
-                        .sortedBy { it.order }
-                    TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
+                    
+                    if (downloadState == DownloadState.AVAILABLE) {
+                        val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                        val steps = (doc.get("steps") as? List<*>).orEmpty()
+                            .filterIsInstance<Map<*, *>>()
+                            .mapIndexedNotNull { index, raw ->
+                                val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
+                                TinkerStep(
+                                    id = raw["id"] as? String ?: "step-${index + 1}",
+                                    order = (raw["order"] as? Long)?.toInt() ?: index + 1,
+                                    instruction = instruction,
+                                    detail = raw["detail"] as? String ?: "",
+                                    estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
+                                    done = raw["done"] as? Boolean ?: false,
+                                )
+                            }
+                            .sortedBy { it.order }
+                        TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
+                    } else {
+                        null
+                    }
                 } catch (cacheEx: Exception) {
                     null
                 }
@@ -951,7 +980,14 @@ class FirebasePathRepository : PathRepository {
             if (path != null) {
                 val lessons = path.nodes.filter { !it.isBranchOut }
                 lessons.forEach { node ->
-                    subtopic(pathId, node.id)
+                    val content = subtopic(pathId, node.id)
+                    // Image pre-fetching: ensure images are cached on disk during download
+                    content?.body?.forEach { block ->
+                        if (block is LessonBlock.Image) {
+                            Log.d("FirebasePathRepo", "Pre-fetching image: ${block.url}")
+                            com.example.grasp.ui.components.preloadImage(GraspApp.context, block.url)
+                        }
+                    }
                 }
             } else {
                 // For tinker guides: ensure we can load it (steps are already inline).
