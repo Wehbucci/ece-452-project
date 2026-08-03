@@ -1,6 +1,7 @@
 package com.example.grasp.ui.feature.tinker
 
 import com.example.grasp.core.mvp.BasePresenter
+import com.example.grasp.data.model.DownloadState
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.repository.ChatRepository
@@ -75,5 +76,18 @@ class TinkerPresenter(
 
     override fun onChatClosed() {
         scope.launch { loadChatIndicator() }
+    }
+
+    override fun onDownloadGuide() {
+        val current = guide ?: return
+        if (current.downloadState == DownloadState.AVAILABLE) return
+        
+        scope.launch {
+            val success = repo.downloadTopic(guideId)
+            if (success) {
+                guide = current.copy(downloadState = DownloadState.AVAILABLE)
+                guide?.let { view?.showGuide(it) }
+            }
+        }
     }
 }

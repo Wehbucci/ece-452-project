@@ -6,6 +6,7 @@ import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.edit.applyEdits
 import com.example.grasp.core.edit.describeLessonEdits
 import com.example.grasp.data.model.ChatMessage
+import com.example.grasp.data.model.DownloadState
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.LessonRevision
 import com.example.grasp.data.model.asRevision
@@ -31,7 +32,7 @@ import com.example.grasp.data.model.TreeNode
 object FakePathRepository : PathRepository {
 
     // ---- Library: saved paths & guides ---------------------------------------------
-    override fun savedItems(): List<SavedItem> = listOf(
+    override suspend fun savedItems(forceCache: Boolean): List<SavedItem> = listOf(
         cookingPath(),
         machineLearningPath(),
         omeletteGuide(),
@@ -75,11 +76,11 @@ object FakePathRepository : PathRepository {
         revisions.clear()
     }
 
-    override fun learningPath(id: String): LearningPath? = editedPaths[id] ?: when (id) {
+    override suspend fun learningPath(id: String): LearningPath? = editedPaths[id] ?: when (id) {
         "cooking-101" -> cookingPath()
         "ml-101" -> machineLearningPath()
         // Unknown ids resolve to the cooking sample so freshly-"generated" topics still demo.
-        else -> cookingPath().copy(id = id, title = id.replace('-', ' ').replaceFirstChar { it.uppercase() })
+        else -> cookingPath().copy(id = id, title = id.replace('-', ' ').replaceFirstChar { it.uppercase() }, downloadState = DownloadState.NONE)
     }
 
     private fun cookingPath() = LearningPath(
@@ -101,6 +102,7 @@ object FakePathRepository : PathRepository {
                 children = listOf("add-branch"), tier = "MASTERY"),
             TreeNode("add-branch", "Add a branch", isBranchOut = true),
         ),
+        downloadState = DownloadState.AVAILABLE,
     )
 
     /**
@@ -136,9 +138,9 @@ object FakePathRepository : PathRepository {
     )
 
     // ---- Tinkerer guides ------------------------------------------------------------
-    override fun tinkerGuide(id: String): TinkerGuide? = when (id) {
+    override suspend fun tinkerGuide(id: String): TinkerGuide? = when (id) {
         "omelette" -> omeletteGuide()
-        else -> omeletteGuide().copy(id = id, title = id.replace('-', ' ').replaceFirstChar { it.uppercase() })
+        else -> omeletteGuide().copy(id = id, title = id.replace('-', ' ').replaceFirstChar { it.uppercase() }, downloadState = DownloadState.NONE)
     }
 
     private fun omeletteGuide() = TinkerGuide(
@@ -152,6 +154,7 @@ object FakePathRepository : PathRepository {
             TinkerStep("s5", 5, "Pour the eggs and stir gently", "Drag the set edges inward for 1–2 minutes.", 3),
             TinkerStep("s6", 6, "Fold and plate", "Fold in thirds and slide onto the plate.", 1),
         ),
+        downloadState = DownloadState.AVAILABLE,
     )
 
     // ---- Subtopic detail content (the lazy contentRef fetch) ------------------------
@@ -207,7 +210,7 @@ object FakePathRepository : PathRepository {
     }
 
     // ---- Chat history sample  --------------------------------------------------
-    override fun sampleChat(): List<ChatMessage> = listOf(
+    override suspend fun sampleChat(): List<ChatMessage> = listOf(
         ChatMessage("m1", ChatMessage.Author.USER, "I don't get the part about dicing onions — what does 'dice' mean here?"),
         ChatMessage("m2", ChatMessage.Author.ASSISTANT,
             "Dicing means cutting into small, even cubes (about 1cm). Even sizes cook at the same " +
@@ -321,4 +324,12 @@ object FakePathRepository : PathRepository {
 
     override suspend fun deleteTopic(pathId: String) {
     }
+
+    override suspend fun downloadTopic(pathId: String): Boolean = true
+    override suspend fun cancelDownload(pathId: String) {}
+    override suspend fun removeDownload(pathId: String) {}
+    override suspend fun getStorageUsage(): Long = 45 * 1024 * 1024 // 45 MB dummy
+    override suspend fun clearAllDownloads() {}
+    override suspend fun setMobileDataAllowed(enabled: Boolean) {}
+    override suspend fun isMobileDataAllowed(): Boolean = true
 }

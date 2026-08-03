@@ -12,13 +12,22 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -36,6 +45,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.GraspApp
+import com.example.grasp.core.util.NetworkMonitor
+import com.example.grasp.data.model.DownloadState
 import com.example.grasp.data.model.LearningPath
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
@@ -52,12 +64,12 @@ import com.example.grasp.ui.components.GameTag
 import com.example.grasp.ui.components.GraspBottomBar
 import com.example.grasp.ui.components.MiniPathArt
 import com.example.grasp.ui.components.ModeGlyph
+import com.example.grasp.ui.components.PathToast
 import com.example.grasp.ui.components.accent
 import com.example.grasp.ui.components.tint
 import com.example.grasp.ui.navigation.TopLevelDestination
 import com.example.grasp.ui.theme.GameDanger
 import com.example.grasp.ui.theme.GameDangerTint
-import com.example.grasp.ui.theme.GameTintNeutral
 import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathCard
 import com.example.grasp.ui.theme.PathConnector
@@ -65,45 +77,38 @@ import com.example.grasp.ui.theme.PathFaint
 import com.example.grasp.ui.theme.PathInk
 import com.example.grasp.ui.theme.PathMuted
 import com.example.grasp.ui.theme.PathNodeCurrent
-import com.example.grasp.ui.theme.PathNodeCurrentTint
 import com.example.grasp.ui.theme.PathNodeDone
-import com.example.grasp.ui.theme.PathNodeDoneTint
 import com.example.grasp.ui.theme.PathScreenBg
 import kotlin.math.roundToInt
 
 /**
- * Library screen (View) — resume or remove saved paths & guides. Top-level destination,
- * so it hosts the bottom nav bar. MVP wiring matches
- * [com.example.grasp.ui.feature.auth.LoginScreen].
- *
- * The list is the user's trophy shelf, so every card leads with progress: a chunky bar, a
- * "3 of 8 complete" read-out and a state tag that turns green the moment a path is finished.
- * Removal is destructive and permanent, so it goes through a confirmation dialog rather than
- * firing straight off a small icon.
+ * Library screen (View) — resume or remove saved paths & guides.
  */
 @Composable
 fun LibraryScreen(
     onSelectTab: (TopLevelDestination) -> Unit,
     onOpenLearner: (String) -> Unit,
     onOpenTinker: (String) -> Unit,
+    onOpenOfflineContent: () -> Unit,
     presenterFactory: () -> LibraryContract.Presenter = { LibraryPresenter() },
 ) {
     var savedItems by remember { mutableStateOf<List<SavedItem>>(emptyList()) }
-    // Starts true: this screen is rebuilt from scratch every time the tab is selected, and the
-    // library it is about to show lives in the cloud. Assuming "empty" until told otherwise is
-    // what made switching to this tab flash "Your library is empty" at everyone.
     var isLoading by remember { mutableStateOf(true) }
-    // null = "All"; otherwise only that mode's items are listed.
     var filter by remember { mutableStateOf<Mode?>(null) }
     var pendingDelete by remember { mutableStateOf<SavedItem?>(null) }
+    var toastMessage by remember { mutableStateOf<String?>(null) }
+    var isOffline by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
-    val view = remember(onOpenLearner, onOpenTinker) {
+    
+    val view = remember(onOpenLearner, onOpenTinker, onOpenOfflineContent) {
         object : LibraryContract.View {
             override fun showLoading(loading: Boolean) { isLoading = loading }
             override fun showSaved(items: List<SavedItem>) { savedItems = items }
             override fun openLearner(id: String) = onOpenLearner(id)
             override fun openTinker(id: String) = onOpenTinker(id)
+            override fun showToast(message: String) { toastMessage = message }
+            override fun showOffline(offline: Boolean) { isOffline = offline }
         }
     }
     DisposableEffect(presenter, view) {
@@ -118,10 +123,34 @@ fun LibraryScreen(
         containerColor = PathScreenBg,
         bottomBar = { GraspBottomBar(selected = TopLevelDestination.LIBRARY, onSelect = onSelectTab) },
     ) { padding ->
-        if (isLoading && savedItems.isEmpty()) {
-            // Only when there is nothing on screen yet. A REFRESH (after a delete) keeps the list
-            // visible and updates it in place — replacing a library the user is looking at with a
-            // spinner would be a worse flicker than the one this whole state exists to remove.
+        if (isOffline && savedItems.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center,
+            ) {
+                GameEmptyState(
+                    title = "You're offline",
+                    message = "Check your connection to see your full library, or use your downloaded content.",
+                    art = {
+                        Icon(
+                            Icons.Default.Info,
+                            contentDescription = null,
+                            modifier = Modifier.size(100.dp),
+                            tint = PathMuted
+                        )
+                    },
+                    action = {
+                        GameButton(
+                            label = "View offline content",
+                            onClick = onOpenOfflineContent,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    },
+                )
+            }
+        } else if (isLoading && savedItems.isEmpty()) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -216,11 +245,16 @@ fun LibraryScreen(
                             item = item,
                             onClick = { presenter.onItemClicked(item) },
                             onDelete = { pendingDelete = item },
+                            onDownload = { presenter.onDownloadClicked(item) },
+                            onCancelDownload = { presenter.onCancelDownloadClicked(item) },
+                            onRemoveDownload = { presenter.onRemoveDownloadClicked(item) }
                         )
                     }
                 }
             }
         }
+        
+        PathToast(message = toastMessage, onFinished = { toastMessage = null })
     }
 
     // Removing a path deletes its progress too, so it always asks first.
@@ -238,7 +272,14 @@ fun LibraryScreen(
 
 /** One saved path/guide: mode glyph, title, state tag, and its progress bar. */
 @Composable
-private fun SavedItemCard(item: SavedItem, onClick: () -> Unit, onDelete: () -> Unit) {
+private fun SavedItemCard(
+    item: SavedItem,
+    onClick: () -> Unit,
+    onDelete: () -> Unit,
+    onDownload: () -> Unit,
+    onCancelDownload: () -> Unit,
+    onRemoveDownload: () -> Unit
+) {
     val percent = (item.progress * 100).roundToInt()
     val finished = item.progress >= 1f
     val barColor = if (finished) PathNodeDone else item.mode.accent
@@ -265,7 +306,7 @@ private fun SavedItemCard(item: SavedItem, onClick: () -> Unit, onDelete: () -> 
                         overflow = TextOverflow.Ellipsis,
                     )
                     Spacer(Modifier.height(6.dp))
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         GameTag(
                             text = item.mode.label,
                             accent = item.mode.accent,
@@ -274,6 +315,17 @@ private fun SavedItemCard(item: SavedItem, onClick: () -> Unit, onDelete: () -> 
                         StateTag(progress = item.progress)
                     }
                 }
+                
+                // Multi-state Download Controls
+                DownloadActionIcon(
+                    state = item.downloadState,
+                    onDownload = onDownload,
+                    onCancel = onCancelDownload,
+                    onRemove = onRemoveDownload
+                )
+                
+                Spacer(Modifier.width(4.dp))
+
                 // Ghost icon button: quiet by default, since it is the destructive action.
                 Box(
                     modifier = Modifier
@@ -314,12 +366,89 @@ private fun SavedItemCard(item: SavedItem, onClick: () -> Unit, onDelete: () -> 
     }
 }
 
+@Composable
+private fun DownloadActionIcon(
+    state: DownloadState,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onRemove: () -> Unit
+) {
+    when (state) {
+        DownloadState.NONE -> {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onDownload)
+                    .padding(8.dp),
+            ) {
+                Icon(
+                    Icons.Filled.ArrowDownward,
+                    contentDescription = "Download",
+                    tint = PathMuted,
+                    modifier = Modifier.size(24.dp),
+                )
+            }
+        }
+        DownloadState.PENDING, DownloadState.DOWNLOADING -> {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onCancel)
+                    .padding(8.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(20.dp),
+                    strokeWidth = 2.dp,
+                    color = PathNodeCurrent
+                )
+                Icon(
+                    Icons.Default.Close,
+                    contentDescription = "Cancel",
+                    tint = PathNodeCurrent,
+                    modifier = Modifier.size(12.dp)
+                )
+            }
+        }
+        DownloadState.AVAILABLE -> {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onRemove)
+                    .padding(8.dp),
+            ) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Remove download",
+                    tint = PathNodeDone,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+        DownloadState.FAILED -> {
+            Box(
+                modifier = Modifier
+                    .clip(CircleShape)
+                    .clickable(onClick = onDownload)
+                    .padding(8.dp),
+            ) {
+                Icon(
+                    Icons.Default.Refresh,
+                    contentDescription = "Retry download",
+                    tint = GameDanger,
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+        }
+    }
+}
+
 /** Green when finished, indigo while in flight, grey before the first lesson. */
 @Composable
 private fun StateTag(progress: Float) = when {
-    progress >= 1f -> GameTag("MASTERED", PathNodeDone, PathNodeDoneTint)
-    progress > 0f -> GameTag("IN PROGRESS", PathNodeCurrent, PathNodeCurrentTint)
-    else -> GameTag("NOT STARTED", PathMuted, GameTintNeutral)
+    progress >= 1f -> GameTag("MASTERED", PathNodeDone, com.example.grasp.ui.theme.PathNodeDoneTint)
+    progress > 0f -> GameTag("IN PROGRESS", PathNodeCurrent, com.example.grasp.ui.theme.PathNodeCurrentTint)
+    else -> GameTag("NOT STARTED", PathMuted, com.example.grasp.ui.theme.GameTintNeutral)
 }
 
 /**

@@ -24,6 +24,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -209,7 +212,9 @@ private fun GuideHud(guide: TinkerGuide?, onBack: () -> Unit) {
                         modifier = Modifier.size(20.dp),
                     )
                 }
-                Column(modifier = Modifier.padding(start = 14.dp)) {
+                Column(modifier = Modifier
+                    .padding(start = 14.dp)
+                    .weight(1f)) {
                     Text(
                         text = guide?.title ?: "Guide",
                         fontFamily = FredokaFamily,
@@ -217,6 +222,8 @@ private fun GuideHud(guide: TinkerGuide?, onBack: () -> Unit) {
                         fontSize = 19.sp,
                         lineHeight = 23.sp,
                         color = PathInk,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     if (guide != null) {
                         Text(

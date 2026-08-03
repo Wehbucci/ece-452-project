@@ -12,11 +12,6 @@ interface LibraryContract {
     interface View : MvpView {
         /**
          * Show (or clear) the "fetching your library" state.
-         *
-         * Its own signal rather than "the list is empty and we haven't been told otherwise",
-         * because those two states look identical from the View and are not the same thing at
-         * all. Switching to this tab rebuilds the screen with no items, so without this every
-         * visit flashed "Your library is empty" at a user whose library is full.
          */
         fun showLoading(loading: Boolean)
 
@@ -28,6 +23,12 @@ interface LibraryContract {
 
         /** Navigate to a saved Tinkerer guide. */
         fun openTinker(id: String)
+
+        /** Show a transient message (e.g. download started/failed). */
+        fun showToast(message: String)
+
+        /** Show offline state UI. */
+        fun showOffline(isOffline: Boolean)
     }
 
     interface Presenter : MvpPresenter<View> {
@@ -36,5 +37,14 @@ interface LibraryContract {
 
         /** Remove a saved item. */
         fun onDeleteClicked(item: SavedItem)
+
+        /** Download an item for offline use. */
+        fun onDownloadClicked(item: SavedItem)
+
+        /** Cancel an in-progress download. */
+        fun onCancelDownloadClicked(item: SavedItem)
+
+        /** Remove a download but keep the item. */
+        fun onRemoveDownloadClicked(item: SavedItem)
     }
 }

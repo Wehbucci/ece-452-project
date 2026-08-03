@@ -94,6 +94,7 @@ import com.example.grasp.ui.theme.PathScreenBg
 fun ProfileScreen(
     onSelectTab: (TopLevelDestination) -> Unit,
     onOpenPreferences: () -> Unit,
+    onOpenOfflineContent: () -> Unit,
     navigateToLogin: () -> Unit,
     navigateToNotifications: () -> Unit,
     navigateToAbout: () -> Unit,
@@ -108,13 +109,14 @@ fun ProfileScreen(
     var confirmLogout by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
-    val view = remember(navigateToLogin, onOpenPreferences) {
+    val view = remember(navigateToLogin, onOpenPreferences, onOpenOfflineContent) {
         object : ProfileContract.View {
             override fun showProfile(name: String, email: String) { userName = name; userEmail = email }
             override fun showStats(stats: ProfileStats) { playerStats = stats }
             override fun showStatsLoading(loading: Boolean) { statsLoading = loading }
             override fun openPreferences() = onOpenPreferences()
             override fun onLoggedOut() = navigateToLogin()
+            override fun openOfflineContent() = onOpenOfflineContent()
         }
     }
     DisposableEffect(presenter, view) {
@@ -168,7 +170,7 @@ fun ProfileScreen(
                     subtitle = "Keep paths available without a connection",
                     tint = PathNodeDoneTint,
                     glyph = { DownloadGlyph(PathNodeDone, Modifier.size(20.dp)) },
-                    trailing = { SoonTag() },
+                    onClick = presenter::onOfflineContentClicked,
                 )
                 GameRowDivider()
                 GameSettingRow(

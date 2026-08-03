@@ -22,6 +22,7 @@ object GraspDestinations {
     const val LIBRARY = "library"
     const val PROFILE = "profile"
     const val PREFERENCES = "preferences"
+    const val OFFLINE_MANAGEMENT = "offline_management"
 
     // ---- Profile sub-screens (pushed on top of the Profile tab) ----
     /** Notification preferences (Profile → Notifications). */

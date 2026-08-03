@@ -1,6 +1,10 @@
 package com.example.grasp.ui.feature.path
 
 import android.util.Log
+import com.example.grasp.GraspApp
+import com.example.grasp.core.util.NetworkMonitor
+import com.example.grasp.data.model.DownloadState
+import com.example.grasp.data.model.Subtopic
 import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.layout.layoutBoard
@@ -10,7 +14,6 @@ import com.example.grasp.core.progress.Xp
 import com.example.grasp.core.progress.asOf
 import com.example.grasp.core.progress.recordingStudy
 import com.example.grasp.core.progress.todayEpochDay
-import com.example.grasp.data.model.Subtopic
 import com.example.grasp.data.model.TreeNode
 import com.example.grasp.data.repository.FirebasePathRepository
 import com.example.grasp.data.repository.FirebaseUserRepository
@@ -89,6 +92,8 @@ class PathPresenter(
     /** The section picked to move, while the board is asking where it should go. */
     private var movingId: String? = null
 
+    private var downloadState = DownloadState.NONE
+
     /**
      * The lesson the tutor was opened FROM, so closing the tutor goes back to it rather than to
      * the board.
@@ -141,6 +146,7 @@ class PathPresenter(
             return
         }
         title = path.title
+        downloadState = path.downloadState
         // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.
         // Growing the path starts from a real lesson now, so the board shows lessons only.
         nodes = path.nodes.filterNot { it.isBranchOut }
@@ -354,6 +360,10 @@ class PathPresenter(
     }
 
     override fun onGenerateBranch(name: String) {
+        if (!NetworkMonitor(GraspApp.context).isOnline()) {
+            view?.showToast("⚠️ Generation requires an internet connection")
+            return
+        }
         val branchId = pendingBranchId ?: return
         if (growing) return
         growing = true
@@ -698,8 +708,27 @@ class PathPresenter(
                 xpFraction = Xp.fractionOfLevel(xp),
                 rowCount = (layout.rows.values.maxOrNull() ?: 0) + 1,
                 columnSpan = layout.columnSpan,
+                isDownloaded = downloadState == DownloadState.AVAILABLE,
+                isDownloading = downloadState == DownloadState.DOWNLOADING || downloadState == DownloadState.PENDING,
             ),
         )
+    }
+
+    override fun onDownloadPath() {
+        if (downloadState != DownloadState.NONE && downloadState != DownloadState.FAILED) return
+        downloadState = DownloadState.PENDING
+        emit()
+        scope.launch {
+            val success = repo.downloadTopic(pathId)
+            if (success) {
+                downloadState = DownloadState.AVAILABLE
+                view?.showToast("📥 Roadmap downloaded for offline use")
+            } else {
+                downloadState = DownloadState.FAILED
+                view?.showToast("⚠️ Download failed — check your connection")
+            }
+            emit()
+        }
     }
 
 }

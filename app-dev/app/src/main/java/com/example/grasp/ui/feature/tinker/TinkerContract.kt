@@ -47,5 +47,8 @@ interface TinkerContract {
          * destination and coming back re-attached the presenter; an overlay never detaches it.
          */
         fun onChatClosed()
+
+        /** Explicitly download the entire guide for offline use. */
+        fun onDownloadGuide()
     }
 }

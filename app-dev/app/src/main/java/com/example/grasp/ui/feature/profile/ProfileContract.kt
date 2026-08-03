@@ -30,11 +30,17 @@ interface ProfileContract {
 
         /** Auth session ended — the nav layer should return to login. */
         fun onLoggedOut()
+
+        /** Navigate to the offline content screen. */
+        fun openOfflineContent()
     }
 
     interface Presenter : MvpPresenter<View> {
         /** User wants to edit their learning style/pace. */
         fun onPreferencesClicked()
+
+        /** User wants to view downloaded content. */
+        fun onOfflineContentClicked()
 
         fun onLogout()
     }

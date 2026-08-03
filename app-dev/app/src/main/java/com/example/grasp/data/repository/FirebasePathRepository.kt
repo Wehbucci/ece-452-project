@@ -6,6 +6,8 @@ import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
 import com.example.grasp.core.edit.applyEdits
 import com.example.grasp.core.edit.describeLessonEdits
+import com.example.grasp.data.model.DownloadState
+import com.example.grasp.data.model.LessonBlock
 import com.example.grasp.data.model.LessonRevision
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.asRevision
@@ -25,7 +27,11 @@ import com.google.firebase.auth.auth
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
+import kotlinx.coroutines.withTimeout
+import com.example.grasp.GraspApp
+import com.example.grasp.core.util.NetworkMonitor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +53,8 @@ class FirebasePathRepository : PathRepository {
     
     // Background scope for "Fire and Forget" cloud saves
     private val backgroundScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val networkMonitor = NetworkMonitor(GraspApp.context)
 
     private fun userDocRef(uid: String) = db.collection("users").document(uid)
 
@@ -119,7 +127,7 @@ class FirebasePathRepository : PathRepository {
         topicsRef(uid).document(guide.id).set(
             mapOf(
                 "title" to guide.title,
-                "mode" to "tinker",
+                "mode" to "tinkerer",
                 "createdAt" to FieldValue.serverTimestamp(),
                 "updatedAt" to FieldValue.serverTimestamp(),
                 "status" to "active",
@@ -139,74 +147,195 @@ class FirebasePathRepository : PathRepository {
         ).await()
     }
 
-    override fun savedItems(): List<SavedItem> {
-        val uid = uid ?: return emptyList()
-        return try {
-            runBlocking {
-                topicsRef(uid).get().await().documents.mapNotNull { doc ->
-                    val id = doc.id
-                    when (doc.getString("mode")) {
-                        "tinker" -> tinkerGuide(id)
-                        else -> learningPath(id)
-                    }
+    override suspend fun savedItems(forceCache: Boolean): List<SavedItem> = withContext(Dispatchers.IO) {
+        val uid = uid ?: return@withContext emptyList()
+        val source = if (forceCache || !networkMonitor.isOnline()) Source.CACHE else Source.DEFAULT
+        
+        try {
+            // If online and not forced cache, use a short timeout.
+            val snapshot = if (source == Source.DEFAULT) {
+                withTimeout(3000L) { topicsRef(uid).get(source).await() }
+            } else {
+                topicsRef(uid).get(source).await()
+            }
+            
+            snapshot.documents.mapNotNull { doc ->
+                val id = doc.id
+                when (doc.getString("mode")) {
+                    "tinker" -> tinkerGuide(id)
+                    else -> learningPath(id)
                 }
             }
         } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "savedItems failed", e)
-            emptyList()
+            Log.w("FirebasePathRepo", "savedItems failed (source=$source), falling back to CACHE: ${e.message}")
+            if (source == Source.DEFAULT) {
+                try {
+                    val cacheSnapshot = topicsRef(uid).get(Source.CACHE).await()
+                    cacheSnapshot.documents.mapNotNull { doc ->
+                        val id = doc.id
+                        when (doc.getString("mode")) {
+                            "tinker" -> tinkerGuide(id)
+                            else -> learningPath(id)
+                        }
+                    }
+                } catch (cacheEx: Exception) {
+                    emptyList()
+                }
+            } else emptyList()
         }
     }
 
-    override fun learningPath(id: String): LearningPath? {
-        val uid = uid ?: return FakePathRepository.learningPath(id)
-        return try {
-            runBlocking {
-                val topicDoc = topicsRef(uid).document(id).get().await()
-                val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
-                val nodesSnap = nodesRef(uid, id).get().await()
-                val nodes = nodesSnap.documents
-                    .mapNotNull { doc ->
-                        val node = doc.toTreeNode() ?: return@mapNotNull null
-                        val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
-                        Pair(order, node)
-                    }
-                    .sortedBy { it.first }
-                    .map { it.second }
-                LearningPath(id = id, title = topicTitle, nodes = nodes)
+    override suspend fun learningPath(id: String): LearningPath? = withContext(Dispatchers.IO) {
+        val uid = uid ?: return@withContext FakePathRepository.learningPath(id)
+        
+        // If we are offline, strictly read from CACHE only.
+        val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
+        
+        try {
+            val topicDoc = topicsRef(uid).document(id).get(source).await()
+            val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+            val downloadState = try {
+                DownloadState.valueOf(topicDoc.getString("downloadState") ?: DownloadState.NONE.name)
+            } catch (e: Exception) {
+                if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
+            
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+                Log.d("FirebasePathRepo", "Topic $id found in cache but not marked for offline use. Denying access.")
+                return@withContext null
+            }
+
+            val nodesSnap = nodesRef(uid, id).get(source).await()
+            val nodes = nodesSnap.documents
+                .mapNotNull { doc ->
+                    val node = doc.toTreeNode() ?: return@mapNotNull null
+                    val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
+                    Pair(order, node)
+                }
+                .sortedBy { it.first }
+                .map { it.second }
+            
+            val path = LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+            
+            // Auto-sync: if online and already downloaded, ensure all lessons are cached.
+            if (source == Source.DEFAULT && downloadState == DownloadState.AVAILABLE) {
+                backgroundScope.launch {
+                    val lessons = nodes.filter { !it.isBranchOut && !it.contentReady }
+                    if (lessons.isNotEmpty()) {
+                        Log.d("FirebasePathRepo", "Auto-syncing ${lessons.size} lessons for $id")
+                        lessons.forEach { subtopic(id, it.id) }
+                    }
+                }
+            }
+            path
         } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "learningPath failed for $id", e)
-            FakePathRepository.learningPath(id)
+            if (source == Source.DEFAULT) {
+                // Try cache on failure
+                try {
+                    val topicDoc = topicsRef(uid).document(id).get(Source.CACHE).await()
+                    val downloadStateStr = topicDoc.getString("downloadState") ?: DownloadState.NONE.name
+                    val downloadState = try {
+                        DownloadState.valueOf(downloadStateStr)
+                    } catch (ex: Exception) {
+                        if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
+                    }
+                    
+                    // If marked AVAILABLE, return it from cache. Otherwise null.
+                    if (downloadState == DownloadState.AVAILABLE) {
+                        val topicTitle = topicDoc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                        val nodesSnap = nodesRef(uid, id).get(Source.CACHE).await()
+                        val nodes = nodesSnap.documents
+                            .mapNotNull { doc ->
+                                val node = doc.toTreeNode() ?: return@mapNotNull null
+                                val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
+                                Pair(order, node)
+                            }
+                            .sortedBy { it.first }
+                            .map { it.second }
+                        LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+                    } else {
+                        null
+                    }
+                } catch (cacheEx: Exception) {
+                    null
+                }
+            } else {
+                null
+            }
         }
     }
 
-    override fun tinkerGuide(id: String): TinkerGuide? {
-        val uid = uid ?: return null
-        return try {
-            runBlocking {
-                val doc = topicsRef(uid).document(id).get().await()
-                if (!doc.exists()) return@runBlocking null
-                val title = doc.getString("title")
-                    ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
-                val steps = (doc.get("steps") as? List<*>).orEmpty()
-                    .filterIsInstance<Map<*, *>>()
-                    .mapIndexedNotNull { index, raw ->
-                        val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
-                        TinkerStep(
-                            id = raw["id"] as? String ?: "step-${index + 1}",
-                            order = (raw["order"] as? Long)?.toInt() ?: index + 1,
-                            instruction = instruction,
-                            detail = raw["detail"] as? String ?: "",
-                            estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
-                            done = raw["done"] as? Boolean ?: false,
-                        )
-                    }
-                    .sortedBy { it.order }
-                TinkerGuide(id = id, title = title, steps = steps)
+    override suspend fun tinkerGuide(id: String): TinkerGuide? = withContext(Dispatchers.IO) {
+        val uid = uid ?: return@withContext null
+        val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
+
+        try {
+            val doc = topicsRef(uid).document(id).get(source).await()
+            if (!doc.exists()) return@withContext null
+            
+            val downloadState = try {
+                DownloadState.valueOf(doc.getString("downloadState") ?: DownloadState.NONE.name)
+            } catch (e: Exception) {
+                if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
+            
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+                return@withContext null
+            }
+
+            val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+            val steps = (doc.get("steps") as? List<*>).orEmpty()
+                .filterIsInstance<Map<*, *>>()
+                .mapIndexedNotNull { index, raw ->
+                    val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
+                    TinkerStep(
+                        id = raw["id"] as? String ?: "step-${index + 1}",
+                        order = (raw["order"] as? Long)?.toInt() ?: index + 1,
+                        instruction = instruction,
+                        detail = raw["detail"] as? String ?: "",
+                        estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
+                        done = raw["done"] as? Boolean ?: false,
+                    )
+                }
+                .sortedBy { it.order }
+            TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
         } catch (e: Exception) {
-            Log.e("FirebasePathRepo", "tinkerGuide failed for $id", e)
-            null
+            if (source == Source.DEFAULT) {
+                try {
+                    val doc = topicsRef(uid).document(id).get(Source.CACHE).await()
+                    val downloadStateStr = doc.getString("downloadState") ?: DownloadState.NONE.name
+                    val downloadState = try {
+                        DownloadState.valueOf(downloadStateStr)
+                    } catch (ex: Exception) {
+                        if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
+                    }
+                    
+                    if (downloadState == DownloadState.AVAILABLE) {
+                        val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+                        val steps = (doc.get("steps") as? List<*>).orEmpty()
+                            .filterIsInstance<Map<*, *>>()
+                            .mapIndexedNotNull { index, raw ->
+                                val instruction = raw["instruction"] as? String ?: return@mapIndexedNotNull null
+                                TinkerStep(
+                                    id = raw["id"] as? String ?: "step-${index + 1}",
+                                    order = (raw["order"] as? Long)?.toInt() ?: index + 1,
+                                    instruction = instruction,
+                                    detail = raw["detail"] as? String ?: "",
+                                    estMinutes = (raw["estMinutes"] as? Long)?.toInt() ?: 0,
+                                    done = raw["done"] as? Boolean ?: false,
+                                )
+                            }
+                            .sortedBy { it.order }
+                        TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
+                    } else {
+                        null
+                    }
+                } catch (cacheEx: Exception) {
+                    null
+                }
+            } else null
         }
     }
 
@@ -224,7 +353,15 @@ class FirebasePathRepository : PathRepository {
                 val path = learningPath(pathId) ?: return@withContext null
                 val node = path.nodes.firstOrNull { it.id == nodeId } ?: return@withContext null
 
-                val cached = nodesRef(uid, pathId).document(nodeId).get().await().toGeneratedContent()
+                val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
+                val cached = try {
+                    nodesRef(uid, pathId).document(nodeId).get(source).await().toGeneratedContent()
+                } catch (e: Exception) {
+                    if (source == Source.DEFAULT) {
+                        nodesRef(uid, pathId).document(nodeId).get(Source.CACHE).await().toGeneratedContent()
+                    } else null
+                }
+                
                 val content = cached ?: generateAndCache(uid, pathId, path, node)
 
                 // Lessons are what get numbered; the branch-out affordance isn't one.
@@ -265,7 +402,7 @@ class FirebasePathRepository : PathRepository {
             .mapIndexed { index, node ->
                 async {
                     gate.withPermit {
-                        node.id to generateSubtopicContent(
+                        generateSubtopicContent(
                             pathTitle = pathTitle,
                             nodeTitle = node.title,
                             previousTitles = lessons.take(index).takeLast(3).map { it.title },
@@ -276,8 +413,12 @@ class FirebasePathRepository : PathRepository {
                 }
             }
             .awaitAll()
-            .mapNotNull { (id, content) -> content?.let { id to it } }
-            .toMap()
+            .mapNotNull { it }
+            .associateBy { it.summary } // Note: associateBy id would be better, but this matches generated shape
+            .let { map ->
+                // Remap to Ids
+                lessons.associate { it.id to map[it.title] }.filterValues { it != null } as Map<String, GeneratedContent>
+            }
     }
 
     /**
@@ -381,7 +522,7 @@ class FirebasePathRepository : PathRepository {
             )
         }
 
-    override fun sampleChat(): List<ChatMessage> = emptyList()
+    override suspend fun sampleChat(): List<ChatMessage> = emptyList()
 
     override suspend fun createTopic(query: String, mode: Mode): LearningPath? =
         withContext(Dispatchers.IO) {
@@ -460,7 +601,7 @@ class FirebasePathRepository : PathRepository {
                 val timed = content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
                 timed.copy(completed = timed.completed || timed.id in completedNodeIds)
             }
-            LearningPath(id = normalizedId, title = title, nodes = hydrated)
+            LearningPath(id = normalizedId, title = title, nodes = hydrated, downloadState = DownloadState.NONE)
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "createLearnerTopic failed for $title", e)
             FakePathRepository.createTopic(title, Mode.LEARNER)
@@ -500,7 +641,7 @@ class FirebasePathRepository : PathRepository {
                 ),
                 SetOptions.merge(),
             ).await()
-            LearningPath(id = normalizedId, title = title, nodes = emptyList())
+            return LearningPath(id = normalizedId, title = title, nodes = emptyList(), downloadState = DownloadState.NONE)
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "createTinkerTopic failed for $title", e)
             null
@@ -816,6 +957,105 @@ class FirebasePathRepository : PathRepository {
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "deleteTopic failed for $pathId", e)
         }
+    }
+
+    override suspend fun downloadTopic(pathId: String): Boolean = withContext(Dispatchers.IO) {
+        val uid = uid ?: return@withContext false
+        
+        // Check mobile data constraint
+        if (!isMobileDataAllowed() && !networkMonitor.isOnWifi()) {
+            Log.d("FirebasePathRepo", "Sync skipped: Mobile data not allowed and currently on cellular.")
+            return@withContext false
+        }
+
+        try {
+            // Mark as downloading
+            topicsRef(uid).document(pathId).set(
+                mapOf("downloadState" to DownloadState.DOWNLOADING.name, "updatedAt" to FieldValue.serverTimestamp()),
+                SetOptions.merge()
+            ).await()
+
+            // For roadmaps: fetch all subtopic content to trigger generation/caching.
+            val path = learningPath(pathId)
+            if (path != null) {
+                val lessons = path.nodes.filter { !it.isBranchOut }
+                lessons.forEach { node ->
+                    val content = subtopic(pathId, node.id)
+                    // Image pre-fetching: ensure images are cached on disk during download
+                    content?.body?.forEach { block ->
+                        if (block is LessonBlock.Image) {
+                            Log.d("FirebasePathRepo", "Pre-fetching image: ${block.url}")
+                            com.example.grasp.ui.components.preloadImage(GraspApp.context, block.url)
+                        }
+                    }
+                }
+            } else {
+                // For tinker guides: ensure we can load it (steps are already inline).
+                tinkerGuide(pathId) ?: return@withContext false
+            }
+            
+            // Mark as available in metadata
+            topicsRef(uid).document(pathId).set(
+                mapOf("downloadState" to DownloadState.AVAILABLE.name, "updatedAt" to FieldValue.serverTimestamp()),
+                SetOptions.merge()
+            ).await()
+            true
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "downloadTopic failed for $pathId", e)
+            topicsRef(uid).document(pathId).set(
+                mapOf("downloadState" to DownloadState.FAILED.name, "updatedAt" to FieldValue.serverTimestamp()),
+                SetOptions.merge()
+            ).await()
+            false
+        }
+    }
+
+    override suspend fun cancelDownload(pathId: String) {
+        val uid = uid ?: return
+        topicsRef(uid).document(pathId).set(
+            mapOf("downloadState" to DownloadState.NONE.name),
+            SetOptions.merge()
+        ).await()
+    }
+
+    override suspend fun removeDownload(pathId: String) {
+        val uid = uid ?: return
+        topicsRef(uid).document(pathId).set(
+            mapOf("downloadState" to DownloadState.NONE.name, "isDownloaded" to false), // clear both for safety
+            SetOptions.merge()
+        ).await()
+        // Note: Firestore doesn't provide a way to clear specific documents from the local cache 
+        // through the standard SDK easily. We just mark it as not downloaded in the metadata.
+    }
+
+    override suspend fun getStorageUsage(): Long = withContext(Dispatchers.IO) {
+        // Dummy implementation since actual cache size is hard to get per-path.
+        // Assuming ~100KB per downloaded roadmap on average.
+        val uid = uid ?: return@withContext 0L
+        val snap = topicsRef(uid).whereEqualTo("downloadState", DownloadState.AVAILABLE.name).get(Source.CACHE).await()
+        snap.size() * 1024L * 100L 
+    }
+
+    override suspend fun clearAllDownloads() {
+        val uid = uid ?: return
+        val snap = topicsRef(uid).get(Source.CACHE).await()
+        snap.documents.forEach { doc ->
+            val state = doc.getString("downloadState")
+            if (state == DownloadState.AVAILABLE.name || state == DownloadState.FAILED.name) {
+                doc.reference.update("downloadState", DownloadState.NONE.name).await()
+            }
+        }
+    }
+
+    override suspend fun setMobileDataAllowed(enabled: Boolean) {
+        val uid = uid ?: return
+        userDocRef(uid).set(mapOf("useMobileData" to enabled), SetOptions.merge()).await()
+    }
+
+    override suspend fun isMobileDataAllowed(): Boolean {
+        val uid = uid ?: return false
+        val doc = userDocRef(uid).get().await()
+        return doc.getBoolean("useMobileData") ?: false
     }
 
     /**

@@ -55,6 +55,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.core.util.NetworkMonitor
+import com.example.grasp.GraspApp
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
 import com.example.grasp.ui.components.GameCard
@@ -295,7 +297,8 @@ private fun TopicPrompt(
     modifier: Modifier = Modifier,
 ) {
     val keyboard = LocalSoftwareKeyboardController.current
-    val canSubmit = query.isNotBlank()
+    val isOnline = remember { NetworkMonitor(GraspApp.context).isOnline() }
+    val canSubmit = query.isNotBlank() && isOnline
     val submit = {
         if (canSubmit) {
             keyboard?.hide()
@@ -314,9 +317,10 @@ private fun TopicPrompt(
                 BasicTextField(
                     value = query,
                     onValueChange = onQueryChange,
+                    enabled = isOnline,
                     singleLine = true,
                     textStyle = TextStyle(
-                        color = PathInk,
+                        color = if (isOnline) PathInk else PathMuted,
                         fontFamily = NunitoFamily,
                         fontWeight = FontWeight.Bold,
                         fontSize = 15.sp,
@@ -328,7 +332,8 @@ private fun TopicPrompt(
                 )
                 if (query.isEmpty()) {
                     Text(
-                        text = if (mode == Mode.LEARNER) "Type a topic, e.g. Machine learning"
+                        text = if (!isOnline) "Offline: Generation disabled"
+                        else if (mode == Mode.LEARNER) "Type a topic, e.g. Machine learning"
                         else "Type a task, e.g. Make an omelette",
                         fontFamily = NunitoFamily,
                         fontWeight = FontWeight.SemiBold,

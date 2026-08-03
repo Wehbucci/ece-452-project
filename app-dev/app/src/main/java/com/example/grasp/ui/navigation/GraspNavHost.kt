@@ -15,6 +15,7 @@ import com.example.grasp.ui.feature.home.HomeScreen
 import com.example.grasp.ui.feature.library.LibraryScreen
 import com.example.grasp.ui.feature.notifications.NotificationsScreen
 import com.example.grasp.ui.feature.path.PathScreen
+import com.example.grasp.ui.feature.profile.OfflineManagementScreen
 import com.example.grasp.ui.feature.profile.PreferencesScreen
 import com.example.grasp.ui.feature.profile.ProfileScreen
 import com.example.grasp.ui.feature.subtopic.SubtopicScreen
@@ -80,12 +81,14 @@ fun GraspNavHost(
                 onSelectTab = navController::switchTab,
                 onOpenLearner = { navController.navigate(GraspDestinations.path(it)) },
                 onOpenTinker = { navController.navigate(GraspDestinations.tinker(it)) },
+                onOpenOfflineContent = { navController.navigate(GraspDestinations.OFFLINE_MANAGEMENT) }
             )
         }
         composable(GraspDestinations.PROFILE) {
             ProfileScreen(
                 onSelectTab = navController::switchTab,
                 onOpenPreferences = { navController.navigate(GraspDestinations.PREFERENCES) },
+                onOpenOfflineContent = { navController.navigate(GraspDestinations.OFFLINE_MANAGEMENT) },
                 navigateToLogin = {
                     navController.navigate(GraspDestinations.LOGIN) {
                         popUpTo(GraspDestinations.HOME) { inclusive = true }
@@ -97,6 +100,9 @@ fun GraspNavHost(
         }
         composable(GraspDestinations.PREFERENCES) {
             PreferencesScreen(onBack = navController::popBackStack)
+        }
+        composable(GraspDestinations.OFFLINE_MANAGEMENT) {
+            OfflineManagementScreen(onBack = navController::popBackStack)
         }
 
         // ---- Profile sub-screens (full-screen, back returns to the Profile tab) ----

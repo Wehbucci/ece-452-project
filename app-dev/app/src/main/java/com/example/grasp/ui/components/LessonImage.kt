@@ -133,6 +133,10 @@ internal fun rememberRemoteImage(url: String): ImageBitmap? {
     return bitmap
 }
 
+fun preloadImage(context: android.content.Context, url: String) {
+    loadImage(File(context.cacheDir, IMAGE_DIR), url)
+}
+
 private const val IMAGE_DIR = "lesson-images"
 private const val TIMEOUT_MS = 10_000
 private const val TAG = "LessonImage"
