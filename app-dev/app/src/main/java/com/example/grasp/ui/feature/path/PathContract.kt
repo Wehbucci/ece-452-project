@@ -175,5 +175,8 @@ interface PathContract {
          * the board is re-read. An overlay never detaches the presenter, so it has to be told.
          */
         fun onChatClosed()
+
+        /** Explicitly download the entire path for offline use. */
+        fun onDownloadPath()
     }
 }

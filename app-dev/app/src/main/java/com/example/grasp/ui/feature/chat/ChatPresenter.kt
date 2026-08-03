@@ -351,7 +351,7 @@ class ChatPresenter(
     }
 
     /** Tier 1, Learner: the roadmap as a whole. */
-    private fun StringBuilder.appendRoadmapTier(pathId: String) {
+    private suspend fun StringBuilder.appendRoadmapTier(pathId: String) {
         val path = repo.learningPath(pathId)
         if (path == null) {
             appendFallback()
@@ -452,7 +452,7 @@ class ChatPresenter(
     }
 
     /** Tier 1-2, Tinkerer: the guide, and the step they are standing on when [focusStepId] is set. */
-    private fun StringBuilder.appendGuideTier(pathId: String, focusStepId: String?) {
+    private suspend fun StringBuilder.appendGuideTier(pathId: String, focusStepId: String?) {
         val guide = repo.tinkerGuide(pathId)
         if (guide == null) {
             appendFallback()

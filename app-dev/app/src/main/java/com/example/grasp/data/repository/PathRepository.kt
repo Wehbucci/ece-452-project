@@ -29,7 +29,7 @@ import kotlinx.coroutines.withContext
 interface PathRepository {
 
     /** Everything the signed-in user has saved, for the Library (FR7.1/7.2). */
-    fun savedItems(): List<SavedItem>
+    suspend fun savedItems(forceCache: Boolean = false): List<SavedItem>
 
     /**
      * Lessons and steps the user has finished across EVERY saved item — the account's XP total
@@ -62,10 +62,10 @@ interface PathRepository {
     suspend fun shortenNodeTitles(pathId: String): LearningPath? = null
 
     /** A Learner roadmap by id, or null if not found. */
-    fun learningPath(id: String): LearningPath?
+    suspend fun learningPath(id: String): LearningPath?
 
     /** A Tinkerer guide by id, or null if not found. */
-    fun tinkerGuide(id: String): TinkerGuide?
+    suspend fun tinkerGuide(id: String): TinkerGuide?
 
     /**
      * Resolved content for one node (the lazy `contentRef` fetch), or null if not found.
@@ -76,7 +76,7 @@ interface PathRepository {
     suspend fun subtopic(pathId: String, nodeId: String): Subtopic?
 
     /** A sample conversation for the chat skeleton (FR5.5 history). */
-    fun sampleChat(): List<ChatMessage>
+    suspend fun sampleChat(): List<ChatMessage>
 
     /**
      * Create or hydrate a topic path from a user prompt.
@@ -150,4 +150,28 @@ interface PathRepository {
     suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean)
 
     suspend fun deleteTopic(pathId: String)
+
+    /**
+     * Ensures all content for [pathId] is generated and cached locally.
+     * Starts the download/sync process.
+     */
+    suspend fun downloadTopic(pathId: String): Boolean
+
+    /** Cancels an active download. */
+    suspend fun cancelDownload(pathId: String)
+
+    /** Removes downloaded content from cache but keeps the roadmap. */
+    suspend fun removeDownload(pathId: String)
+
+    /** Estimates storage usage in bytes. */
+    suspend fun getStorageUsage(): Long
+
+    /** Removes all downloaded content. */
+    suspend fun clearAllDownloads()
+
+    /** Global setting for mobile data usage. */
+    suspend fun setMobileDataAllowed(enabled: Boolean)
+
+    /** Checks if mobile data is allowed for sync. */
+    suspend fun isMobileDataAllowed(): Boolean
 }

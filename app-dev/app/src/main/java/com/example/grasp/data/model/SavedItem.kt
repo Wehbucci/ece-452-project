@@ -1,5 +1,19 @@
 package com.example.grasp.data.model
 
+/** The possible states of an offline roadmap download. */
+enum class DownloadState {
+    /** Not downloaded and no download in progress. */
+    NONE,
+    /** Waiting for network or resources to start. */
+    PENDING,
+    /** Data is currently being fetched and cached. */
+    DOWNLOADING,
+    /** Fully cached and ready for offline use. */
+    AVAILABLE,
+    /** Last download attempt failed. */
+    FAILED
+}
+
 /**
  * Anything that can be saved, listed in the Library and resumed.
  *
@@ -11,6 +25,7 @@ sealed interface SavedItem {
     val id: String
     val title: String
     val mode: Mode
+    val downloadState: DownloadState
 
     /** Short descriptor shown under the title, e.g. "8 subtopics" or "6 steps". */
     val subtitle: String
@@ -40,6 +55,7 @@ data class LearningPath(
     override val id: String,
     override val title: String,
     val nodes: List<TreeNode>,
+    override val downloadState: DownloadState = DownloadState.NONE,
 ) : SavedItem {
     override val mode: Mode = Mode.LEARNER
 
@@ -67,6 +83,7 @@ data class TinkerGuide(
     override val id: String,
     override val title: String,
     val steps: List<TinkerStep>,
+    override val downloadState: DownloadState = DownloadState.NONE,
 ) : SavedItem {
     override val mode: Mode = Mode.TINKERER
 

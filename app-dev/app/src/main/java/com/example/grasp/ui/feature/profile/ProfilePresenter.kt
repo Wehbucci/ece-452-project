@@ -65,6 +65,10 @@ class ProfilePresenter(
         view?.openPreferences()
     }
 
+    override fun onOfflineContentClicked() {
+        view?.openOfflineContent()
+    }
+
     /**
      * Rolls every saved path/guide up into one player card.
      *

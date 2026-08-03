@@ -132,4 +132,6 @@ data class PathUiState(
     val xpFraction: Float,
     val rowCount: Int,
     val columnSpan: Float,
+    val isDownloaded: Boolean = false,
+    val isDownloading: Boolean = false,
 )
