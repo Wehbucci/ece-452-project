@@ -926,12 +926,21 @@ class FirebasePathRepository : PathRepository {
         val uid = uid ?: return
         try {
             val docRef = topicsRef(uid).document(guideId)
-            val doc = docRef.get().await()
+            
+            // Try to get from DEFAULT first (online), then CACHE if offline
+            val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
+            val doc = try {
+                docRef.get(source).await()
+            } catch (e: Exception) {
+                docRef.get(Source.CACHE).await()
+            }
+
             val steps = (doc.get("steps") as? List<*>).orEmpty()
                 .filterIsInstance<Map<String, Any?>>()
                 .map { raw ->
                     if (raw["id"] == stepId) raw + ("done" to completed) else raw
                 }
+            
             docRef.set(
                 mapOf(
                     "steps" to steps,
@@ -939,6 +948,8 @@ class FirebasePathRepository : PathRepository {
                 ),
                 SetOptions.merge(),
             ).await()
+            
+            Log.d("FirebasePathRepo", "Tinker step $stepId updated (completed=$completed)")
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "updateTinkerStepCompletion failed for $guideId/$stepId", e)
         }
