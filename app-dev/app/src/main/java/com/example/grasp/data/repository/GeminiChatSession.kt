@@ -23,11 +23,11 @@ class GeminiChatSession(
     toolset: TutorToolset = TutorToolset.NONE,
 ) : ChatSession {
 
-    private val model = Firebase.ai(backend = GenerativeBackend.googleAI())
+    private val model = Firebase.ai(
+        backend = GenerativeBackend.vertexAI(location = "global")
+    )
         .generativeModel(
             modelName = "gemini-3.1-flash-lite",
-            // Null, not an empty list, when the conversation has no material to change: an empty
-            // tool list is still a tool list, and the backend rejects one.
             tools = tutorTools(toolset),
             systemInstruction = content { text(systemInstruction) },
         )
