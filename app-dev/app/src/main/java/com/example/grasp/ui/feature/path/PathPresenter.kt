@@ -160,6 +160,9 @@ class PathPresenter(
                 load(firstLoad = false)
                 return
             }
+        } else if (path.nodes.isNotEmpty() && isGenerating) {
+            // Already generated, stop showing the generating state
+            isGenerating = false
         }
 
         // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.

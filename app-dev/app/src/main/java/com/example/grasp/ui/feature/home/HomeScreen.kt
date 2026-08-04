@@ -115,14 +115,16 @@ fun HomeScreen(
     // Non-null while the roadmap and its lessons are being written (that whole job runs before
     // navigation, so Home would otherwise just sit there looking frozen).
     var generatingTopic by remember { mutableStateOf<String?>(null) }
+    var generatingMode by remember { mutableStateOf(Mode.LEARNER) }
     var generationFailed by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory() }
     val view = remember(onOpenLearner, onOpenTinker) {
         object : HomeContract.View {
             override fun showContinue(item: SavedItem?) { resumable = item }
-            override fun showGenerating(topic: String?) {
+            override fun showGenerating(topic: String?, mode: Mode) {
                 generatingTopic = topic
+                generatingMode = mode
                 if (topic != null) generationFailed = false
             }
             override fun showGenerationFailed() { generationFailed = true }
@@ -145,7 +147,7 @@ fun HomeScreen(
         // screen hands over to a progress state rather than appearing to have hung.
         val generating = generatingTopic
         if (generating != null) {
-            GeneratingState(topic = generating, modifier = Modifier.padding(padding))
+            GeneratingState(topic = generating, mode = generatingMode, modifier = Modifier.padding(padding))
             return@Scaffold
         }
 

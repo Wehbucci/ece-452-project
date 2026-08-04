@@ -84,7 +84,7 @@ interface PathRepository {
      * Suspending because generating the roadmap is an AI round-trip — it must not run on the
      * main thread (NFR 1.2: no noticeable lag or UI glitch).
      */
-    suspend fun createTopic(query: String, mode: Mode): LearningPath?
+    suspend fun createTopic(query: String, mode: Mode): SavedItem?
 
     /**
      * Grows a new branch where the branch-out affordance [fromNodeId] sits, and persists it.

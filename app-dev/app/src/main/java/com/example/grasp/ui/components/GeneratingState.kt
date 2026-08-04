@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.grasp.data.model.Mode
 import com.example.grasp.ui.theme.FredokaFamily
 import com.example.grasp.ui.theme.NunitoFamily
 import com.example.grasp.ui.theme.PathInk
@@ -26,7 +27,18 @@ import com.example.grasp.ui.theme.PathNodeCurrent
  * bare spinner would read as the app having hung.
  */
 @Composable
-fun GeneratingState(topic: String, modifier: Modifier = Modifier) {
+fun GeneratingState(topic: String, modifier: Modifier = Modifier, mode: Mode = Mode.LEARNER) {
+    val title = when (mode) {
+        Mode.LEARNER -> "Building your roadmap"
+        Mode.TINKERER -> "Building your guide"
+    }
+    val description = when (mode) {
+        Mode.LEARNER -> "Breaking “$topic” into subtopics and writing every lesson. This takes a " +
+                "moment, and then it's yours to keep, even offline."
+        Mode.TINKERER -> "Breaking “$topic” into a step-by-step checklist. This takes a " +
+                "moment, and then it's yours to keep, even offline."
+    }
+
     Column(
         modifier = modifier
             .fillMaxSize()
@@ -36,7 +48,7 @@ fun GeneratingState(topic: String, modifier: Modifier = Modifier) {
     ) {
         CircularProgressIndicator(color = PathNodeCurrent, strokeWidth = 4.dp)
         Text(
-            text = "Building your roadmap",
+            text = title,
             fontFamily = FredokaFamily,
             fontWeight = FontWeight.Bold,
             fontSize = 22.sp,
@@ -44,8 +56,7 @@ fun GeneratingState(topic: String, modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Breaking “$topic” into subtopics and writing every lesson. This takes a " +
-                "moment, and then it's yours to keep, even offline.",
+            text = description,
             fontFamily = NunitoFamily,
             fontWeight = FontWeight.SemiBold,
             fontSize = 14.sp,

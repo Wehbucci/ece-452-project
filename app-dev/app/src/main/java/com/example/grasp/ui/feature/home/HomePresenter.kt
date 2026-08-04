@@ -51,7 +51,7 @@ class HomePresenter(
         generating = true
         // The roadmap AND every lesson in it are written before we navigate, so this is a real
         // wait — show it rather than leaving Home looking frozen.
-        view?.showGenerating(query.trim())
+        view?.showGenerating(query.trim(), mode)
         scope.launch {
             val createdPath = repo.createTopic(query, mode)
             generating = false

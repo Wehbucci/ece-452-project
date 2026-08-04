@@ -24,7 +24,7 @@ interface HomeContract {
          * it when [topic] is null. Generation takes long enough that the user needs to see it
          * happening rather than a frozen Home screen.
          */
-        fun showGenerating(topic: String?)
+        fun showGenerating(topic: String?, mode: Mode = Mode.LEARNER)
 
         /** Generation failed — the user is still on Home and can try again. */
         fun showGenerationFailed()

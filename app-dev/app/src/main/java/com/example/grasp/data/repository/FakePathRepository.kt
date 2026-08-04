@@ -221,9 +221,9 @@ object FakePathRepository : PathRepository {
                 "rests against your knuckles. That keeps fingertips clear of the edge."),
     )
 
-    override suspend fun createTopic(query: String, mode: Mode): LearningPath? {
+    override suspend fun createTopic(query: String, mode: Mode): SavedItem? {
         val id = query.trim().lowercase().replace(Regex("\\s+"), "-")
-        return learningPath(id)
+        return if (mode == Mode.TINKERER) tinkerGuide(id) else learningPath(id)
     }
 
     /**

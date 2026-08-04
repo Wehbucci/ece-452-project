@@ -45,6 +45,9 @@ sealed interface SavedItem {
 
     /** How many lessons/steps this item contains in total — the denominator of [progress]. */
     val lessonCount: Int
+
+    /** e.g. "3 of 8 complete" for the list-view header (overview.md §8, screen 2). */
+    val progressLabel: String
 }
 
 /**
@@ -72,7 +75,7 @@ data class LearningPath(
         get() = if (lessonCount == 0) 0f else lessonsMastered.toFloat() / lessonCount
 
     /** e.g. "3 of 8 complete" for the list-view header (overview.md §8, screen 2). */
-    val progressLabel: String get() = "$lessonsMastered of $lessonCount complete"
+    override val progressLabel: String get() = "$lessonsMastered of $lessonCount complete"
 }
 
 /**
@@ -96,5 +99,5 @@ data class TinkerGuide(
         get() = if (lessonCount == 0) 0f else lessonsMastered.toFloat() / lessonCount
 
     /** e.g. "2 of 6 done" for the checklist header. */
-    val progressLabel: String get() = "$lessonsMastered of $lessonCount done"
+    override val progressLabel: String get() = "$lessonsMastered of $lessonCount done"
 }
