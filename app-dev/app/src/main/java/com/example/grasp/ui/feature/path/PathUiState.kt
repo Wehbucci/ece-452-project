@@ -134,4 +134,5 @@ data class PathUiState(
     val columnSpan: Float,
     val isDownloaded: Boolean = false,
     val isDownloading: Boolean = false,
+    val isGenerating: Boolean = false,
 )

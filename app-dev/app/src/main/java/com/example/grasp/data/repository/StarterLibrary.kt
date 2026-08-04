@@ -39,22 +39,9 @@ object StarterLibrary {
      * into strands that each run deep) on material nobody needs prior knowledge to follow.
      */
     private fun howLearningWorks() = roadmap(
-        id = "example-how-learning-works",
+        id = "how-learning-works",
         title = "How Learning Works",
-        nodes = listOf(
-            node("example-how-learning-works", "How Learning Works", 6,
-                children = listOf("hlw-memory", "hlw-practice")),
-
-            node("hlw-memory", "How Memory Works", 8, children = listOf("hlw-forgetting")),
-            node("hlw-forgetting", "The Forgetting Curve", 7, children = listOf("hlw-spacing")),
-            node("hlw-spacing", "Spaced Repetition", 9, children = listOf("hlw-recall")),
-            node("hlw-recall", "Active Recall", 8),
-
-            node("hlw-practice", "Deliberate Practice", 9, children = listOf("hlw-feedback")),
-            node("hlw-feedback", "Useful Feedback", 7, children = listOf("hlw-interleaving")),
-            node("hlw-interleaving", "Mixing Topics Up", 8, children = listOf("hlw-plateaus")),
-            node("hlw-plateaus", "Getting Past Plateaus", 9),
-        ),
+        nodes = emptyList(),
     )
 
     /**
@@ -63,22 +50,9 @@ object StarterLibrary {
      * one kind of topic.
      */
     private fun spaceExploration() = roadmap(
-        id = "example-space-exploration",
+        id = "space-exploration",
         title = "Space Exploration",
-        nodes = listOf(
-            node("example-space-exploration", "Space Exploration", 5,
-                children = listOf("se-orbit", "se-race")),
-
-            node("se-orbit", "What Orbit Is", 8, children = listOf("se-rockets")),
-            node("se-rockets", "How Rockets Work", 10, children = listOf("se-reusable")),
-            node("se-reusable", "Reusable Rockets", 9),
-
-            node("se-race", "The Space Race", 9, children = listOf("se-apollo")),
-            node("se-apollo", "Apollo Landings", 10, children = listOf("se-shuttle", "se-probes")),
-            node("se-shuttle", "The Shuttle Era", 9, children = listOf("se-iss")),
-            node("se-iss", "Living In Orbit", 8),
-            node("se-probes", "Explore: Deep Space Probes", 8),
-        ),
+        nodes = emptyList(),
     )
 
     /**
@@ -128,26 +102,6 @@ object StarterLibrary {
             nodes = nodes.map { it.copy(parentId = parents[it.id], contentRef = "content/$id/${it.id}.md") },
         )
     }
-
-    /**
-     * No `tier`, deliberately. A hand-authored tier overrides the board's derived bands
-     * (see `ui.feature.path.regionsFor`), and these roadmaps have nothing to say about their own
-     * structure that depth does not already say — an earlier version tagged only the root
-     * "FOUNDATIONS", which put a banner at the top with nothing after it and made the whole
-     * roadmap read as foundational.
-     */
-    private fun node(
-        id: String,
-        title: String,
-        estMinutes: Int,
-        children: List<String> = emptyList(),
-    ) = TreeNode(
-        id = id,
-        title = title,
-        estMinutes = estMinutes,
-        children = children,
-        contentReady = false,
-    )
 
     private fun step(order: Int, instruction: String, detail: String, estMinutes: Int) =
         TinkerStep(

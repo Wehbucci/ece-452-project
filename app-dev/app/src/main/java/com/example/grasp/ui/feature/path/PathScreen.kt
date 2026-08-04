@@ -42,6 +42,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.ui.components.ConfettiBurst
+import com.example.grasp.ui.components.GeneratingState
 import com.example.grasp.ui.components.LevelUpRibbon
 import com.example.grasp.ui.components.PathHud
 import com.example.grasp.ui.components.PathLayout
@@ -200,6 +201,11 @@ fun PathScreen(
             )
 
             state == null -> CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
+
+            state!!.isGenerating -> GeneratingState(
+                topic = state!!.title,
+                modifier = Modifier.align(Alignment.Center)
+            )
 
             else -> {
                 val s = state!!

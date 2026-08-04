@@ -4,6 +4,7 @@ import android.util.Log
 import com.example.grasp.GraspApp
 import com.example.grasp.core.util.NetworkMonitor
 import com.example.grasp.data.model.DownloadState
+import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.Subtopic
 import com.example.grasp.core.edit.LessonEdit
 import com.example.grasp.core.edit.RoadmapEdit
@@ -93,6 +94,7 @@ class PathPresenter(
     private var movingId: String? = null
 
     private var downloadState = DownloadState.NONE
+    private var isGenerating = false
 
     /**
      * The lesson the tutor was opened FROM, so closing the tutor goes back to it rather than to
@@ -147,6 +149,19 @@ class PathPresenter(
         }
         title = path.title
         downloadState = path.downloadState
+
+        if (path.nodes.isEmpty() && !isGenerating) {
+            isGenerating = true
+            emit() // Show GeneratingState via PathScreen
+            
+            val generated = repo.createTopic(path.title, Mode.LEARNER)
+            isGenerating = false
+            if (generated != null) {
+                load(firstLoad = false)
+                return
+            }
+        }
+
         // Roadmaps saved before this flow existed carry standing "Branch out" placeholder nodes.
         // Growing the path starts from a real lesson now, so the board shows lessons only.
         nodes = path.nodes.filterNot { it.isBranchOut }
@@ -710,6 +725,7 @@ class PathPresenter(
                 columnSpan = layout.columnSpan,
                 isDownloaded = downloadState == DownloadState.AVAILABLE,
                 isDownloading = downloadState == DownloadState.DOWNLOADING || downloadState == DownloadState.PENDING,
+                isGenerating = isGenerating,
             ),
         )
     }

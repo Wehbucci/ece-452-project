@@ -59,6 +59,7 @@ import com.example.grasp.core.util.NetworkMonitor
 import com.example.grasp.GraspApp
 import com.example.grasp.data.model.Mode
 import com.example.grasp.data.model.SavedItem
+import com.example.grasp.ui.components.GeneratingState
 import com.example.grasp.ui.components.GameCard
 import com.example.grasp.ui.components.GameIconTile
 import com.example.grasp.ui.components.GameModeToggle
@@ -226,42 +227,6 @@ fun HomeScreen(
     }
 }
 
-/**
- * Full-screen progress while a topic is generated.
- *
- * Names both things being built, because the wait covers the roadmap AND every lesson on it — a
- * bare spinner would read as the app having hung.
- */
-@Composable
-private fun GeneratingState(topic: String, modifier: Modifier = Modifier) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(32.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        CircularProgressIndicator(color = PathNodeCurrent, strokeWidth = 4.dp)
-        Text(
-            text = "Building your roadmap",
-            fontFamily = FredokaFamily,
-            fontWeight = FontWeight.Bold,
-            fontSize = 22.sp,
-            color = PathInk,
-            textAlign = TextAlign.Center,
-        )
-        Text(
-            text = "Breaking “$topic” into subtopics and writing every lesson. This takes a " +
-                "moment, and then it's yours to keep, even offline.",
-            fontFamily = NunitoFamily,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 14.sp,
-            lineHeight = 20.sp,
-            color = PathMuted,
-            textAlign = TextAlign.Center,
-        )
-    }
-}
 
 /** Generation failed — the user never left Home, so this just explains and invites a retry. */
 @Composable

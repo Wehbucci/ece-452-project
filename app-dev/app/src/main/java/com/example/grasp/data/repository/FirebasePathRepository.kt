@@ -82,7 +82,7 @@ class FirebasePathRepository : PathRepository {
         if (seedCheckedForUid == uid) return
         try {
             val userDoc = userDocRef(uid).get().await()
-            if (userDoc.getBoolean(STARTERS_SEEDED) == true) {
+            if (userDoc.exists() && userDoc.getBoolean(STARTERS_SEEDED) == true) {
                 seedCheckedForUid = uid
                 return
             }
@@ -103,7 +103,10 @@ class FirebasePathRepository : PathRepository {
     }
 
     private suspend fun writeStarterPath(uid: String, path: LearningPath) {
-        topicsRef(uid).document(path.id).set(
+        val docRef = topicsRef(uid).document(path.id)
+        if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
+        
+        docRef.set(
             mapOf(
                 "title" to path.title,
                 "mode" to "learner",
@@ -114,17 +117,15 @@ class FirebasePathRepository : PathRepository {
             ),
             SetOptions.merge(),
         ).await()
-        path.nodes.forEachIndexed { index, node ->
-            // No `content`, so [nodeDoc] marks it "not_generated" and the lesson is written by
-            // the AI on first open — in the reader's own preferences, rather than canned here.
-            nodesRef(uid, path.id).document(node.id)
-                .set(nodeDoc(node, index), SetOptions.merge())
-                .await()
-        }
+        // No longer seeding nodes here. The PathPresenter will trigger generation
+        // when it finds an empty topic.
     }
 
     private suspend fun writeStarterGuide(uid: String, guide: TinkerGuide) {
-        topicsRef(uid).document(guide.id).set(
+        val docRef = topicsRef(uid).document(guide.id)
+        if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
+        
+        docRef.set(
             mapOf(
                 "title" to guide.title,
                 "mode" to "tinkerer",
@@ -401,7 +402,7 @@ class FirebasePathRepository : PathRepository {
         lessons
             .mapIndexed { index, node ->
                 async {
-                    gate.withPermit {
+                    val content = gate.withPermit {
                         generateSubtopicContent(
                             pathTitle = pathTitle,
                             nodeTitle = node.title,
@@ -410,15 +411,12 @@ class FirebasePathRepository : PathRepository {
                             estMinutes = node.estMinutes,
                         )
                     }
+                    if (content != null) node.id to content else null
                 }
             }
             .awaitAll()
-            .mapNotNull { it }
-            .associateBy { it.summary } // Note: associateBy id would be better, but this matches generated shape
-            .let { map ->
-                // Remap to Ids
-                lessons.associate { it.id to map[it.title] }.filterValues { it != null } as Map<String, GeneratedContent>
-            }
+            .filterNotNull()
+            .toMap()
     }
 
     /**
@@ -551,13 +549,18 @@ class FirebasePathRepository : PathRepository {
         // moment it opens. [subtopic] still generates on demand for anything missing here.
         val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
         return try {
-            topicsRef(uid).document(normalizedId).set(
+            val docRef = topicsRef(uid).document(normalizedId)
+            val existing = docRef.get().await()
+            val isStarter = existing.getBoolean(StarterLibrary.STARTER_FIELD) == true
+
+            docRef.set(
                 mapOf(
                     "title" to title,
                     "mode" to "learner",
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                     "status" to "active",
+                    StarterLibrary.STARTER_FIELD to isStarter,
                     "preferences" to mapOf(
                         "difficulty" to "beginner",
                         "length" to "standard",
@@ -598,7 +601,12 @@ class FirebasePathRepository : PathRepository {
                     .await()
             }
             val hydrated = nodes.map { node ->
-                val timed = content[node.id]?.let { node.copy(estMinutes = it.estMinutes) } ?: node
+                val generated = content[node.id]
+                val timed = if (generated != null) {
+                    node.copy(estMinutes = generated.estMinutes, contentReady = true)
+                } else {
+                    node
+                }
                 timed.copy(completed = timed.completed || timed.id in completedNodeIds)
             }
             LearningPath(id = normalizedId, title = title, nodes = hydrated, downloadState = DownloadState.NONE)
@@ -1099,6 +1107,7 @@ class FirebasePathRepository : PathRepository {
             else -> "active"
         },
         "tier" to node.tier,
+        "contentStatus" to if (node.contentReady) CONTENT_GENERATED else "not_generated"
     ) + when {
         keepStoredContent -> emptyMap()
         content != null -> contentFields(content)
