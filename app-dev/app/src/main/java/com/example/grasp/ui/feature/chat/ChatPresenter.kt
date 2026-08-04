@@ -74,6 +74,9 @@ class ChatPresenter(
      */
     private val openProposals = mutableMapOf<String, EditProposal>()
 
+    private var isSending = false
+    private var isCircuitBroken = false
+
     /**
      * Built on first use rather than eagerly: the instruction embeds the node's lesson, which the
      * repository may have to generate (and which must not be fetched on the main thread).
@@ -103,7 +106,7 @@ class ChatPresenter(
     }
 
     override fun onSend(text: String) {
-        if (text.isBlank()) return
+        if (text.isBlank() || isSending || isCircuitBroken) return
         val prompt = text.trim()
 
         val userMessage = ChatMessage("msg-${nextId++}", ChatMessage.Author.USER, prompt)
@@ -111,7 +114,9 @@ class ChatPresenter(
 
         val pendingId = "msg-${nextId++}"
         messages += ChatMessage(pendingId, ChatMessage.Author.ASSISTANT, "", pending = true)
-        view?.showMessages(messages.toList())
+        
+        isSending = true
+        view?.showMessages(messages.toList(), isSending = isSending, isCircuitBroken = isCircuitBroken)
 
         uiScope.launch {
             chatRepo.saveMessage(chatId, context, userMessage)
@@ -127,8 +132,13 @@ class ChatPresenter(
      * flaky connection doesn't leave a column of dead ends in the transcript.
      */
     override fun onRetry(messageId: String) {
+        if (isSending || isCircuitBroken) return
         val prompt = retryPrompts[messageId] ?: return
         updatePending(messageId, text = "", stillPending = true)
+        
+        isSending = true
+        view?.showMessages(messages.toList(), isSending = isSending, isCircuitBroken = isCircuitBroken)
+
         streamReply(messageId, prompt)
     }
 
@@ -147,6 +157,15 @@ class ChatPresenter(
                         // showing the first card while the second is still arriving invites a tap
                         // on half of it.
                         is ChatChunk.Call -> calls += chunk.call
+
+                        is ChatChunk.Error -> {
+                            // If the circuit is broken, the session emits an error chunk.
+                            // We detect "unavailable" to trip the UI's broken state.
+                            if (chunk.message.contains("unavailable", ignoreCase = true)) {
+                                isCircuitBroken = true
+                            }
+                            throw Exception(chunk.message)
+                        }
                     }
                 }
                 retryPrompts -= pendingId
@@ -163,22 +182,26 @@ class ChatPresenter(
                 // Recover the UI first, log second. Reversed, anything the logger itself throws
                 // leaves the bubble stuck on the typing dots forever.
                 retryPrompts[pendingId] = prompt
-                updatePending(pendingId, text = FAILURE_TEXT, stillPending = false, failed = true)
+                updatePending(pendingId, text = e.message ?: FAILURE_TEXT, stillPending = false, failed = true)
                 // The class name and stack trace belong in the log, not in the tutor's voice: the
                 // bubble is where an answer goes, and "UnknownHostException: null" reads as one.
                 Log.e("ChatPresenter", "Gemini call failed", e)
+            } finally {
+                isSending = false
+                view?.showMessages(messages.toList(), isSending = isSending, isCircuitBroken = isCircuitBroken)
             }
         }
     }
 
     override fun onAttachImage() {
+        if (isSending || isCircuitBroken) return
         messages += ChatMessage(
             id = "msg-${nextId++}",
             author = ChatMessage.Author.USER,
             text = "",
             imageUri = "sample://attached-photo",
         )
-        view?.showMessages(messages.toList())
+        view?.showMessages(messages.toList(), isSending = isSending, isCircuitBroken = isCircuitBroken)
     }
 
     private fun updatePending(
@@ -196,7 +219,7 @@ class ChatPresenter(
                 failed = failed,
                 proposal = proposal,
             )
-            view?.showMessages(messages.toList())
+            view?.showMessages(messages.toList(), isSending = isSending, isCircuitBroken = isCircuitBroken)
         }
     }
 

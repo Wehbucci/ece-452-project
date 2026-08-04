@@ -17,7 +17,11 @@ private const val TAG = "GeminiJson"
 internal suspend fun geminiJson(systemInstruction: String, prompt: String): JSONObject? = try {
     val answer = StringBuilder()
     GeminiChatSession(systemInstruction).sendMessageStream(prompt).collect { chunk ->
-        if (chunk is ChatChunk.Text) answer.append(chunk.text)
+        when (chunk) {
+            is ChatChunk.Text -> answer.append(chunk.text)
+            is ChatChunk.Error -> throw Exception(chunk.message)
+            else -> Unit
+        }
     }
     extractJsonObject(answer.toString())
 } catch (e: Exception) {

@@ -157,11 +157,21 @@ private fun ChatPanel(
 ) {
     var history by remember { mutableStateOf<List<ChatMessage>>(emptyList()) }
     var input by remember { mutableStateOf("") }
+    var isSending by remember { mutableStateOf(false) }
+    var isCircuitBroken by remember { mutableStateOf(false) }
 
     val presenter = remember { presenterFactory(request.context, request.scope) }
     val view = remember {
         object : ChatContract.View {
-            override fun showMessages(messages: List<ChatMessage>) { history = messages }
+            override fun showMessages(
+                messages: List<ChatMessage>,
+                sending: Boolean,
+                broken: Boolean,
+            ) {
+                history = messages
+                isSending = sending
+                isCircuitBroken = broken
+            }
         }
     }
     DisposableEffect(presenter, view) {
@@ -201,6 +211,8 @@ private fun ChatPanel(
                 onRetry = presenter::onRetry,
                 onAcceptProposal = presenter::onAcceptProposal,
                 onRejectProposal = presenter::onRejectProposal,
+                isSending = isSending,
+                isCircuitBroken = isCircuitBroken,
                 modifier = Modifier.fillMaxSize(),
             )
         }

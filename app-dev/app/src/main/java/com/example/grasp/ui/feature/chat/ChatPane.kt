@@ -44,6 +44,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -101,6 +102,8 @@ internal fun ChatPane(
     onRetry: (String) -> Unit,
     onAcceptProposal: (String) -> Unit,
     onRejectProposal: (String) -> Unit,
+    isSending: Boolean = false,
+    isCircuitBroken: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val listState = rememberLazyListState()
@@ -152,6 +155,8 @@ internal fun ChatPane(
             onValueChange = onInputChange,
             onSend = onSend,
             onAttach = onAttach,
+            enabled = !isSending && !isCircuitBroken,
+            isCircuitBroken = isCircuitBroken,
         )
     }
 }
@@ -417,74 +422,95 @@ private fun ChatInputBar(
     onValueChange: (String) -> Unit,
     onSend: () -> Unit,
     onAttach: () -> Unit,
+    enabled: Boolean = true,
+    isCircuitBroken: Boolean = false,
 ) {
     Surface(color = PathCard, shadowElevation = 14.dp) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                // The MAX of the two, not the sum. Stacking `navigationBarsPadding()` and
-                // `imePadding()` added both, and since the IME's inset already spans the gesture
-                // bar it sat the composer a nav-bar's height above the keyboard.
-                .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.Bottom,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            AttachButton(onClick = onAttach)
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(PathScreenBg)
-                    .padding(horizontal = 16.dp, vertical = 12.dp),
-            ) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    textStyle = TextStyle(
-                        color = PathInk,
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        lineHeight = 20.sp,
-                    ),
-                    cursorBrush = SolidColor(PathNodeCurrent),
-                    maxLines = 4,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                if (value.isEmpty()) {
+        Column {
+            if (isCircuitBroken) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GameDangerTint)
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "Ask about your material…",
-                        fontFamily = NunitoFamily,
-                        fontWeight = FontWeight.SemiBold,
-                        fontSize = 15.sp,
-                        color = PathFaint,
+                        text = "Chat is unavailable due to repeated failures.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = GameDanger,
+                        textAlign = TextAlign.Center
                     )
                 }
             }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    // The MAX of the two, not the sum. Stacking `navigationBarsPadding()` and
+                    // `imePadding()` added both, and since the IME's inset already spans the gesture
+                    // bar it sat the composer a nav-bar's height above the keyboard.
+                    .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.Bottom,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                AttachButton(onClick = onAttach, enabled = enabled)
 
-            SendButton(enabled = value.isNotBlank(), onClick = onSend)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(PathScreenBg)
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    BasicTextField(
+                        value = value,
+                        onValueChange = onValueChange,
+                        enabled = enabled,
+                        textStyle = TextStyle(
+                            color = if (enabled) PathInk else PathMuted,
+                            fontFamily = NunitoFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            lineHeight = 20.sp,
+                        ),
+                        cursorBrush = SolidColor(PathNodeCurrent),
+                        maxLines = 4,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    if (value.isEmpty()) {
+                        Text(
+                            text = if (isCircuitBroken) "Unavailable" else "Ask about your material…",
+                            fontFamily = NunitoFamily,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 15.sp,
+                            color = PathFaint,
+                        )
+                    }
+                }
+
+                SendButton(enabled = enabled && value.isNotBlank(), onClick = onSend)
+            }
         }
     }
 }
 
 /** Quiet, square, and never the thing your eye lands on — the send button is. */
 @Composable
-private fun AttachButton(onClick: () -> Unit) {
+private fun AttachButton(onClick: () -> Unit, enabled: Boolean = true) {
     Box(
         modifier = Modifier
             .padding(bottom = ControlBevel)
             .size(ControlSize)
             .clip(RoundedCornerShape(16.dp))
-            .background(PathChipNeutralBg)
-            .clickable(onClick = onClick),
+            .background(if (enabled) PathChipNeutralBg else PathFaint)
+            .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             Icons.Filled.Add,
             contentDescription = "Attach photo",
-            tint = PathMuted,
+            tint = if (enabled) PathMuted else PathFaint,
             modifier = Modifier.size(22.dp),
         )
     }

@@ -23,6 +23,9 @@ sealed interface ChatChunk {
      * by the layers above. See [com.example.grasp.core.edit.proposeLessonEdits].
      */
     data class Call(val call: ToolCall) : ChatChunk
+
+    /** A failure in the AI round-trip, surfaced for the UI to explain. */
+    data class Error(val message: String) : ChatChunk
 }
 
 /**

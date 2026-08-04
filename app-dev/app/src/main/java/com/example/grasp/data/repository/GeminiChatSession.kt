@@ -12,6 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
@@ -34,6 +35,12 @@ class GeminiChatSession(
 
     private val chat = model.startChat()
 
+    /** Guard against concurrent [sendMessageStream] calls on THIS session. */
+    private var inFlight = false
+
+    /** True when 3 consecutive failures have occurred, stopping all further requests. */
+    private val isCircuitBroken get() = failureCount >= MAX_FAILURES
+
     /**
      * The calls the model has made, by the id this class handed out for them.
      *
@@ -49,14 +56,44 @@ class GeminiChatSession(
     private var callCount = 0
 
     override fun sendMessageStream(userText: String): Flow<ChatChunk> = channelFlow {
-        chat.sendMessageStream(nextMessage(userText)).collect { chunk ->
-            chunk.text?.let { if (it.isNotEmpty()) send(ChatChunk.Text(it)) }
-            chunk.functionCalls.forEach { part ->
-                val id = "call-${callCount++}"
-                proposed[id] = part
-                send(ChatChunk.Call(ToolCall(id, part.name, part.args.readable())))
+        if (inFlight) {
+            send(ChatChunk.Error("A request is already in flight. Please wait."))
+            return@channelFlow
+        }
+        if (isCircuitBroken) {
+            send(ChatChunk.Error("Chat is currently unavailable due to repeated failures. Please try again later."))
+            return@channelFlow
+        }
+
+        inFlight = true
+        var attempt = 0
+        var success = false
+
+        while (attempt < MAX_ATTEMPTS && !success) {
+            try {
+                if (attempt > 0) delay(INITIAL_DELAY_MS * (1 shl (attempt - 1)))
+                attempt++
+
+                chat.sendMessageStream(nextMessage(userText)).collect { chunk ->
+                    chunk.text?.let { if (it.isNotEmpty()) send(ChatChunk.Text(it)) }
+                    chunk.functionCalls.forEach { part ->
+                        val id = "call-${callCount++}"
+                        proposed[id] = part
+                        send(ChatChunk.Call(ToolCall(id, part.name, part.args.readable())))
+                    }
+                }
+                success = true
+                failureCount = 0 // Reset circuit breaker on success
+            } catch (e: Exception) {
+                if (attempt >= MAX_ATTEMPTS) {
+                    failureCount++
+                    send(ChatChunk.Error(e.message ?: "AI request failed after $MAX_ATTEMPTS attempts"))
+                }
+                // Log retry or final failure
+                android.util.Log.w("GeminiChatSession", "Attempt $attempt failed", e)
             }
         }
+        inFlight = false
     }.flowOn(Dispatchers.IO)
 
     override fun settle(callId: String, outcome: String) {
@@ -85,7 +122,17 @@ class GeminiChatSession(
         outcomes.clear()
         text(userText)
     }
+
+    private companion object {
+        /** Consecutive failure count across ALL sessions (circuit breaker). */
+        @Volatile
+        var failureCount = 0
+    }
 }
+
+private const val MAX_FAILURES = 3
+private const val MAX_ATTEMPTS = 3
+private const val INITIAL_DELAY_MS = 1000L
 
 /**
  * Arguments as plain strings.

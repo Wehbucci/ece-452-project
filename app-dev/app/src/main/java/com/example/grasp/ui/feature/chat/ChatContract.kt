@@ -14,8 +14,12 @@ import com.example.grasp.data.model.ChatMessage
 interface ChatContract {
 
     interface View : MvpView {
-        /** Render the full message list (the View scrolls to the latest). */
-        fun showMessages(messages: List<ChatMessage>)
+        /** Render (or re-render) the transcript and the composer state. */
+        fun showMessages(
+            messages: List<ChatMessage>,
+            isSending: Boolean = false,
+            isCircuitBroken: Boolean = false,
+        )
     }
 
     interface Presenter : MvpPresenter<View> {
