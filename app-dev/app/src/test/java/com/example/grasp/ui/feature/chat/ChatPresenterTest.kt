@@ -57,8 +57,13 @@ class ChatPresenterTest {
             .first { it is com.example.grasp.data.model.LessonBlock.Paragraph }
     }
 
-    private fun firstNodeId(pathId: String) =
+    private fun firstNodeId(pathId: String) = runBlocking {
         FakePathRepository.learningPath(pathId)!!.nodes.first { !it.isBranchOut }.id
+    }
+
+    private fun path(pathId: String) = runBlocking { FakePathRepository.learningPath(pathId)!! }
+
+    private fun guide(guideId: String) = runBlocking { FakePathRepository.tinkerGuide(guideId)!! }
 
     // ---- Tier 3: the tapped block ------------------------------------------------------------
 
@@ -118,7 +123,7 @@ class ChatPresenterTest {
 
     @Test
     fun `a roadmap chat lists the sections instead of one lesson`() {
-        val path = FakePathRepository.learningPath("ml-101")!!
+        val path = path("ml-101")
         val sections = path.nodes.filter { !it.isBranchOut }
 
         val instruction = instructionFor(ChatScope.Path("ml-101"))
@@ -147,7 +152,7 @@ class ChatPresenterTest {
 
     @Test
     fun `a guide chat lists every step`() {
-        val guide = FakePathRepository.tinkerGuide("omelette")!!
+        val guide = guide("omelette")
 
         val instruction = instructionFor(ChatScope.Guide("omelette"))
 
@@ -159,7 +164,7 @@ class ChatPresenterTest {
 
     @Test
     fun `a step chat says which step the user is standing on`() {
-        val guide = FakePathRepository.tinkerGuide("omelette")!!
+        val guide = guide("omelette")
         val step = guide.steps[1]
 
         val instruction = instructionFor(ChatScope.Step("omelette", step.id))

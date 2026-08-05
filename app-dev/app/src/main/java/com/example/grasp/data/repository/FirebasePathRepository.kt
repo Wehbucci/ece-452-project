@@ -28,6 +28,7 @@ import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
 import com.google.firebase.firestore.Source
+import com.google.firebase.firestore.WriteBatch
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.withTimeout
 import com.example.grasp.GraspApp
@@ -67,7 +68,8 @@ class FirebasePathRepository : PathRepository {
         nodesRef(uid, topicId).document(nodeId).collection("revisions")
 
     /**
-     * Writes the [StarterLibrary] examples into this user's library, exactly once per account.
+     * Writes the [StarterLibrary] examples — roadmaps, nodes and lessons — into this user's
+     * library, exactly once per account.
      *
      * Guarded by a flag on the user document rather than by "is the library empty", because those
      * differ in the one case that matters: a user who deleted the examples has an empty library
@@ -75,6 +77,13 @@ class FirebasePathRepository : PathRepository {
      *
      * Also guarded in-process by [seedCheckedForUid], so the tabs that call this on every attach
      * pay one document read per app run instead of one per visit.
+     *
+     * The whole library goes in ONE batch, the flag included. Nothing here is generated, so there
+     * is no slow step to die in the middle of — and an atomic write is what guarantees the state
+     * this is meant to prevent can never exist: a starter roadmap on the shelf with no nodes
+     * inside it, which [com.example.grasp.ui.feature.path.PathPresenter] would read as "generate
+     * this now" and rebuild from the AI, at which point the user's front door is neither free nor
+     * the same twice.
      */
     override suspend fun seedStarterLibrary() {
         val uid = uid ?: return
@@ -88,13 +97,19 @@ class FirebasePathRepository : PathRepository {
                 return
             }
 
-            StarterLibrary.learnerExamples().forEach { path -> writeStarterPath(uid, path) }
-            StarterLibrary.tinkerExamples().forEach { guide -> writeStarterGuide(uid, guide) }
+            val starters = StarterLibrary.learnerExamples()
+            val guides = StarterLibrary.tinkerExamples()
+            // An asset that could not be read leaves the library empty, and setting the flag over
+            // that would make an empty front door permanent for this account. Leaving it unset
+            // costs one document read on the next launch and nothing else.
+            if (starters.isEmpty() && guides.isEmpty()) return
 
-            // Last, so a run that died halfway is retried rather than remembered as done.
-            userDocRef(uid)
-                .set(mapOf(STARTERS_SEEDED to true), SetOptions.merge())
-                .await()
+            val batch = db.batch()
+            starters.forEach { starter -> stageStarterPath(batch, uid, starter) }
+            guides.forEach { guide -> stageStarterGuide(batch, uid, guide) }
+            batch.set(userDocRef(uid), mapOf(STARTERS_SEEDED to true), SetOptions.merge())
+            batch.commit().await()
+
             seedCheckedForUid = uid
         } catch (e: Exception) {
             // A library without its examples is a worse library, not a broken one — and leaving
@@ -103,11 +118,28 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
-    private suspend fun writeStarterPath(uid: String, path: LearningPath) {
+    /**
+     * Adds one starter roadmap and every lesson in it to [batch].
+     *
+     * Lessons go in through the same [nodeDoc] the generator's own writer uses, so an authored
+     * lesson and a generated one are the same document — which is what makes a starter openable,
+     * editable and undoable like anything else the user made.
+     */
+    private suspend fun stageStarterPath(batch: WriteBatch, uid: String, starter: StarterPath) {
+        val path = starter.path
         val docRef = topicsRef(uid).document(path.id)
         if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
 
-        docRef.set(
+        path.nodes.forEachIndexed { index, node ->
+            batch.set(
+                nodesRef(uid, path.id).document(node.id),
+                nodeDoc(node, index, node.parentId, starter.content[node.id]),
+                SetOptions.merge(),
+            )
+        }
+
+        batch.set(
+            docRef,
             mapOf(
                 "title" to path.title,
                 "mode" to "learner",
@@ -117,14 +149,15 @@ class FirebasePathRepository : PathRepository {
                 StarterLibrary.STARTER_FIELD to true,
             ),
             SetOptions.merge(),
-        ).await()
+        )
     }
 
-    private suspend fun writeStarterGuide(uid: String, guide: TinkerGuide) {
+    private suspend fun stageStarterGuide(batch: WriteBatch, uid: String, guide: TinkerGuide) {
         val docRef = topicsRef(uid).document(guide.id)
         if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
 
-        docRef.set(
+        batch.set(
+            docRef,
             mapOf(
                 "title" to guide.title,
                 "mode" to "tinker",
@@ -144,7 +177,7 @@ class FirebasePathRepository : PathRepository {
                 },
             ),
             SetOptions.merge(),
-        ).await()
+        )
     }
 
     override suspend fun savedItems(forceCache: Boolean): List<SavedItem> = withContext(Dispatchers.IO) {

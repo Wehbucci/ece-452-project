@@ -18,6 +18,10 @@ coroutines = "1.9.0"
 # library at RUNTIME scope, so the types it returns aren't on the compile classpath without this.
 # Pinned to the exact version firebase-ai already pulls in.
 serializationJson = "1.7.3"
+# Test-only. `org.json` is an android.jar stub on the unit-test classpath, and with
+# isReturnDefaultValues every parse would silently come back empty rather than fail — so a test
+# over hand-authored JSON would pass no matter what the file said. This is the real implementation.
+orgJson = "20250107"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -43,6 +47,7 @@ firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
 firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
 kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "coroutines" }
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serializationJson" }
+org-json = { group = "org.json", name = "json", version.ref = "orgJson" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

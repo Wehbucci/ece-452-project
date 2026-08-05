@@ -1,114 +1,218 @@
 package com.example.grasp.data.repository
 
+import android.util.Log
+import com.example.grasp.GraspApp
 import com.example.grasp.data.model.LearningPath
+import com.example.grasp.data.model.paragraphs
+import com.example.grasp.data.model.ResourceKind
+import com.example.grasp.data.model.ResourceLink
 import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import com.example.grasp.data.model.TreeNode
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * The example roadmaps and guides every new account starts with.
  *
  * Home used to advertise "popular topics" that were suggestions and nothing more: tapping one
  * navigated to a path id that had never been created, so it opened an empty roadmap. They are
- * replaced by these, which are REAL saved items — written here, seeded into the user's library
- * once, and from then on indistinguishable from something they generated themselves. They can be
- * opened, grown, edited and deleted like anything else, and deleting one is permanent.
+ * replaced by these, which are REAL saved items — written in `assets/starter_library.json`, seeded
+ * into the user's library once, and from then on indistinguishable from something they generated
+ * themselves. They can be opened, grown, edited and deleted like anything else, and deleting one
+ * is permanent.
  *
- * Only the STRUCTURE is authored here — titles, shape and time estimates. Each lesson is written
- * by the AI the first time it is opened, exactly like a node whose up-front generation failed
- * (see [FirebasePathRepository.subtopic]), so these stay a few dozen lines rather than a few
- * thousand, and they come out in the reader's own preferred pace, style and tone.
+ * Structure AND lessons are authored, not generated. An earlier version shipped the roadmaps empty
+ * and let the first open build them, which meant the app's front door cost an AI round-trip, came
+ * out different for every user, and showed a spinner to someone who had not asked for anything yet.
+ * Reading them from an asset instead makes a starter instant, free, identical for everyone, and —
+ * because [FirebasePathRepository.seedStarterLibrary] writes the lessons with the roadmap — never
+ * regenerated after the one seeding pass.
  *
- * Titles are all within `MAX_TITLE_WORDS`, since these skip the generator that would otherwise
- * enforce that.
+ * @see StarterPath for why the lessons travel beside the roadmap rather than inside it.
  */
 object StarterLibrary {
 
     /** Marks a topic document as one of these, so it is recognisable in Firestore. */
     const val STARTER_FIELD = "starter"
 
-    /** The learner roadmaps a new account finds in its library. */
-    fun learnerExamples(): List<LearningPath> = listOf(howLearningWorks(), spaceExploration())
+    /** The file this whole library is authored in, under `app/src/main/assets`. */
+    private const val ASSET_NAME = "starter_library.json"
+
+    /** The learner roadmaps a new account finds in its library, lessons included. */
+    internal fun learnerExamples(): List<StarterPath> = library().paths
 
     /** The tinkerer guide a new account finds in its library. */
-    fun tinkerExamples(): List<TinkerGuide> = listOf(frenchPress())
+    internal fun tinkerExamples(): List<TinkerGuide> = library().guides
 
     /**
-     * A roadmap about learning itself — chosen because it is the one topic every user of a
-     * learning app has a use for, and because it demonstrates the tree's shape (a root fanning
-     * into strands that each run deep) on material nobody needs prior knowledge to follow.
-     */
-    private fun howLearningWorks() = roadmap(
-        id = "how-learning-works",
-        title = "How Learning Works",
-        nodes = emptyList(),
-    )
-
-    /**
-     * A second roadmap with a genuinely different feel — concrete, chronological subject matter
-     * rather than technique — so the two examples together show that Grasp is not only good for
-     * one kind of topic.
-     */
-    private fun spaceExploration() = roadmap(
-        id = "space-exploration",
-        title = "Space Exploration",
-        nodes = emptyList(),
-    )
-
-    /**
-     * The Tinkerer example. A short, safe, physical task with a real technique to it — enough
-     * steps to show what the mode is for, nothing anyone can hurt themselves with.
-     */
-    private fun frenchPress() = TinkerGuide(
-        id = "example-french-press",
-        title = "Brew Coffee In A French Press",
-        steps = listOf(
-            step(1, "Boil water and let it sit for 30 seconds",
-                "Just off the boil (~95°C). Fully boiling water scorches the grounds and turns " +
-                    "the cup bitter.", 3),
-            step(2, "Grind 55g of coffee coarsely",
-                "Coarse, like raw sugar. Anything finer slips through the mesh and leaves silt " +
-                    "in the cup.", 2),
-            step(3, "Add the grounds and start a timer",
-                "Roughly 1g of coffee per 15g of water — 55g of coffee to 800g of water.", 1),
-            step(4, "Pour to twice the coffee's weight and wait 30 seconds",
-                "This is the bloom: fresh coffee gives off CO₂, and letting it escape first is " +
-                    "what lets the water actually reach the grounds.", 1),
-            step(5, "Pour in the rest and stir once",
-                "One gentle stir to wet every ground. Then put the lid on WITHOUT pressing down.", 1),
-            step(6, "Wait until 4 minutes, then press slowly",
-                "Slow and steady. Forcing the plunger pushes fines through the mesh and stirs up " +
-                    "the bed you just brewed.", 4),
-            step(7, "Decant it all straight away",
-                "Coffee left sitting on the grounds keeps extracting and turns harsh — pour every " +
-                    "last cup out of the press now.", 1),
-        ),
-    )
-
-    // ── Assembly helpers ────────────────────────────────────────────────────────────────────
-
-    /**
-     * Builds a starter roadmap, filling in the derived fields the generator would normally set.
+     * Reads and parses the asset once per process.
      *
-     * `contentReady = false` is the important one: it is what tells the app these lessons have not
-     * been written yet, so opening a node says "writing your lesson" and generates it, instead of
-     * showing a blank one.
+     * Cached because both Home and Library ask for it on attach, and a starter library that failed
+     * to load is an empty one: a seeding pass that writes nothing is retried on the next launch,
+     * which is the same thing that happens when the network is down.
      */
-    private fun roadmap(id: String, title: String, nodes: List<TreeNode>): LearningPath {
-        val parents = nodes.flatMap { node -> node.children.map { it to node.id } }.toMap()
-        return LearningPath(
-            id = id,
-            title = title,
-            nodes = nodes.map { it.copy(parentId = parents[it.id], contentRef = "content/$id/${it.id}.md") },
+    @Volatile
+    private var cached: StarterContent? = null
+
+    private fun library(): StarterContent = cached ?: synchronized(this) {
+        cached ?: load().also { cached = it }
+    }
+
+    private fun load(): StarterContent = try {
+        parse(GraspApp.context.assets.open(ASSET_NAME).bufferedReader().use { it.readText() })
+    } catch (e: Exception) {
+        Log.e("StarterLibrary", "could not read $ASSET_NAME", e)
+        StarterContent(emptyList(), emptyList())
+    }
+
+    // ── Parsing ─────────────────────────────────────────────────────────────────────────────
+
+    /**
+     * Turns the asset's text into the library.
+     *
+     * Separate from [load] and free of Android APIs so the authored content can be checked by a
+     * host-side test: the whole point of these being hand-written is that they are wrong in ways a
+     * generator's output could not be — a dangling child id, a title too long for a node, a lesson
+     * with no prose in it — and none of that shows up until a real account opens one.
+     */
+    internal fun parse(json: String): StarterContent {
+        val root = JSONObject(json)
+        return StarterContent(
+            paths = root.objectList("paths").mapNotNull(::parsePath),
+            guides = root.objectList("guides").mapNotNull(::parseGuide),
         )
     }
 
-    private fun step(order: Int, instruction: String, detail: String, estMinutes: Int) =
-        TinkerStep(
-            id = "step-$order",
-            order = order,
-            instruction = instruction,
-            detail = detail,
+    private fun parsePath(json: JSONObject): StarterPath? {
+        val id = json.optString("id").trim().ifEmpty { return null }
+        val title = json.optString("title").trim().ifEmpty { return null }
+        val entries = json.objectList("nodes").mapNotNull { parseNode(id, it) }
+        if (entries.isEmpty()) return null
+
+        // Parents are the inverse of `children`, exactly as the generator derives them.
+        val parents = entries.flatMap { entry -> entry.node.children.map { it to entry.node.id } }.toMap()
+        return StarterPath(
+            path = LearningPath(
+                id = id,
+                title = title,
+                nodes = entries.map { it.node.copy(parentId = parents[it.node.id]) },
+            ),
+            content = entries.associate { it.node.id to it.content },
+        )
+    }
+
+    private fun parseNode(pathId: String, json: JSONObject): NodeEntry? {
+        val id = json.optString("id").trim().ifEmpty { return null }
+        val title = json.optString("title").trim().ifEmpty { return null }
+        val estMinutes = json.optInt("estMinutes", 0)
+        val content = parseContent(json.optJSONObject("content"), estMinutes) ?: return null
+        return NodeEntry(
+            node = TreeNode(
+                id = id,
+                title = title,
+                estMinutes = estMinutes,
+                children = json.stringList("children"),
+                contentRef = "content/$pathId/$id.md",
+                // The lesson is right here in the asset, so it is written the moment the roadmap
+                // is. Nothing about a starter is ever "not generated yet".
+                contentReady = true,
+            ),
+            content = content,
+        )
+    }
+
+    /**
+     * One authored lesson. Returns null for anything that would open as a blank page, so a typo in
+     * the asset costs one node rather than silently shipping an empty lesson.
+     *
+     * [estMinutes] comes from the node rather than the lesson: the roadmap's estimate and the
+     * lesson's are the same number for authored content, and storing it twice invites them to drift.
+     */
+    private fun parseContent(json: JSONObject?, estMinutes: Int): GeneratedContent? {
+        if (json == null) return null
+        val summary = json.optString("summary").trim()
+        val body = lessonBlocks(json.optJSONArray("body").toValueList())
+        // The same bar the repository applies when it reads a stored lesson back: no summary or no
+        // prose and it counts as ungenerated, which would put the app straight back to writing one.
+        if (summary.isEmpty() || body.paragraphs().isEmpty()) return null
+        return GeneratedContent(
+            summary = summary,
+            whyItMatters = json.optString("whyItMatters").trim(),
+            body = body,
+            resources = json.objectList("resources").mapNotNull { resource ->
+                val title = resource.optString("title").trim()
+                val url = resource.optString("url").trim()
+                if (title.isEmpty() || !url.startsWith("http")) return@mapNotNull null
+                ResourceLink(title, url, resourceKind(resource.optString("kind")))
+            },
             estMinutes = estMinutes,
         )
+    }
+
+    private fun parseGuide(json: JSONObject): TinkerGuide? {
+        val id = json.optString("id").trim().ifEmpty { return null }
+        val title = json.optString("title").trim().ifEmpty { return null }
+        val steps = json.objectList("steps").mapIndexedNotNull { index, step ->
+            val instruction = step.optString("instruction").trim().ifEmpty { return@mapIndexedNotNull null }
+            TinkerStep(
+                // Order is the authored order, and the id follows it — a guide's steps are a
+                // sequence, so there is nothing else either of them could sensibly be.
+                id = "step-${index + 1}",
+                order = index + 1,
+                instruction = instruction,
+                detail = step.optString("detail").trim(),
+                estMinutes = step.optInt("estMinutes", 0),
+            )
+        }
+        return if (steps.isEmpty()) null else TinkerGuide(id = id, title = title, steps = steps)
+    }
+
+    private fun resourceKind(raw: String): ResourceKind =
+        ResourceKind.entries.firstOrNull { it.name.equals(raw.trim(), ignoreCase = true) }
+            ?: ResourceKind.ARTICLE
+
+    // ── org.json → plain values ─────────────────────────────────────────────────────────────
+
+    /**
+     * Unwraps a `JSONArray` into the `List<Map<String, Any?>>` shape [lessonBlocks] reads.
+     *
+     * Going through the shared reader rather than parsing blocks here is deliberate: the asset and
+     * a stored Firestore lesson are the same shape, and two readers for one shape would drift the
+     * first time a block type is added.
+     */
+    private fun JSONArray?.toValueList(): List<Any?> =
+        if (this == null) emptyList() else (0 until length()).map { unwrapJson(opt(it)) }
+
+    private fun unwrapJson(value: Any?): Any? = when (value) {
+        is JSONObject -> value.keys().asSequence().associateWith { unwrapJson(value.opt(it)) }
+        is JSONArray -> (0 until value.length()).map { unwrapJson(value.opt(it)) }
+        JSONObject.NULL -> null
+        else -> value
+    }
 }
+
+/** Everything the asset holds, already parsed. */
+internal data class StarterContent(
+    val paths: List<StarterPath>,
+    val guides: List<TinkerGuide>,
+)
+
+/**
+ * One starter roadmap and the lessons that belong to its nodes, keyed by node id.
+ *
+ * The lessons ride alongside rather than inside [LearningPath] because that is how they are stored:
+ * a [TreeNode] is deliberately structure-only (see its docs) and each lesson lives on its own node
+ * document. Keeping the two apart here means seeding can hand them straight to the same writer the
+ * generator uses, with nothing to unpack in between.
+ */
+internal data class StarterPath(
+    val path: LearningPath,
+    val content: Map<String, GeneratedContent>,
+)
+
+/** One node as authored: its structure and its lesson, before the two are separated for storage. */
+private data class NodeEntry(
+    val node: TreeNode,
+    val content: GeneratedContent,
+)

@@ -44,11 +44,14 @@ interface PathRepository {
     }
 
     /**
-     * Puts the hand-authored example roadmaps in a brand-new user's library, once.
+     * Puts the hand-authored example roadmaps in a brand-new user's library, once — structure and
+     * finished lessons together.
      *
      * They are the app's front door: somewhere to look before the user has generated anything of
-     * their own. Once seeded the flag stays set, so removing one is permanent — an example the
-     * user threw away must not come back the next time they open the Library.
+     * their own. Everything they contain is authored rather than generated, so this costs no AI
+     * calls, opens instantly, and is the same for every user — and nothing about a starter is ever
+     * written a second time. Once seeded the flag stays set, so removing one is permanent: an
+     * example the user threw away must not come back the next time they open the Library.
      */
     suspend fun seedStarterLibrary() = Unit
 

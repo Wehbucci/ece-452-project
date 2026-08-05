@@ -51,7 +51,11 @@ class ChatReplyTest {
     /** Records everything the presenter renders, so a whole exchange can be replayed. */
     private class RecordingView : ChatContract.View {
         val frames = mutableListOf<List<ChatMessage>>()
-        override fun showMessages(messages: List<ChatMessage>) { frames += messages }
+        override fun showMessages(
+            messages: List<ChatMessage>,
+            isSending: Boolean,
+            isCircuitBroken: Boolean,
+        ) { frames += messages }
         val latest: List<ChatMessage> get() = frames.last()
     }
 

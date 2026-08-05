@@ -69,6 +69,8 @@ dependencies {
     // Presenters launch on Dispatchers.Main, which does not exist in a JVM unit test until
     // Dispatchers.setMain installs one.
     testImplementation(libs.kotlinx.coroutines.test)
+    // Real org.json for the host tests — see the note on `orgJson` in the version catalog.
+    testImplementation(libs.org.json)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     androidTestImplementation(libs.androidx.espresso.core)

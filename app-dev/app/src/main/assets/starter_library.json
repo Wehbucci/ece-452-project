@@ -1,0 +1,709 @@
+{
+  "_comment": [
+    "The example roadmaps and guides every new account is given, content and all.",
+    "Read by StarterLibrary and written verbatim into the user's library on their first run.",
+    "Nothing in here is generated: these are the same for every user, cost no AI calls, and are",
+    "never rewritten once seeded. Node titles must stay within MAX_TITLE_WORDS (4) — these skip",
+    "the generator that would otherwise enforce that.",
+    "Body block types: heading (level 1-2), paragraph, code, diagram (FLOW | COMPARE | BAR),",
+    "image. A diagram needs at least 2 items; a BAR's unit is only rendered if it is 1-2 chars.",
+    "Resource urls must be absolute and real — a dead 'dive deeper' row is worse than none."
+  ],
+
+  "paths": [
+    {
+      "id": "how-learning-works",
+      "title": "How Learning Works",
+      "nodes": [
+        {
+          "id": "how-learning-works",
+          "title": "How Learning Works",
+          "estMinutes": 6,
+          "children": ["hlw-memory", "hlw-practice"],
+          "content": {
+            "summary": "Learning is not a talent you either have or don't. It is a set of mechanics — how memory stores things, how it loses them, and what practice actually changes — and every one of them can be worked with deliberately.",
+            "whyItMatters": "Almost everyone is taught what to learn and almost nobody is taught how. The few hours it takes to understand the mechanics pay back across every subject you will ever pick up.",
+            "body": [
+              { "type": "heading", "text": "Two things are going on", "level": 1 },
+              { "type": "paragraph", "text": "When you learn something, two separate systems are at work. One is memory: getting information in, keeping it there, and being able to pull it back out later. The other is skill: turning knowledge you have into something your hands or your reasoning can actually do under pressure." },
+              { "type": "paragraph", "text": "They fail in different ways and they are fixed in different ways. Forgetting the names of the bones in the wrist is a memory problem. Knowing every bone and still setting a splint badly is a skill problem. Most people treat both with the same medicine — more time — and are surprised when only one of them improves." },
+              {
+                "type": "diagram",
+                "text": "The two halves of this roadmap",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Memory", "detail": "Getting things in and keeping them there. Fixed with retrieval and spacing." },
+                  { "label": "Skill", "detail": "Doing the thing well and reliably. Fixed with targeted practice and feedback." }
+                ]
+              },
+              { "type": "heading", "text": "What this roadmap covers", "level": 1 },
+              { "type": "paragraph", "text": "The first strand follows memory: how it stores, why it drops what it stores, and the two techniques — spacing and retrieval — that reliably counteract that. The second follows skill: what separates practice that improves you from practice that just fills time." },
+              { "type": "paragraph", "text": "Nothing here is a study hack. Every technique in this roadmap has decades of evidence behind it, and most of them feel worse in the moment than the comfortable methods they replace. That feeling is the point, and the first strand explains why." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Learning", "url": "https://en.wikipedia.org/wiki/Learning", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Educational psychology", "url": "https://en.wikipedia.org/wiki/Educational_psychology", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-memory",
+          "title": "How Memory Works",
+          "estMinutes": 8,
+          "children": ["hlw-forgetting"],
+          "content": {
+            "summary": "Memory runs in three stages — encoding, storage, retrieval — with a small working-memory bottleneck at the front that decides how much can get in at once.",
+            "whyItMatters": "Nearly every study problem is really a failure at one specific stage. Knowing which one tells you which technique will actually help.",
+            "body": [
+              { "type": "heading", "text": "Three stages, not one", "level": 1 },
+              { "type": "paragraph", "text": "Encoding is getting information in — turning what you see or hear into something your brain can hold. Storage is keeping it. Retrieval is finding it again when you need it. \"I have a bad memory\" almost always means one of these three in particular, and the fix is different for each." },
+              { "type": "paragraph", "text": "Retrieval failure is by far the most common and the most misdiagnosed. The information is in there — you recognise the right answer the instant you see it — but you could not produce it unprompted. That is not a storage problem, and re-reading the material does not touch it." },
+              { "type": "heading", "text": "The bottleneck at the front", "level": 1 },
+              { "type": "paragraph", "text": "Working memory is the small workspace where you hold whatever you are thinking about right now. It is famously limited — a handful of items at a time — and everything that reaches long-term memory has to pass through it first." },
+              { "type": "paragraph", "text": "This is why a page of dense notation is exhausting while a page of prose about something you already know is easy. Familiar material arrives pre-packaged: \"the Pythagorean theorem\" takes one slot, whereas the same idea spelled out symbol by symbol takes five. Expertise is largely the accumulation of bigger packages." },
+              {
+                "type": "diagram",
+                "text": "The path a fact takes",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "Attention", "detail": "You have to actually notice it. Nothing gets in unattended." },
+                  { "label": "Working memory", "detail": "A few items at a time, held for seconds." },
+                  { "label": "Encoding", "detail": "Connecting it to something you already know." },
+                  { "label": "Long-term storage", "detail": "Durable, effectively unlimited, and hard to search." },
+                  { "label": "Retrieval", "detail": "Finding it again — the step that usually fails." }
+                ]
+              },
+              { "type": "heading", "text": "What follows from this", "level": 1 },
+              { "type": "paragraph", "text": "Two consequences run through the rest of this strand. First, dividing your attention costs you encoding, so studying alongside anything competing for the same workspace does real damage. Second, since retrieval is the weak step, practising retrieval rather than re-reading is where the leverage is." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Memory", "url": "https://en.wikipedia.org/wiki/Memory", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Working memory", "url": "https://en.wikipedia.org/wiki/Working_memory", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-forgetting",
+          "title": "The Forgetting Curve",
+          "estMinutes": 7,
+          "children": ["hlw-spacing"],
+          "content": {
+            "summary": "Newly learned material decays fast and then slowly — most of the loss happens within the first day. The shape of that curve is what every review schedule is built around.",
+            "whyItMatters": "If you know when forgetting happens, you know when reviewing is worth anything. Reviewing at the wrong moment is most of the wasted effort in studying.",
+            "body": [
+              { "type": "heading", "text": "Ebbinghaus and the curve", "level": 1 },
+              { "type": "paragraph", "text": "In the 1880s Hermann Ebbinghaus memorised thousands of nonsense syllables and tested himself at intervals to see how much survived. The result was the first quantitative curve of forgetting, and its shape has held up ever since: steep at first, then flattening out." },
+              { "type": "paragraph", "text": "The numbers vary with the material and the person, but the pattern does not. Most of what you lose, you lose in the first day. What survives a week tends to survive considerably longer." },
+              {
+                "type": "diagram",
+                "text": "Roughly how much of a fresh, meaningless list survives",
+                "kind": "BAR",
+                "unit": "%",
+                "maxValue": 100,
+                "items": [
+                  { "label": "20 minutes", "value": 58 },
+                  { "label": "1 hour", "value": 44 },
+                  { "label": "1 day", "value": 33 },
+                  { "label": "6 days", "value": 25 },
+                  { "label": "31 days", "value": 21 }
+                ]
+              },
+              { "type": "paragraph", "text": "Those figures come from nonsense syllables, which is the worst case — material with no meaning to hook onto. Anything you genuinely understand decays far more slowly. The curve's shape is the transferable part, not its exact height." },
+              { "type": "heading", "text": "Why re-reading feels like it works", "level": 1 },
+              { "type": "paragraph", "text": "Immediately after reading something your recall sits at the top of the curve. Test yourself then, score well, conclude you know it, and stop. The curve says nothing about that moment — it says what you will have tomorrow, and tomorrow is when it matters." },
+              { "type": "paragraph", "text": "This is the most expensive mistake in self-study: measuring your knowledge at the exact moment it is least informative. The rest of this strand is about flattening the curve rather than repeatedly climbing back up it." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Forgetting curve", "url": "https://en.wikipedia.org/wiki/Forgetting_curve", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Hermann Ebbinghaus", "url": "https://en.wikipedia.org/wiki/Hermann_Ebbinghaus", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-spacing",
+          "title": "Spaced Repetition",
+          "estMinutes": 9,
+          "children": ["hlw-recall"],
+          "content": {
+            "summary": "Reviewing at expanding intervals — just as you are about to forget — produces far more durable memory than the same total time spent in one block.",
+            "whyItMatters": "It is the highest-return change most learners can make, and it costs no extra hours: the same study time, redistributed.",
+            "body": [
+              { "type": "heading", "text": "The spacing effect", "level": 1 },
+              { "type": "paragraph", "text": "Take a fixed amount of study time and split it into sessions spread over days rather than one long block. The spread version wins, consistently and by a wide margin, on any test more than a day later. This is the spacing effect, and it is among the most replicated findings in the study of learning." },
+              { "type": "paragraph", "text": "The mechanism is not fully settled, but the practical rule is: a review is worth most when you have almost, but not quite, forgotten. Reviewing something you still remember perfectly is nearly free of benefit. Reviewing something you have entirely lost is relearning from scratch." },
+              {
+                "type": "diagram",
+                "text": "An expanding schedule for one fact",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "Day 0", "detail": "Learn it." },
+                  { "label": "Day 1", "detail": "First review, while it is still shaky." },
+                  { "label": "Day 3", "detail": "The gap doubles, because you got it." },
+                  { "label": "Day 7", "detail": "Third review." },
+                  { "label": "Day 21", "detail": "By here it is close to permanent." }
+                ]
+              },
+              { "type": "heading", "text": "Why the intervals expand", "level": 1 },
+              { "type": "paragraph", "text": "Each successful review flattens the curve, so the next one can wait longer. Schedules that expand — a day, three days, a week, three weeks — track that, which is why they beat a fixed weekly review at the same total cost. Get one wrong and the interval collapses back to short: that item needs the attention the easy ones do not." },
+              { "type": "paragraph", "text": "Spaced-repetition software does nothing more than run this bookkeeping for you. The effect lives in the schedule, not the software — a stack of index cards in dated piles works too." },
+              { "type": "heading", "text": "The catch", "level": 1 },
+              { "type": "paragraph", "text": "Spacing feels worse than blocking. Every session opens with the uncomfortable sensation of having lost ground, and it leaves you feeling less prepared than a solid evening of re-reading does. That discomfort is the effect working: the difficulty is what makes the memory stick." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Spaced repetition", "url": "https://en.wikipedia.org/wiki/Spaced_repetition", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Spacing effect", "url": "https://en.wikipedia.org/wiki/Spacing_effect", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-recall",
+          "title": "Active Recall",
+          "estMinutes": 8,
+          "children": [],
+          "content": {
+            "summary": "Pulling an answer out of your head strengthens it far more than putting it back in front of your eyes. Testing is not just measurement — it is the study method.",
+            "whyItMatters": "It is the other half of spacing, and together the two account for most of the difference between efficient and wasted study time.",
+            "body": [
+              { "type": "heading", "text": "The testing effect", "level": 1 },
+              { "type": "paragraph", "text": "Give two groups the same passage. One re-reads it; the other reads it once and then tries to recall it from memory. On an immediate test the re-readers often do better. On a test a week later the recall group wins decisively. This is the testing effect, and it inverts the usual relationship between studying and testing." },
+              { "type": "paragraph", "text": "Retrieval is not a neutral readout. Every time you successfully pull something out of memory you make the route to it easier to travel next time. Re-reading exercises recognition, which is a different and much weaker thing." },
+              {
+                "type": "diagram",
+                "text": "Same material, same minutes",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Re-reading", "detail": "Feels productive, high confidence, poor retention a week later." },
+                  { "label": "Self-testing", "detail": "Feels slow and uncomfortable, lower confidence, far better retention." }
+                ]
+              },
+              { "type": "heading", "text": "Doing it properly", "level": 1 },
+              { "type": "paragraph", "text": "Close the book first. The moment you can see the answer you are recognising rather than retrieving, and the benefit is gone. Write or say the answer in full instead of deciding you \"would have got it\" — that judgement is unreliable in exactly the direction that flatters you." },
+              { "type": "paragraph", "text": "Struggling before you check is not wasted either. Even a failed retrieval attempt improves how well the answer sticks once you see it, provided you do then see it. Guessing and never checking is the one version that does not work." },
+              { "type": "heading", "text": "The illusion of knowing", "level": 1 },
+              { "type": "paragraph", "text": "Fluency — the feeling of material flowing easily past you — is a poor proxy for knowing it, and re-reading maximises fluency. Self-testing is unpleasant precisely because it strips the illusion away and shows you what you actually have. Most people who switch report feeling like they have got worse at the subject for about a week." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Testing effect", "url": "https://en.wikipedia.org/wiki/Testing_effect", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Active recall", "url": "https://en.wikipedia.org/wiki/Active_recall", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-practice",
+          "title": "Deliberate Practice",
+          "estMinutes": 9,
+          "children": ["hlw-feedback"],
+          "content": {
+            "summary": "Time spent doing something is not the same as practice that improves it. Deliberate practice targets a specific weakness at the edge of your ability, with feedback, and it looks nothing like ordinary repetition.",
+            "whyItMatters": "It explains why decades of experience can produce no improvement at all, and what to do instead.",
+            "body": [
+              { "type": "heading", "text": "Experience is not practice", "level": 1 },
+              { "type": "paragraph", "text": "Plenty of people drive for thirty years and are no better than they were in year three. The same holds for typing, for clinical diagnosis, for amateur musicians. Past the point where a skill becomes automatic, doing it more does not by itself make it better." },
+              { "type": "paragraph", "text": "Automaticity is the reason. Once something runs without conscious attention it stops changing — that is what makes it comfortable, and what makes it stop improving. Getting better again means deliberately breaking out of the automatic version." },
+              {
+                "type": "diagram",
+                "text": "Two hours at the piano",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Ordinary practice", "detail": "Play the pieces you know, start to finish, at tempo. Comfortable, sounds good, changes little." },
+                  { "label": "Deliberate practice", "detail": "Four bars you keep fumbling, slowly, until they are clean. Uncomfortable, sounds bad, changes a lot." }
+                ]
+              },
+              { "type": "heading", "text": "The four ingredients", "level": 1 },
+              { "type": "paragraph", "text": "Deliberate practice, as Anders Ericsson described it, has a recognisable shape. It targets a specific component rather than the whole performance. It sits just past your current ability, hard enough that you sometimes fail. It repeats with the intent to correct something. And it carries feedback tight enough that you know within moments whether the attempt was right." },
+              { "type": "paragraph", "text": "Remove any one of those and it degrades into ordinary repetition. Practising what you can already do is comfortable and useless; practising far past your level is demoralising and equally useless; practising without feedback reliably grooves in whatever you happen to be doing wrong." },
+              { "type": "heading", "text": "Where it applies", "level": 1 },
+              { "type": "paragraph", "text": "The full version needs a well-defined skill with clear standards, which is why it is best documented in music, chess and sport. But the core moves transfer almost anywhere: isolate the part you are worst at, work on that part specifically, and get feedback fast enough to act on. The rest of this strand takes those pieces one at a time." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Practice (learning method)", "url": "https://en.wikipedia.org/wiki/Practice_(learning_method)", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Anders Ericsson", "url": "https://en.wikipedia.org/wiki/Anders_Ericsson", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-feedback",
+          "title": "Useful Feedback",
+          "estMinutes": 7,
+          "children": ["hlw-interleaving"],
+          "content": {
+            "summary": "Feedback only teaches when it arrives fast enough to connect to the attempt and is specific enough to act on. Most feedback fails one test or the other.",
+            "whyItMatters": "Practice without feedback does not merely fail to improve you — it makes your mistakes more permanent.",
+            "body": [
+              { "type": "heading", "text": "Speed matters more than volume", "level": 1 },
+              { "type": "paragraph", "text": "A skill improves when an attempt and its consequence sit close enough together to be linked. This is why video games teach their own mechanics so efficiently, and why an essay returned three weeks later teaches almost nothing: by then you cannot reconstruct what you were thinking when you wrote it." },
+              { "type": "paragraph", "text": "There is a real trade-off here. Immediate correction is best while a skill is forming; slightly delayed feedback can be better once it is established, because it forces you to evaluate your own work first. The failure mode to avoid is not \"slightly delayed\" — it is \"too late to remember the attempt\"." },
+              { "type": "heading", "text": "Specific beats evaluative", "level": 1 },
+              { "type": "paragraph", "text": "\"That was weak\" is a grade, not feedback. \"Your third paragraph asserts the conclusion you are supposed to be arguing for\" is something you can act on this afternoon. The useful part is always the identification of what specifically to change." },
+              {
+                "type": "diagram",
+                "text": "Same performance, two responses",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Evaluative", "detail": "\"Six out of ten.\" Tells you where you stand and nothing about what to do." },
+                  { "label": "Specific", "detail": "\"You rush the transition at bar 12.\" Names one thing to fix next attempt." }
+                ]
+              },
+              { "type": "heading", "text": "When nobody is there to tell you", "level": 1 },
+              { "type": "paragraph", "text": "Most self-teaching has no coach in it, so the feedback has to be engineered. Compare your work against a known-good example. Record yourself and watch it back — you will spot things you could not feel. Predict the answer before you check it, so that being wrong actually registers. Anything that makes an error visible quickly will do." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Feedback", "url": "https://en.wikipedia.org/wiki/Feedback", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Formative assessment", "url": "https://en.wikipedia.org/wiki/Formative_assessment", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-interleaving",
+          "title": "Mixing Topics Up",
+          "estMinutes": 8,
+          "children": ["hlw-plateaus"],
+          "content": {
+            "summary": "Practising several related things in a shuffled order beats doing them one block at a time, even though it feels considerably worse while you do it.",
+            "whyItMatters": "Blocked practice teaches you to execute a method; interleaved practice teaches you to choose one — which is what real problems actually demand.",
+            "body": [
+              { "type": "heading", "text": "Blocked versus interleaved", "level": 1 },
+              { "type": "paragraph", "text": "Blocked practice is twenty problems of type A, then twenty of type B. Interleaved practice shuffles them together. Blocked feels much better: you settle into a groove, your accuracy climbs within the block, and it seems obvious you are learning. On a later mixed test, the interleaved group does substantially better." },
+              { "type": "paragraph", "text": "A study of badminton serves found the same thing, as did one on students learning to tell painters' styles apart. The pattern is remarkably consistent across motor skills and conceptual ones alike." },
+              { "type": "heading", "text": "Why it works", "level": 1 },
+              { "type": "paragraph", "text": "Inside a block you only solve the problem once — after the first item you know which method applies and you are merely executing it. Shuffled, every item opens with the hardest question: what kind of problem is this? That identification step is a skill in itself, and blocked practice never exercises it." },
+              { "type": "paragraph", "text": "It also forces you to reload the method each time instead of keeping it warm, which is spacing in miniature. The two effects compound." },
+              {
+                "type": "diagram",
+                "text": "Twenty practice problems",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Blocked · AAAABBBB", "detail": "Fast, accurate, high confidence. Poor transfer to a mixed test." },
+                  { "label": "Interleaved · ABBABAAB", "detail": "Slower, more errors, low confidence. Much better transfer." }
+                ]
+              },
+              { "type": "heading", "text": "Using it", "level": 1 },
+              { "type": "paragraph", "text": "Interleave things that are genuinely confusable — different integration techniques, chords that share fingerings, species that look alike. Mixing unrelated subjects gives you the discomfort without the discrimination benefit. And do it once you have a first grasp of each method: interleaving is for choosing between tools you already have, not for acquiring them." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Desirable difficulty", "url": "https://en.wikipedia.org/wiki/Desirable_difficulty", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Interleaving and learning", "url": "https://en.wikipedia.org/w/index.php?search=interleaving+learning", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "hlw-plateaus",
+          "title": "Getting Past Plateaus",
+          "estMinutes": 9,
+          "children": [],
+          "content": {
+            "summary": "Progress on any real skill is a staircase, not a ramp. Plateaus are a normal structural feature of learning, and the way out is usually to change what you practise rather than how much.",
+            "whyItMatters": "The plateau is where most people quit, and they usually quit believing they have hit their ceiling rather than a predictable stage.",
+            "body": [
+              { "type": "heading", "text": "The shape of a learning curve", "level": 1 },
+              { "type": "paragraph", "text": "Almost nobody improves smoothly. You gain quickly, flatten out for a while, then jump again. The flat stretches are not stalled effort — they are usually consolidation, where the pieces you have been collecting get reorganised into something more automatic. The jump comes after that reorganisation, not because you finally tried harder." },
+              { "type": "paragraph", "text": "Early gains are also the easiest ones. The first month of a language takes you from nothing to ordering coffee; the twelfth takes you from good to slightly better. The curve flattening is partly just the low-hanging fruit running out." },
+              { "type": "heading", "text": "The kind that is real", "level": 1 },
+              { "type": "paragraph", "text": "Some plateaus are genuine, and they nearly always have the same cause: the skill has become automatic at its current level. Automatic performance is comfortable and stable, which is exactly why it stops changing. More hours at the same thing add nothing, because nothing in those hours asks you to do anything new." },
+              {
+                "type": "diagram",
+                "text": "Working through one",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "Notice it", "detail": "Weeks of practice, no measurable change." },
+                  { "label": "Find the binding part", "detail": "Which specific component is holding the rest back?" },
+                  { "label": "Break it out", "detail": "Practise that component alone, slowly, out of context." },
+                  { "label": "Raise the difficulty", "detail": "Faster, harder, or under conditions you would normally avoid." },
+                  { "label": "Reintegrate", "detail": "Put it back into the whole performance." }
+                ]
+              },
+              { "type": "heading", "text": "Practical moves", "level": 1 },
+              { "type": "paragraph", "text": "Slow down deliberately — most automatic errors are invisible at speed. Change the constraints: play in an unfamiliar key, write to a word limit, solve problems with one tool removed. Get an outside view, since whatever is holding you back is by definition something you cannot currently see. And check you have not simply stopped tracking anything, because a plateau you cannot measure may not be a plateau at all." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Learning curve", "url": "https://en.wikipedia.org/wiki/Learning_curve", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Desirable difficulty", "url": "https://en.wikipedia.org/wiki/Desirable_difficulty", "kind": "ARTICLE" }
+            ]
+          }
+        }
+      ]
+    },
+
+    {
+      "id": "space-exploration",
+      "title": "Space Exploration",
+      "nodes": [
+        {
+          "id": "space-exploration",
+          "title": "Space Exploration",
+          "estMinutes": 5,
+          "children": ["se-orbit", "se-race"],
+          "content": {
+            "summary": "Getting to space is a problem of speed, not height — and the history of solving it runs from a beeping metal sphere to permanently occupied orbital stations in under seventy years.",
+            "whyItMatters": "Spaceflight is the clearest example of a problem that looks impossible until you understand the one physical fact at its centre.",
+            "body": [
+              { "type": "heading", "text": "Two strands", "level": 1 },
+              { "type": "paragraph", "text": "This roadmap splits the subject in two. The first is the physics: what an orbit actually is, how a rocket produces the speed to reach one, and why reusing the rocket turned out to be the hard part. The second is the history: the race that put people on the Moon, and what came after it." },
+              { "type": "paragraph", "text": "They are worth taking in that order. Almost every decision in the history — why the Moon and not Mars, why the Shuttle disappointed, why the Space Station sits where it does — follows from constraints introduced in the physics strand." },
+              { "type": "heading", "text": "The one fact to start with", "level": 1 },
+              { "type": "paragraph", "text": "Space is not far. The internationally recognised boundary sits 100 km up, less than the distance most people drive on an ordinary weekend. A car could cover it in an hour, if roads went that way." },
+              { "type": "paragraph", "text": "What is hard is staying there. Reaching 100 km and stopping means falling straight back down. Staying in orbit means travelling sideways at roughly 7.8 kilometres per second — about twenty-five times the speed of sound — and that speed, not the altitude, is what all the fuel is for." },
+              {
+                "type": "diagram",
+                "text": "Where the difficulty actually is",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Altitude · 100 km", "detail": "A one-hour drive, if you could drive upward. The cheap part." },
+                  { "label": "Speed · 7.8 km/s", "detail": "About Mach 25. This is what the rocket is really buying." }
+                ]
+              }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Spaceflight", "url": "https://en.wikipedia.org/wiki/Spaceflight", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Kármán line", "url": "https://en.wikipedia.org/wiki/K%C3%A1rm%C3%A1n_line", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-orbit",
+          "title": "What Orbit Is",
+          "estMinutes": 8,
+          "children": ["se-rockets"],
+          "content": {
+            "summary": "An orbit is a fall that keeps missing. That one image explains weightlessness, why each altitude has a fixed speed, and why changing orbits is expensive.",
+            "whyItMatters": "Everything else in spaceflight — rendezvous, re-entry, station-keeping, the cost of a launch — is a consequence of what an orbit is.",
+            "body": [
+              { "type": "heading", "text": "Newton's cannonball", "level": 1 },
+              { "type": "paragraph", "text": "Newton imagined a cannon on an impossibly high mountain. Fire it gently and the ball arcs down and lands. Fire it harder and it lands further away. Fire it hard enough and the ground curves away beneath it exactly as fast as it falls — so it never lands. That is an orbit: not the absence of gravity, but a sideways speed high enough that you keep missing the planet." },
+              { "type": "paragraph", "text": "Gravity at the Space Station's altitude is about 90% of what it is at sea level. Astronauts float not because gravity has gone but because they and their station are falling together, continuously, and have been for years." },
+              { "type": "heading", "text": "Speed is set by altitude", "level": 1 },
+              { "type": "paragraph", "text": "For a circular orbit the altitude fixes the speed — you do not get to choose both. Lower means faster and a shorter period; higher means slower and a longer one. The Space Station, at about 400 km, goes round every 92 minutes. A satellite at 35,786 km takes exactly 24 hours, which is why that altitude is where communications satellites sit." },
+              {
+                "type": "diagram",
+                "text": "Orbital period at each altitude, in minutes",
+                "kind": "BAR",
+                "items": [
+                  { "label": "400 km · ISS", "value": 92 },
+                  { "label": "2,000 km", "value": 127 },
+                  { "label": "20,200 km · GPS", "value": 718 },
+                  { "label": "35,786 km · geostationary", "value": 1436 }
+                ]
+              },
+              { "type": "heading", "text": "The counter-intuitive part", "level": 1 },
+              { "type": "paragraph", "text": "Speeding up does not make you catch the spacecraft ahead of you. Thrusting forward raises your orbit, and a higher orbit is slower, so you fall further behind. To catch something ahead of you, you slow down, drop lower, go round faster, and then rise back up to meet it. Every rendezvous — every crew arriving at the Station — works this way." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Orbit", "url": "https://en.wikipedia.org/wiki/Orbit", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Newton's cannonball", "url": "https://en.wikipedia.org/wiki/Newton%27s_cannonball", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Orbital mechanics", "url": "https://en.wikipedia.org/wiki/Orbital_mechanics", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-rockets",
+          "title": "How Rockets Work",
+          "estMinutes": 10,
+          "children": ["se-reusable"],
+          "content": {
+            "summary": "A rocket throws mass backwards to push itself forwards, and because it must carry everything it throws, its performance is governed by a brutally simple equation about mass ratios.",
+            "whyItMatters": "The rocket equation is why launch vehicles are almost entirely fuel, why they come apart in stages, and why the cost of spaceflight has been so stubborn.",
+            "body": [
+              { "type": "heading", "text": "Throwing mass backwards", "level": 1 },
+              { "type": "paragraph", "text": "A rocket does not push against the air — it works better without any. It carries propellant, burns it, and expels the exhaust at high speed through a nozzle. Every kilogram leaving the back at speed pushes the rocket forward by an equal and opposite amount. That is the whole principle." },
+              { "type": "paragraph", "text": "Two numbers describe an engine. Thrust is how hard it pushes, and it has to exceed the vehicle's weight or you go nowhere. Specific impulse is how efficiently it uses propellant — effectively the exhaust speed — and it decides how far a given tank will take you." },
+              { "type": "heading", "text": "The tyranny of the rocket equation", "level": 1 },
+              { "type": "paragraph", "text": "Tsiolkovsky's equation says the velocity you can gain depends on the exhaust speed and on the ratio of your starting mass to your ending mass — and it depends on that ratio logarithmically. Wanting twice the velocity change does not mean twice the propellant; it means squaring the mass ratio." },
+              { "type": "paragraph", "text": "This is why a launch vehicle on the pad is roughly 85% propellant, a little over a tenth structure, and about 3% payload. Every extra kilogram of satellite demands tens of kilograms of propellant beneath it, and no engineering cleverness escapes the logarithm." },
+              {
+                "type": "diagram",
+                "text": "Where the mass of a typical launcher goes",
+                "kind": "BAR",
+                "unit": "%",
+                "maxValue": 100,
+                "items": [
+                  { "label": "Propellant", "value": 85 },
+                  { "label": "Structure and engines", "value": 12 },
+                  { "label": "Payload", "value": 3 }
+                ]
+              },
+              { "type": "heading", "text": "Why staging exists", "level": 1 },
+              { "type": "paragraph", "text": "Once the first tank is empty it is dead weight, and by the rocket equation dead weight is expensive. Staging throws that empty tank away along with the engines that drained it, leaving the remaining vehicle far lighter for the rest of the climb. Nearly every orbital rocket ever flown has been multi-stage, for this reason alone." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Rocket", "url": "https://en.wikipedia.org/wiki/Rocket", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Tsiolkovsky rocket equation", "url": "https://en.wikipedia.org/wiki/Tsiolkovsky_rocket_equation", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Multistage rocket", "url": "https://en.wikipedia.org/wiki/Multistage_rocket", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-reusable",
+          "title": "Reusable Rockets",
+          "estMinutes": 9,
+          "children": [],
+          "content": {
+            "summary": "For fifty years launch vehicles were thrown away after a single flight. Landing and reflying the expensive part changed launch economics more than any advance in propulsion.",
+            "whyItMatters": "It is the field's clearest case of a cost problem solved by operations rather than physics — and the reason launch prices finally moved after decades of not moving.",
+            "body": [
+              { "type": "heading", "text": "The thing that made launch expensive", "level": 1 },
+              { "type": "paragraph", "text": "An expendable rocket is a machine of extraordinary precision that is used once and then destroyed. Nothing else works that way. The usual comparison is scrapping an airliner after every flight: the fuel is trivial next to the vehicle, so the cost per flight is essentially the cost of building a new one." },
+              { "type": "paragraph", "text": "Fuel is genuinely cheap. For a Falcon 9 it is a few hundred thousand dollars against a vehicle worth tens of millions. If the vehicle survives, the marginal cost of a flight collapses." },
+              { "type": "heading", "text": "Why it took so long", "level": 1 },
+              { "type": "paragraph", "text": "The rocket equation is the obstacle. Landing propellant, legs and reinforced structure are all mass carried the whole way up, and by the logarithm that mass costs payload — roughly a third to a half of it for a first stage returning to a landing site. That trade only pays off if refurbishment is genuinely cheap and the vehicle flies often." },
+              { "type": "paragraph", "text": "The Space Shuttle is the cautionary case. It was reusable on paper, but the orbiter needed months of inspection and a substantial standing workforce between flights, and the promised cost per kilogram never arrived. Reusability is not automatically cheaper; rapid, low-touch reusability is." },
+              {
+                "type": "diagram",
+                "text": "Two ways to fly the same mission",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "Expendable", "detail": "Maximum payload, no recovery hardware, a new vehicle every flight." },
+                  { "label": "Reusable", "detail": "Roughly a third less payload, but the stage flies again — some have flown twenty-plus times." }
+                ]
+              },
+              { "type": "heading", "text": "How the landing works", "level": 1 },
+              { "type": "paragraph", "text": "After separation the first stage flips over, relights some of its engines to kill horizontal velocity, and re-enters engine-first behind a plume that shields it. Grid fins steer it through the atmosphere, a final burn slows it to nearly zero at ground level, and legs deploy seconds before touchdown — on a pad or on an autonomous ship at sea, depending on how much propellant the mission left over." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Reusable launch vehicle", "url": "https://en.wikipedia.org/wiki/Reusable_launch_vehicle", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Falcon 9", "url": "https://en.wikipedia.org/wiki/Falcon_9", "kind": "ARTICLE" },
+              { "title": "Wikipedia: VTVL", "url": "https://en.wikipedia.org/wiki/VTVL", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-race",
+          "title": "The Space Race",
+          "estMinutes": 9,
+          "children": ["se-apollo"],
+          "content": {
+            "summary": "Between 1957 and 1969 two countries went from the first artificial satellite to a crewed lunar landing, driven far more by Cold War rivalry than by science.",
+            "whyItMatters": "The pace of that decade is unmatched before or since, and it is the clearest illustration of what political motivation does — and does not — sustain.",
+            "body": [
+              { "type": "heading", "text": "Sputnik", "level": 1 },
+              { "type": "paragraph", "text": "On 4 October 1957 the Soviet Union launched Sputnik 1: an aluminium sphere 58 cm across with four aerials and a radio transmitter, beeping on a frequency any amateur could pick up. Scientifically it did almost nothing. Its effect was entirely psychological, and it was enormous." },
+              { "type": "paragraph", "text": "The implication was lost on nobody. A rocket that can put a sphere over Washington every ninety minutes can put something else there. Within a year the United States had created NASA and rewritten its science education policy." },
+              {
+                "type": "diagram",
+                "text": "Twelve years",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "1957 · Sputnik 1", "detail": "First artificial satellite." },
+                  { "label": "1961 · Gagarin", "detail": "First human in orbit." },
+                  { "label": "1962 · Glenn", "detail": "First American to orbit the Earth." },
+                  { "label": "1965 · Leonov", "detail": "First spacewalk." },
+                  { "label": "1969 · Apollo 11", "detail": "First crewed lunar landing." }
+                ]
+              },
+              { "type": "heading", "text": "Losing, repeatedly", "level": 1 },
+              { "type": "paragraph", "text": "The Soviets took nearly every first: first satellite, first animal, first man, first woman, first spacewalk. Kennedy's 1961 commitment to a lunar landing \"before this decade is out\" was chosen precisely because it lay far enough ahead that the American lead in industrial capacity might count for more than the Soviet lead in rocketry." },
+              { "type": "paragraph", "text": "It was not a scientific goal and was never presented as one. Kennedy privately described it in almost exactly those terms: a race that had to be won, run on a course chosen so that it could be." },
+              { "type": "heading", "text": "Why it ended", "level": 1 },
+              { "type": "paragraph", "text": "The Soviet lunar programme was crippled by the failure of its N1 booster, which never flew successfully, and by the death of chief designer Sergei Korolev in 1966. Once Apollo 11 landed the contest was settled, and American funding fell almost immediately — NASA's budget peaked in 1966, three years before the landing it paid for." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Space Race", "url": "https://en.wikipedia.org/wiki/Space_Race", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Sputnik 1", "url": "https://en.wikipedia.org/wiki/Sputnik_1", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Yuri Gagarin", "url": "https://en.wikipedia.org/wiki/Yuri_Gagarin", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-apollo",
+          "title": "Apollo Landings",
+          "estMinutes": 10,
+          "children": ["se-shuttle", "se-probes"],
+          "content": {
+            "summary": "Six crews landed on the Moon between 1969 and 1972, using a rocket still unmatched in size and a mission plan that nearly did not get chosen.",
+            "whyItMatters": "Apollo remains the furthest humans have travelled, and the reasons it stopped say as much about spaceflight as the reasons it started.",
+            "body": [
+              { "type": "heading", "text": "The plan that won the argument", "level": 1 },
+              { "type": "paragraph", "text": "Three approaches were on the table. Direct ascent meant one enormous rocket flying the whole way and back. Earth-orbit rendezvous meant assembling the vehicle in orbit. Lunar-orbit rendezvous meant leaving the main spacecraft in lunar orbit and sending down a small, disposable lander." },
+              { "type": "paragraph", "text": "Lunar-orbit rendezvous was initially unpopular — it required a rendezvous a quarter of a million miles from home with no rescue possible if it failed. It won because it was dramatically lighter, and by the rocket equation lighter is everything. The lander only ever had to lift itself off the Moon, not the whole return vehicle." },
+              { "type": "heading", "text": "Saturn V", "level": 1 },
+              { "type": "paragraph", "text": "The launch vehicle stood 111 metres tall and, fully fuelled, weighed about 2,970 tonnes. Its first stage burned roughly 15 tonnes of propellant every second. It flew thirteen times without losing a crew, and more than fifty years later nothing has exceeded its payload to the Moon." },
+              {
+                "type": "diagram",
+                "text": "The mission profile",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "Launch to Earth orbit", "detail": "Saturn V, first two stages." },
+                  { "label": "Trans-lunar injection", "detail": "Third stage relights; three days coasting." },
+                  { "label": "Lunar orbit", "detail": "Braking burn, then the lander separates." },
+                  { "label": "Descent and surface", "detail": "Two crew down, one stays in orbit." },
+                  { "label": "Ascent and return", "detail": "Rendezvous in lunar orbit, then home." }
+                ]
+              },
+              { "type": "heading", "text": "Six landings, then nothing", "level": 1 },
+              { "type": "paragraph", "text": "Apollo 11 through 17 landed, apart from Apollo 13, whose oxygen tank ruptured on the way out and which brought its crew home alive on the lander's resources. The later missions carried a rover and stayed for days; Apollo 17 included the only professional geologist to walk on the Moon." },
+              { "type": "paragraph", "text": "Apollos 18, 19 and 20 were cancelled while hardware for them already existed. Public interest had collapsed, the budget had been falling since 1966, and the goal the programme was built to achieve had already been achieved. Nobody has left low Earth orbit since December 1972." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Apollo program", "url": "https://en.wikipedia.org/wiki/Apollo_program", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Apollo 11", "url": "https://en.wikipedia.org/wiki/Apollo_11", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Saturn V", "url": "https://en.wikipedia.org/wiki/Saturn_V", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-shuttle",
+          "title": "The Shuttle Era",
+          "estMinutes": 9,
+          "children": ["se-iss"],
+          "content": {
+            "summary": "The Space Shuttle flew 135 missions over thirty years as a partly reusable spaceplane that never delivered the cost or the cadence it was designed for.",
+            "whyItMatters": "It is the most instructive failure in spaceflight economics, and its compromises came almost entirely from decisions made before it was built.",
+            "body": [
+              { "type": "heading", "text": "What it was for", "level": 1 },
+              { "type": "paragraph", "text": "After Apollo, NASA wanted routine, cheap access to orbit: a winged vehicle that flew weekly, carried large payloads, and returned like an aircraft. The projections talked about dozens of flights a year at a small fraction of expendable cost." },
+              { "type": "paragraph", "text": "The design that emerged was a compromise with the Air Force, whose payload and cross-range requirements drove the large payload bay and the delta wing in exchange for political support. The resulting vehicle was capable of far more than most of its missions needed, and it carried the mass penalty of that capability on every single flight." },
+              { "type": "heading", "text": "Why it never got cheap", "level": 1 },
+              { "type": "paragraph", "text": "The orbiter came back, but not ready to fly. Its thermal protection was over 20,000 individually fitted tiles, inspected and frequently replaced between flights. The main engines were removed and overhauled. Turnaround took months and a standing workforce of thousands, and the external tank was destroyed every flight regardless." },
+              { "type": "paragraph", "text": "The programme averaged about five flights a year rather than the projected fifty, and cost per kilogram to orbit ended up comparable to — or worse than — the expendable rockets it was meant to replace." },
+              {
+                "type": "diagram",
+                "text": "Promised against delivered",
+                "kind": "COMPARE",
+                "items": [
+                  { "label": "As designed", "detail": "Dozens of flights a year, aircraft-like turnaround, sharply lower cost per kilogram." },
+                  { "label": "As flown", "detail": "About five flights a year, months of refurbishment, no cost saving." }
+                ]
+              },
+              { "type": "heading", "text": "What it did achieve", "level": 1 },
+              { "type": "paragraph", "text": "The Shuttle's real legacy is what only it could do. It launched and then serviced the Hubble Space Telescope five times, which no other vehicle could have managed. It assembled most of the International Space Station, carrying up modules no other launcher could deliver and the crews to bolt them together. Challenger and Columbia cost fourteen lives, and both accidents traced back to design compromises made decades earlier." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Space Shuttle", "url": "https://en.wikipedia.org/wiki/Space_Shuttle", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Space Shuttle program", "url": "https://en.wikipedia.org/wiki/Space_Shuttle_program", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Hubble Space Telescope", "url": "https://en.wikipedia.org/wiki/Hubble_Space_Telescope", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-iss",
+          "title": "Living In Orbit",
+          "estMinutes": 8,
+          "children": [],
+          "content": {
+            "summary": "The International Space Station has been continuously occupied since November 2000, and the engineering that keeps people alive up there is mostly about closing loops.",
+            "whyItMatters": "It is the only long-running experiment in humans living off Earth, and everything known about how bodies handle it comes from there.",
+            "body": [
+              { "type": "heading", "text": "The station", "level": 1 },
+              { "type": "paragraph", "text": "The ISS is roughly the size of a football pitch including its solar arrays, weighs about 420 tonnes, and orbits at around 400 km — circling the Earth every 92 minutes, which is sixteen sunrises a day. It was assembled in orbit from modules launched by five space agencies over more than a decade, and it has had someone aboard continuously since 2 November 2000." },
+              { "type": "heading", "text": "Closing the loops", "level": 1 },
+              { "type": "paragraph", "text": "Resupply is expensive, so almost everything consumable is recycled. Water is recovered from humidity in the air, from washing, and from urine, and the system returns well over 90% of it. Oxygen is produced by splitting that water electrically; the leftover hydrogen is combined with exhaled carbon dioxide to make more water, which is then split again." },
+              {
+                "type": "diagram",
+                "text": "The water and air loop",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "Humidity and waste water", "detail": "Collected from cabin air, washing and urine." },
+                  { "label": "Recovery", "detail": "Distilled and filtered back to drinking standard." },
+                  { "label": "Electrolysis", "detail": "Split into breathable oxygen and hydrogen." },
+                  { "label": "Sabatier reactor", "detail": "Hydrogen plus exhaled CO₂ makes water again." }
+                ]
+              },
+              { "type": "heading", "text": "What weightlessness does", "level": 1 },
+              { "type": "paragraph", "text": "Without a load to work against, bones lose density at 1–1.5% a month and muscles waste, which is why crews spend around two hours a day on resistive exercise equipment. Fluid shifts towards the head, changing the shape of the eyeball and affecting vision in ways that do not always fully reverse. Radiation exposure is roughly ten times sea level, since the station sits above most of the atmosphere though still inside the Earth's magnetic field." },
+              { "type": "paragraph", "text": "These effects are the main reason a Mars mission is hard in a way an orbital station is not: a crew would spend months in this state with no possibility of an early return." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: International Space Station", "url": "https://en.wikipedia.org/wiki/International_Space_Station", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Effect of spaceflight on the human body", "url": "https://en.wikipedia.org/wiki/Effect_of_spaceflight_on_the_human_body", "kind": "ARTICLE" }
+            ]
+          }
+        },
+
+        {
+          "id": "se-probes",
+          "title": "Explore: Deep Space Probes",
+          "estMinutes": 8,
+          "children": [],
+          "content": {
+            "summary": "Uncrewed probes have visited every planet in the solar system, and two have left it entirely — carrying instruments a crewed mission could never have afforded to take.",
+            "whyItMatters": "Nearly everything known about the outer solar system came from machines, on budgets a fraction of any crewed programme.",
+            "body": [
+              { "type": "heading", "text": "Why send machines", "level": 1 },
+              { "type": "paragraph", "text": "A probe needs no air, no water, no food, and no return trip — and the return trip is most of the mass of any crewed mission. It can also accept a one-way journey of decades and a fatal radiation dose. For anything beyond the Moon, the arithmetic is not close." },
+              { "type": "heading", "text": "The Grand Tour", "level": 1 },
+              { "type": "paragraph", "text": "In the late 1970s the outer planets fell into an arrangement that recurs about every 175 years, letting a single spacecraft swing past several of them and use each one's gravity to reach the next. Voyager 2 took the full tour: Jupiter in 1979, Saturn in 1981, Uranus in 1986 and Neptune in 1989. It remains the only spacecraft to have visited the last two." },
+              { "type": "paragraph", "text": "Gravity assist is what makes this possible. Passing close behind a planet in its orbit steals a minuscule amount of the planet's momentum and adds it to the spacecraft — free velocity that no amount of onboard propellant could match." },
+              {
+                "type": "diagram",
+                "text": "Voyager 2's route",
+                "kind": "FLOW",
+                "items": [
+                  { "label": "1977 · Launch", "detail": "From Cape Canaveral, on a Titan IIIE." },
+                  { "label": "1979 · Jupiter", "detail": "Gravity assist onward to Saturn." },
+                  { "label": "1981 · Saturn", "detail": "And onward again to Uranus." },
+                  { "label": "1986 · Uranus", "detail": "The only visit to date." },
+                  { "label": "1989 · Neptune", "detail": "The only visit to date." }
+                ]
+              },
+              { "type": "heading", "text": "Still transmitting", "level": 1 },
+              { "type": "paragraph", "text": "Both Voyagers crossed the heliopause — the boundary where the Sun's outflowing particles give way to interstellar space — Voyager 1 in 2012 and Voyager 2 in 2018. They still return data from over twenty billion kilometres away on a transmitter of about twenty watts, powered by decaying plutonium that cannot sustain their instruments for many more years." }
+            ],
+            "resources": [
+              { "title": "Wikipedia: Space probe", "url": "https://en.wikipedia.org/wiki/Space_probe", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Voyager program", "url": "https://en.wikipedia.org/wiki/Voyager_program", "kind": "ARTICLE" },
+              { "title": "Wikipedia: Gravity assist", "url": "https://en.wikipedia.org/wiki/Gravity_assist", "kind": "ARTICLE" }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+
+  "guides": [
+    {
+      "id": "example-french-press",
+      "title": "Brew Coffee In A French Press",
+      "steps": [
+        {
+          "instruction": "Boil water and let it sit for 30 seconds",
+          "detail": "Just off the boil (~95°C). Fully boiling water scorches the grounds and turns the cup bitter.",
+          "estMinutes": 3
+        },
+        {
+          "instruction": "Grind 55g of coffee coarsely",
+          "detail": "Coarse, like raw sugar. Anything finer slips through the mesh and leaves silt in the cup.",
+          "estMinutes": 2
+        },
+        {
+          "instruction": "Add the grounds and start a timer",
+          "detail": "Roughly 1g of coffee per 15g of water — 55g of coffee to 800g of water.",
+          "estMinutes": 1
+        },
+        {
+          "instruction": "Pour to twice the coffee's weight and wait 30 seconds",
+          "detail": "This is the bloom: fresh coffee gives off CO₂, and letting it escape first is what lets the water actually reach the grounds.",
+          "estMinutes": 1
+        },
+        {
+          "instruction": "Pour in the rest and stir once",
+          "detail": "One gentle stir to wet every ground. Then put the lid on WITHOUT pressing down.",
+          "estMinutes": 1
+        },
+        {
+          "instruction": "Wait until 4 minutes, then press slowly",
+          "detail": "Slow and steady. Forcing the plunger pushes fines through the mesh and stirs up the bed you just brewed.",
+          "estMinutes": 4
+        },
+        {
+          "instruction": "Decant it all straight away",
+          "detail": "Coffee left sitting on the grounds keeps extracting and turns harsh — pour every last cup out of the press now.",
+          "estMinutes": 1
+        }
+      ]
+    }
+  ]
+}
