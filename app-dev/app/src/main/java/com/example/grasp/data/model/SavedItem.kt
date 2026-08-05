@@ -27,6 +27,17 @@ sealed interface SavedItem {
     val mode: Mode
     val downloadState: DownloadState
 
+    /**
+     * Whether this is one of the examples that ship with the app (`StarterLibrary`).
+     *
+     * Carried on the item because it changes what "downloaded" means for it. Every other item is
+     * offline-ready only if its content happens to be in Firestore's local cache, which is why the
+     * app makes the user ask for it; a starter's content is in the APK, on every device and every
+     * install, so it is offline-ready the moment the account has it and there is nothing to fetch
+     * and nothing to free by removing.
+     */
+    val isStarter: Boolean
+
     /** Short descriptor shown under the title, e.g. "8 subtopics" or "6 steps". */
     val subtitle: String
 
@@ -59,6 +70,7 @@ data class LearningPath(
     override val title: String,
     val nodes: List<TreeNode>,
     override val downloadState: DownloadState = DownloadState.NONE,
+    override val isStarter: Boolean = false,
 ) : SavedItem {
     override val mode: Mode = Mode.LEARNER
 
@@ -87,6 +99,7 @@ data class TinkerGuide(
     override val title: String,
     val steps: List<TinkerStep>,
     override val downloadState: DownloadState = DownloadState.NONE,
+    override val isStarter: Boolean = false,
 ) : SavedItem {
     override val mode: Mode = Mode.TINKERER
 

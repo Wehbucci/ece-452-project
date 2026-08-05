@@ -46,23 +46,43 @@ object StarterLibrary {
     internal fun tinkerExamples(): List<TinkerGuide> = library().guides
 
     /**
-     * Reads and parses the asset once per process.
+     * The bundled roadmap with this id, or null if [id] is not one of ours.
      *
-     * Cached because both Home and Library ask for it on attach, and a starter library that failed
-     * to load is an empty one: a seeding pass that writes nothing is retried on the next launch,
-     * which is the same thing that happens when the network is down.
+     * This is what makes a starter readable with no network and nothing cached. Its content is in
+     * the APK on every device and every install, which is more than the repository can say for
+     * anything it has merely written to Firestore — a `downloadState` is a claim about one
+     * device's cache, and this is a fact about the app.
      */
+    internal fun pathById(id: String): StarterPath? = library().pathById(id)
+
+    /** The bundled guide with this id, or null if [id] is not one of ours. */
+    internal fun guideById(id: String): TinkerGuide? = library().guideById(id)
+
+    /** The authored lesson for one node of a bundled roadmap, if both are ours. */
+    internal fun contentFor(pathId: String, nodeId: String): GeneratedContent? =
+        library().contentFor(pathId, nodeId)
+
+    /** Holds the parsed asset once it has been read successfully. */
     @Volatile
     private var cached: StarterContent? = null
 
+    /**
+     * Reads and parses the asset, at most once per process.
+     *
+     * Only a SUCCESSFUL read is cached. A failure here is the kind that can pass — the commonest
+     * one is being called before `GraspApp.onCreate` has set the context it reads assets through —
+     * and caching an empty library over that would mean this account never got seeded no matter
+     * how many times it was asked. Home and Library ask on every attach, so a retry costs nothing
+     * and the first one that lands settles it.
+     */
     private fun library(): StarterContent = cached ?: synchronized(this) {
-        cached ?: load().also { cached = it }
+        cached ?: load().also { if (it.paths.isNotEmpty() || it.guides.isNotEmpty()) cached = it }
     }
 
     private fun load(): StarterContent = try {
         parse(GraspApp.context.assets.open(ASSET_NAME).bufferedReader().use { it.readText() })
     } catch (e: Exception) {
-        Log.e("StarterLibrary", "could not read $ASSET_NAME", e)
+        Log.e("StarterLibrary", "could not read $ASSET_NAME — will retry on the next attach", e)
         StarterContent(emptyList(), emptyList())
     }
 
@@ -97,6 +117,8 @@ object StarterLibrary {
                 id = id,
                 title = title,
                 nodes = entries.map { it.node.copy(parentId = parents[it.node.id]) },
+                // True by construction: everything this object parses came out of the APK.
+                isStarter = true,
             ),
             content = entries.associate { it.node.id to it.content },
         )
@@ -165,7 +187,9 @@ object StarterLibrary {
                 estMinutes = step.optInt("estMinutes", 0),
             )
         }
-        return if (steps.isEmpty()) null else TinkerGuide(id = id, title = title, steps = steps)
+        return if (steps.isEmpty()) null else {
+            TinkerGuide(id = id, title = title, steps = steps, isStarter = true)
+        }
     }
 
     private fun resourceKind(raw: String): ResourceKind =
@@ -192,11 +216,25 @@ object StarterLibrary {
     }
 }
 
-/** Everything the asset holds, already parsed. */
+/**
+ * Everything the asset holds, already parsed.
+ *
+ * The lookups live here rather than on [StarterLibrary] so they are reachable without an Android
+ * context: the object's own accessors have to read an asset first, which a host test cannot do,
+ * and these are exactly the paths whose failure mode is a regenerated lesson written over an
+ * authored one rather than anything visibly broken.
+ */
 internal data class StarterContent(
     val paths: List<StarterPath>,
     val guides: List<TinkerGuide>,
-)
+) {
+    fun pathById(id: String): StarterPath? = paths.firstOrNull { it.path.id == id }
+
+    fun guideById(id: String): TinkerGuide? = guides.firstOrNull { it.id == id }
+
+    fun contentFor(pathId: String, nodeId: String): GeneratedContent? =
+        pathById(pathId)?.content?.get(nodeId)
+}
 
 /**
  * One starter roadmap and the lessons that belong to its nodes, keyed by node id.
