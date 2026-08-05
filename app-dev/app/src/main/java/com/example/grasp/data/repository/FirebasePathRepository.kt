@@ -24,6 +24,8 @@ import com.example.grasp.data.model.TinkerGuide
 import com.example.grasp.data.model.TinkerStep
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.DocumentReference
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FieldValue
 import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.SetOptions
@@ -40,7 +42,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -68,6 +72,21 @@ class FirebasePathRepository : PathRepository {
         nodesRef(uid, topicId).document(nodeId).collection("revisions")
 
     /**
+     * Drops the in-memory copy of [pathId], so the next read rebuilds it from storage.
+     *
+     * [activePathCache] short-circuits [learningPath] entirely, and it outlives the screen that
+     * filled it — it is static, so backing out of a roadmap and opening it again hits the same
+     * stale object. Anything that changes a roadmap must therefore either replace that copy or
+     * throw it away; a write that does neither is invisible until the process restarts.
+     *
+     * Throwing it away is safe offline as well as on: the pending write is already applied to
+     * Firestore's local cache, so the re-read returns the new state rather than the old one.
+     */
+    private fun invalidatePathCache(pathId: String) {
+        if (activePathCache?.id == pathId) activePathCache = null
+    }
+
+    /**
      * Writes the [StarterLibrary] examples — roadmaps, nodes and lessons — into this user's
      * library, exactly once per account.
      *
@@ -75,8 +94,9 @@ class FirebasePathRepository : PathRepository {
      * differ in the one case that matters: a user who deleted the examples has an empty library
      * and must NOT get them back. Deleting a starter is a decision, not a gap to be refilled.
      *
-     * Also guarded in-process by [seedCheckedForUid], so the tabs that call this on every attach
-     * pay one document read per app run instead of one per visit.
+     * Also guarded in-process by [seedCheckedForUid], and serialised by [seedMutex] because Home
+     * and Library both call this on attach: without the lock the loser of that race repeats the
+     * whole batch, since the flag it would have checked has not been written yet.
      *
      * The whole library goes in ONE batch, the flag included. Nothing here is generated, so there
      * is no slow step to die in the middle of — and an atomic write is what guarantees the state
@@ -84,38 +104,80 @@ class FirebasePathRepository : PathRepository {
      * inside it, which [com.example.grasp.ui.feature.path.PathPresenter] would read as "generate
      * this now" and rebuild from the AI, at which point the user's front door is neither free nor
      * the same twice.
+     *
+     * Works offline. Every byte of a starter ships in the APK, so there is nothing to fetch — the
+     * SDK applies the batch to the local cache immediately and replays it on reconnect, which is
+     * why a first launch with no network still opens onto a full library rather than an empty one.
      */
     override suspend fun seedStarterLibrary() {
         val uid = uid ?: return
         if (seedCheckedForUid == uid) return
-        if (!networkMonitor.isOnline()) return // Cannot check or seed while offline
 
-        try {
-            val userDoc = userDocRef(uid).get().await()
-            if (userDoc.exists() && userDoc.getBoolean(STARTERS_SEEDED) == true) {
+        seedMutex.withLock {
+            if (seedCheckedForUid == uid) return
+
+            val online = networkMonitor.isOnline()
+            try {
+                val userDoc = readUserDoc(uid, online) ?: return
+                if (userDoc.getBoolean(STARTERS_SEEDED) == true) {
+                    seedCheckedForUid = uid
+                    return
+                }
+
+                val starters = StarterLibrary.learnerExamples()
+                val guides = StarterLibrary.tinkerExamples()
+                // An asset that could not be read leaves the library empty, and setting the flag
+                // over that would make an empty front door permanent for this account. Leaving it
+                // unset costs one document read on the next launch and nothing else.
+                if (starters.isEmpty() && guides.isEmpty()) {
+                    Log.e("FirebasePathRepo", "starter library is empty; not seeding or flagging")
+                    return
+                }
+
+                val batch = db.batch()
+                starters.forEach { starter -> stageStarterPath(batch, uid, starter, online) }
+                guides.forEach { guide -> stageStarterGuide(batch, uid, guide, online) }
+                batch.set(userDocRef(uid), mapOf(STARTERS_SEEDED to true), SetOptions.merge())
+
+                // Committing applies the whole batch to the local cache immediately; the returned
+                // task resolves only when the SERVER acknowledges it. That difference is the whole
+                // offline story — the starters are readable the instant this line runs, and the
+                // acknowledgement is worth waiting for only when there is a server to give one.
+                val commit = batch.commit()
+                if (online) {
+                    // Bounded, because a captive portal answers isOnline() yes and then swallows
+                    // the request, and Library waits on this before it lists anything. Giving up
+                    // on the ack loses nothing: the SDK replays the batch when it reconnects.
+                    withTimeout(SEED_COMMIT_TIMEOUT_MS) { commit.await() }
+                }
+
                 seedCheckedForUid = uid
-                return
+            } catch (e: Exception) {
+                // A library without its examples is a worse library, not a broken one — and
+                // leaving the flag unset means the next launch simply tries again.
+                Log.e("FirebasePathRepo", "seedStarterLibrary failed", e)
             }
-
-            val starters = StarterLibrary.learnerExamples()
-            val guides = StarterLibrary.tinkerExamples()
-            // An asset that could not be read leaves the library empty, and setting the flag over
-            // that would make an empty front door permanent for this account. Leaving it unset
-            // costs one document read on the next launch and nothing else.
-            if (starters.isEmpty() && guides.isEmpty()) return
-
-            val batch = db.batch()
-            starters.forEach { starter -> stageStarterPath(batch, uid, starter) }
-            guides.forEach { guide -> stageStarterGuide(batch, uid, guide) }
-            batch.set(userDocRef(uid), mapOf(STARTERS_SEEDED to true), SetOptions.merge())
-            batch.commit().await()
-
-            seedCheckedForUid = uid
-        } catch (e: Exception) {
-            // A library without its examples is a worse library, not a broken one — and leaving
-            // the flag unset means the next launch simply tries again.
-            Log.e("FirebasePathRepo", "seedStarterLibrary failed", e)
         }
+    }
+
+    /**
+     * The user document, or null when we must not act on what we can see.
+     *
+     * Offline this reads the CACHE only, and a MISS is disqualifying rather than a green light.
+     * An absent user document and an uncached one look identical from here, and only one of them
+     * means "new account" — guessing wrong resurrects starters somebody deliberately deleted.
+     * A brand-new account has one either way, because signing up writes the username before Home
+     * is ever attached.
+     */
+    private suspend fun readUserDoc(uid: String, online: Boolean): DocumentSnapshot? = try {
+        if (online) {
+            withTimeout(USER_DOC_TIMEOUT_MS) { userDocRef(uid).get(Source.DEFAULT).await() }
+        } else {
+            userDocRef(uid).get(Source.CACHE).await().takeIf { it.exists() }
+        }
+    } catch (e: Exception) {
+        // Offline with nothing cached for this account. Not an error — just not knowable yet.
+        if (online) throw e else null
     }
 
     /**
@@ -125,10 +187,15 @@ class FirebasePathRepository : PathRepository {
      * lesson and a generated one are the same document — which is what makes a starter openable,
      * editable and undoable like anything else the user made.
      */
-    private suspend fun stageStarterPath(batch: WriteBatch, uid: String, starter: StarterPath) {
+    private suspend fun stageStarterPath(
+        batch: WriteBatch,
+        uid: String,
+        starter: StarterPath,
+        online: Boolean,
+    ) {
         val path = starter.path
         val docRef = topicsRef(uid).document(path.id)
-        if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
+        if (alreadyThere(docRef, online)) return // Do NOT overwrite existing progress
 
         path.nodes.forEachIndexed { index, node ->
             batch.set(
@@ -152,9 +219,14 @@ class FirebasePathRepository : PathRepository {
         )
     }
 
-    private suspend fun stageStarterGuide(batch: WriteBatch, uid: String, guide: TinkerGuide) {
+    private suspend fun stageStarterGuide(
+        batch: WriteBatch,
+        uid: String,
+        guide: TinkerGuide,
+        online: Boolean,
+    ) {
         val docRef = topicsRef(uid).document(guide.id)
-        if (docRef.get().await().exists()) return // Do NOT overwrite existing progress
+        if (alreadyThere(docRef, online)) return // Do NOT overwrite existing progress
 
         batch.set(
             docRef,
@@ -180,6 +252,110 @@ class FirebasePathRepository : PathRepository {
         )
     }
 
+    /**
+     * Whether [docRef] already holds something, so seeding leaves it alone.
+     *
+     * Offline this can only see the cache, and a miss reads as "not there". That is safe only
+     * because of where it is called from: [seedStarterLibrary] has already established this
+     * account has never been seeded, so there is nothing of the user's on the server for a cold
+     * cache to be hiding.
+     */
+    private suspend fun alreadyThere(docRef: DocumentReference, online: Boolean): Boolean = try {
+        docRef.get(if (online) Source.DEFAULT else Source.CACHE).await().exists()
+    } catch (e: Exception) {
+        if (online) throw e else false
+    }
+
+    /**
+     * The account's finished-lesson count, remembered between calls.
+     *
+     * The interface's default recomputes this by reading the WHOLE library, and every roadmap open
+     * asks for it — the HUD shows an account-wide level, which one roadmap cannot produce on its
+     * own. Paying a full library scan to draw a board that is already in hand was the single
+     * biggest cost of opening anything, and it fell hardest offline.
+     *
+     * Kept exact rather than merely fresh: the two places that change a completion adjust this by
+     * the same step they just wrote, and the places that can remove a completed item outright drop
+     * it. Static, like the other caches here, because each screen builds its own repository.
+     */
+    override suspend fun totalLessonsMastered(): Int {
+        masteredTotal?.let { return it }
+        return withContext(Dispatchers.IO) {
+            savedItems().sumOf { it.lessonsMastered }.also { masteredTotal = it }
+        }
+    }
+
+    /** Moves the memoised total by one, if we are holding one. */
+    private fun nudgeMasteredTotal(completed: Boolean) {
+        masteredTotal = masteredTotal?.plus(if (completed) 1 else -1)?.coerceAtLeast(0)
+    }
+
+    /**
+     * What an item reports as its download state: [DownloadState.AVAILABLE] for a starter, whatever
+     * is stored for everything else.
+     *
+     * Derived here rather than written to Firestore, and that distinction is the whole point. The
+     * stored field is one document shared by all of an account's devices, so writing AVAILABLE into
+     * it would be claiming, on every device, that a particular device's cache holds the content.
+     * Being a starter is not a claim about a cache — the lessons are in the APK — so it is true
+     * wherever it is read, and it cannot go stale.
+     */
+    private fun reportedState(stored: DownloadState, isStarter: Boolean) =
+        if (isStarter) DownloadState.AVAILABLE else stored
+
+    /**
+     * One library row built entirely from the local cache, or null if it may not be shown offline.
+     *
+     * Split out of [savedItems] so the offline branch can run one of these per topic concurrently.
+     */
+    private suspend fun cachedSavedItem(uid: String, doc: DocumentSnapshot): SavedItem? {
+        val id = doc.id
+        val mode = doc.getString("mode") ?: "learner"
+        val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
+        val downloadState = try {
+            DownloadState.valueOf(doc.getString("downloadState") ?: DownloadState.NONE.name)
+        } catch (e: Exception) {
+            if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
+        }
+
+        // Starters list offline without being downloaded — their content ships in the APK. Note
+        // this reads the CACHED topic document, so one the user deleted is not here to be listed:
+        // the exemption cannot resurrect anything.
+        val isStarter = doc.getBoolean(StarterLibrary.STARTER_FIELD) == true
+        if (downloadState != DownloadState.AVAILABLE && !isStarter) return null
+
+        return if (mode == "tinker" || mode == "tinkerer") {
+            val steps = (doc.get("steps") as? List<*>).orEmpty().filterIsInstance<Map<*, *>>()
+            TinkerGuide(
+                id = id,
+                title = title,
+                steps = steps.map { step ->
+                    TinkerStep(
+                        id = step["id"] as? String ?: "",
+                        order = (step["order"] as? Long)?.toInt() ?: 0,
+                        instruction = step["instruction"] as? String ?: "",
+                        detail = step["detail"] as? String ?: "",
+                        estMinutes = (step["estMinutes"] as? Long)?.toInt() ?: 0,
+                        done = step["done"] as? Boolean ?: false,
+                    )
+                },
+                downloadState = reportedState(downloadState, isStarter),
+                isStarter = isStarter,
+            )
+        } else {
+            val nodesSnap = nodesRef(uid, id).get(Source.CACHE).await()
+            val nodes = nodesSnap.documents.mapNotNull { it.toTreeNode() }
+                .ifEmpty { StarterLibrary.pathById(id)?.path?.nodes.orEmpty() }
+            LearningPath(
+                id = id,
+                title = title,
+                nodes = nodes,
+                downloadState = reportedState(downloadState, isStarter),
+                isStarter = isStarter,
+            )
+        }
+    }
+
     override suspend fun savedItems(forceCache: Boolean): List<SavedItem> = withContext(Dispatchers.IO) {
         val uid = uid ?: return@withContext emptyList()
         val source = if (forceCache || !networkMonitor.isOnline()) Source.CACHE else Source.DEFAULT
@@ -188,42 +364,15 @@ class FirebasePathRepository : PathRepository {
             // If offline, strictly read from CACHE only.
             if (source == Source.CACHE) {
                 val snapshot = topicsRef(uid).get(Source.CACHE).await()
-                return@withContext snapshot.documents.mapNotNull { doc ->
-                    val id = doc.id
-                    val mode = doc.getString("mode") ?: "learner"
-                    val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
-                    val downloadState = try {
-                        DownloadState.valueOf(doc.getString("downloadState") ?: DownloadState.NONE.name)
-                    } catch (e: Exception) {
-                        if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
-                    }
-
-                    if (downloadState != DownloadState.AVAILABLE) return@mapNotNull null
-
-                    if (mode == "tinker" || mode == "tinkerer") {
-                        val steps = (doc.get("steps") as? List<*>).orEmpty()
-                            .filterIsInstance<Map<*, *>>()
-                        TinkerGuide(
-                            id = id,
-                            title = title,
-                            steps = steps.map { step ->
-                                TinkerStep(
-                                    id = step["id"] as? String ?: "",
-                                    order = (step["order"] as? Long)?.toInt() ?: 0,
-                                    instruction = step["instruction"] as? String ?: "",
-                                    detail = step["detail"] as? String ?: "",
-                                    estMinutes = (step["estMinutes"] as? Long)?.toInt() ?: 0,
-                                    done = step["done"] as? Boolean ?: false
-                                )
-                            },
-                            downloadState = downloadState
-                        )
-                    } else {
-                        // For roadmaps, fetch node stats in parallel from CACHE
-                        val nodesSnap = nodesRef(uid, id).get(Source.CACHE).await()
-                        val nodes = nodesSnap.documents.mapNotNull { it.toTreeNode() }
-                        LearningPath(id = id, title = title, nodes = nodes, downloadState = downloadState)
-                    }
+                // Every roadmap's nodes are read AT ONCE. This used to be a plain `mapNotNull`,
+                // which made each roadmap's node query wait for the one before it — and since
+                // opening any single roadmap costs a whole-library read (for the account's XP
+                // total), that serialisation was most of what made offline feel slow. Both online
+                // branches below already fan out; this one had simply lost the `async`.
+                return@withContext coroutineScope {
+                    snapshot.documents.map { doc ->
+                        async { cachedSavedItem(uid, doc) }
+                    }.awaitAll().filterNotNull()
                 }
             }
 
@@ -298,8 +447,11 @@ class FirebasePathRepository : PathRepository {
                 if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
 
-            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
-            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it. A
+            // starter is exempt: this guard exists to avoid offering content we do not hold, and a
+            // starter's content is in the APK — it needs no download and cannot fail to be there.
+            val isStarter = topicDoc.getBoolean(StarterLibrary.STARTER_FIELD) == true
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE && !isStarter) {
                 Log.d("FirebasePathRepo", "Topic $id found in cache but not marked for offline use. Denying access.")
                 return@withContext null
             }
@@ -310,7 +462,7 @@ class FirebasePathRepository : PathRepository {
                 nodesRef(uid, id).get(Source.CACHE).await()
             }
 
-            val nodes = nodesSnap.documents
+            val storedNodes = nodesSnap.documents
                 .mapNotNull { doc ->
                     val node = doc.toTreeNode() ?: return@mapNotNull null
                     val order = doc.getLong("order")?.toInt() ?: Int.MAX_VALUE
@@ -319,7 +471,23 @@ class FirebasePathRepository : PathRepository {
                 .sortedBy { it.first }
                 .map { it.second }
 
-            val path = LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+            // A starter whose nodes are not in this cache — a reinstall, a cleared cache, a second
+            // device — is rebuilt from the APK rather than handed back empty. Empty is the one
+            // shape PathPresenter reads as "generate this", which offline fails and online quietly
+            // replaces authored lessons with model output.
+            val nodes = storedNodes.ifEmpty {
+                StarterLibrary.pathById(id)?.path?.nodes.orEmpty().also {
+                    if (it.isNotEmpty()) Log.d("FirebasePathRepo", "Serving $id from the bundled asset")
+                }
+            }
+
+            val path = LearningPath(
+                id = id,
+                title = topicTitle,
+                nodes = nodes,
+                downloadState = reportedState(downloadState, isStarter),
+                isStarter = isStarter,
+            )
             activePathCache = path
 
             // Auto-sync: if online and already downloaded, ensure all lessons are cached.
@@ -347,11 +515,13 @@ class FirebasePathRepository : PathRepository {
                     if (docMode != "learner") return@withContext null
 
                     val downloadStateStr = topicDoc.getString("downloadState") ?: DownloadState.NONE.name
-                    val downloadState = try {
+                    val stored = try {
                         DownloadState.valueOf(downloadStateStr)
                     } catch (ex: Exception) {
                         if (topicDoc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
                     }
+                    val isStarter = topicDoc.getBoolean(StarterLibrary.STARTER_FIELD) == true
+                    val downloadState = reportedState(stored, isStarter)
 
                     // If marked AVAILABLE, return it from cache. Otherwise null.
                     if (downloadState == DownloadState.AVAILABLE) {
@@ -365,7 +535,13 @@ class FirebasePathRepository : PathRepository {
                             }
                             .sortedBy { it.first }
                             .map { it.second }
-                        val path = LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+                        val path = LearningPath(
+                            id = id,
+                            title = topicTitle,
+                            nodes = nodes,
+                            downloadState = downloadState,
+                            isStarter = isStarter,
+                        )
                         activePathCache = path
                         path
                     } else if (topicDoc.exists()) {
@@ -382,7 +558,13 @@ class FirebasePathRepository : PathRepository {
                             .sortedBy { it.first }
                             .map { it.second }
                         if (nodes.isNotEmpty()) {
-                            val path = LearningPath(id = id, title = topicTitle, nodes = nodes, downloadState = downloadState)
+                            val path = LearningPath(
+                            id = id,
+                            title = topicTitle,
+                            nodes = nodes,
+                            downloadState = downloadState,
+                            isStarter = isStarter,
+                        )
                             activePathCache = path
                             path
                         } else null
@@ -412,8 +594,10 @@ class FirebasePathRepository : PathRepository {
                 if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
             }
 
-            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it.
-            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE) {
+            // SECURITY/ROBUSTNESS: If offline, and not marked AVAILABLE, do not return it — unless
+            // it is a starter, whose steps are in the APK and need no download. See [learningPath].
+            val isStarter = doc.getBoolean(StarterLibrary.STARTER_FIELD) == true
+            if (source == Source.CACHE && downloadState != DownloadState.AVAILABLE && !isStarter) {
                 return@withContext null
             }
 
@@ -432,17 +616,25 @@ class FirebasePathRepository : PathRepository {
                     )
                 }
                 .sortedBy { it.order }
-            TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
+            TinkerGuide(
+                id = id,
+                title = title,
+                steps = steps,
+                downloadState = reportedState(downloadState, isStarter),
+                isStarter = isStarter,
+            )
         } catch (e: Exception) {
             if (source == Source.DEFAULT) {
                 try {
                     val doc = topicsRef(uid).document(id).get(Source.CACHE).await()
                     val downloadStateStr = doc.getString("downloadState") ?: DownloadState.NONE.name
-                    val downloadState = try {
+                    val stored = try {
                         DownloadState.valueOf(downloadStateStr)
                     } catch (ex: Exception) {
                         if (doc.getBoolean("isDownloaded") == true) DownloadState.AVAILABLE else DownloadState.NONE
                     }
+                    val isStarter = doc.getBoolean(StarterLibrary.STARTER_FIELD) == true
+                    val downloadState = reportedState(stored, isStarter)
 
                     if (downloadState == DownloadState.AVAILABLE) {
                         val title = doc.getString("title") ?: id.replace('-', ' ').replaceFirstChar { it.uppercase() }
@@ -460,7 +652,13 @@ class FirebasePathRepository : PathRepository {
                                 )
                             }
                             .sortedBy { it.order }
-                        TinkerGuide(id = id, title = title, steps = steps, downloadState = downloadState)
+                        TinkerGuide(
+                            id = id,
+                            title = title,
+                            steps = steps,
+                            downloadState = downloadState,
+                            isStarter = isStarter,
+                        )
                     } else {
                         null
                     }
@@ -501,7 +699,13 @@ class FirebasePathRepository : PathRepository {
                     } else null
                 }
 
-                val content = cached ?: generateAndCache(uid, pathId, path, node)
+                // The bundled lesson comes before generating one. For a starter this is the SAME
+                // text that was seeded, so a cache that has lost it costs nothing — and without
+                // this, a starter opened on a cold cache would try to write a replacement, which
+                // offline fails outright and online silently supplants the authored lesson.
+                val content = cached
+                    ?: StarterLibrary.contentFor(pathId, nodeId)
+                    ?: generateAndCache(uid, pathId, path, node)
 
                 // Lessons are what get numbered; the branch-out affordance isn't one.
                 val lessons = path.nodes.filter { !it.isBranchOut }
@@ -644,6 +848,8 @@ class FirebasePathRepository : PathRepository {
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "growBranch failed for $pathId/$fromNodeId", e)
         }
+        // The roadmap has new nodes and `from` has a new child; only storage knows the whole shape.
+        invalidatePathCache(pathId)
         grown
     }
 
@@ -679,18 +885,32 @@ class FirebasePathRepository : PathRepository {
      * Re-running a topic the user already has (same query, same normalised id) must NOT write over
      * lessons they have edited by hand (FR4.5) — hence the pre-read of which nodes are marked
      * `edited`, which is what tells [nodeDoc] to leave their stored content alone.
+     *
+     * A starter is refused outright, before anything is generated. Titles normalise to ids, so
+     * typing "Space Exploration" into the create field lands on precisely the id a starter already
+     * occupies — and regenerating there would swap hand-written lessons for model output that only
+     * happens to be about the same subject. The user asked for that topic and already has it, so
+     * they get the one they have.
      */
     private suspend fun createLearnerTopic(uid: String, normalizedId: String, title: String): LearningPath? {
+        val docRef = topicsRef(uid).document(normalizedId)
+        val existing = try {
+            docRef.get().await()
+        } catch (e: Exception) {
+            Log.e("FirebasePathRepo", "could not check $normalizedId before generating", e)
+            null
+        }
+        if (existing?.getBoolean(StarterLibrary.STARTER_FIELD) == true) {
+            Log.d("FirebasePathRepo", "$normalizedId is a starter — opening it, not regenerating")
+            return learningPath(normalizedId)
+        }
+
         val prefs = FirebaseUserRepository().getPreferences()
         val nodes = buildLearnerTree(normalizedId, title, prefs)
         // Every lesson is written NOW, so the roadmap is complete and readable (and offline) the
         // moment it opens. [subtopic] still generates on demand for anything missing here.
         val content = generateContentFor(title, nodes.filter { !it.isBranchOut })
         return try {
-            val docRef = topicsRef(uid).document(normalizedId)
-            val existing = docRef.get().await()
-            val isStarter = existing.getBoolean(StarterLibrary.STARTER_FIELD) == true
-
             docRef.set(
                 mapOf(
                     "title" to title,
@@ -698,7 +918,9 @@ class FirebasePathRepository : PathRepository {
                     "createdAt" to FieldValue.serverTimestamp(),
                     "updatedAt" to FieldValue.serverTimestamp(),
                     "status" to "active",
-                    StarterLibrary.STARTER_FIELD to isStarter,
+                    // Never a starter: one would have been handed back above rather than reaching
+                    // the generator at all.
+                    StarterLibrary.STARTER_FIELD to false,
                     "preferences" to mapOf(
                         "difficulty" to "beginner",
                         "length" to "standard",
@@ -1005,6 +1227,11 @@ class FirebasePathRepository : PathRepository {
             } catch (e: Exception) {
                 Log.e("FirebasePathRepo", "editRoadmap failed for $pathId", e)
             }
+            // `after` IS the roadmap now, so it becomes what the next read returns.
+            activePathCache = after
+            // A structural edit can delete a section the user had finished, so the account total
+            // has to be counted again rather than nudged.
+            if (after.nodes.size != before.nodes.size) masteredTotal = null
             after
         }
 
@@ -1040,12 +1267,28 @@ class FirebasePathRepository : PathRepository {
                 Log.e("FirebasePathRepo", "shortenNodeTitles failed for $pathId", e)
                 // The board can still show them short for this session even if the write missed.
             }
-            path.copy(nodes = shortened)
+            path.copy(nodes = shortened).also { activePathCache = it }
         }
 
     override suspend fun updateNodeCompletion(pathId: String, nodeId: String, completed: Boolean) {
         val uid = uid ?: return
         Log.d("FirebasePathRepo", "Cloud sync: Node $nodeId -> completed=$completed")
+
+        // BEFORE the write, and regardless of whether it lands. [activePathCache] is what the next
+        // read of this roadmap returns, so leaving it holding the pre-completion copy is what made
+        // finishing a lesson and coming back show the lesson unfinished again — the write was fine,
+        // the thing we handed back afterwards was a snapshot taken before it.
+        activePathCache?.takeIf { it.id == pathId }?.let { cached ->
+            // Only move the account total if this is a real change of state — the presenter guards
+            // against re-completing a node, but nothing here should depend on that.
+            if (cached.nodes.firstOrNull { it.id == nodeId }?.completed != completed) {
+                nudgeMasteredTotal(completed)
+            }
+            activePathCache = cached.copy(
+                nodes = cached.nodes.map { if (it.id == nodeId) it.copy(completed = completed) else it },
+            )
+        } ?: nudgeMasteredTotal(completed)
+
         try {
             // Use .set() with SetOptions.merge() instead of .update().
             // .update() fails if the document doesn't exist yet.
@@ -1069,6 +1312,7 @@ class FirebasePathRepository : PathRepository {
 
     override suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean) {
         val uid = uid ?: return
+        nudgeMasteredTotal(completed) // A finished step is XP too — see [totalLessonsMastered].
         try {
             val docRef = topicsRef(uid).document(guideId)
 
@@ -1102,6 +1346,9 @@ class FirebasePathRepository : PathRepository {
 
     override suspend fun deleteTopic(pathId: String) {
         val uid = uid ?: return
+        invalidatePathCache(pathId) // Nothing may hand this roadmap back once it is gone.
+        // Its finished lessons went with it, and how many that was is no longer knowable here.
+        masteredTotal = null
         try {
             val nodeCollection = nodesRef(uid, pathId)
             val nodesSnapshot = nodeCollection.get().await()
@@ -1155,6 +1402,8 @@ class FirebasePathRepository : PathRepository {
                 mapOf("downloadState" to DownloadState.AVAILABLE.name, "updatedAt" to FieldValue.serverTimestamp()),
                 SetOptions.merge()
             ).await()
+            // The cached copy still says whatever it said before the download.
+            invalidatePathCache(pathId)
             true
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "downloadTopic failed for $pathId", e)
@@ -1162,6 +1411,7 @@ class FirebasePathRepository : PathRepository {
                 mapOf("downloadState" to DownloadState.FAILED.name, "updatedAt" to FieldValue.serverTimestamp()),
                 SetOptions.merge()
             ).await()
+            invalidatePathCache(pathId)
             false
         }
     }
@@ -1172,6 +1422,7 @@ class FirebasePathRepository : PathRepository {
             mapOf("downloadState" to DownloadState.NONE.name),
             SetOptions.merge()
         ).await()
+        invalidatePathCache(pathId)
     }
 
     override suspend fun removeDownload(pathId: String) {
@@ -1182,6 +1433,7 @@ class FirebasePathRepository : PathRepository {
         ).await()
         // Note: Firestore doesn't provide a way to clear specific documents from the local cache
         // through the standard SDK easily. We just mark it as not downloaded in the metadata.
+        invalidatePathCache(pathId)
     }
 
     override suspend fun getStorageUsage(): Long = withContext(Dispatchers.IO) {
@@ -1208,10 +1460,19 @@ class FirebasePathRepository : PathRepository {
         userDocRef(uid).set(mapOf("useMobileData" to enabled), SetOptions.merge()).await()
     }
 
-    override suspend fun isMobileDataAllowed(): Boolean {
+    /**
+     * Bounded and cache-aware like every other read here — this one gates the download button, so
+     * an unbounded wait on an unresponsive server reads as the button doing nothing at all.
+     *
+     * Total: both callers invoke it outside any try, from inside a `launch`, where a thrown
+     * exception is an uncaught crash rather than a failed download.
+     */
+    override suspend fun isMobileDataAllowed(): Boolean = try {
         val uid = uid ?: return false
-        val doc = userDocRef(uid).get().await()
-        return doc.getBoolean("useMobileData") ?: false
+        readUserDoc(uid, networkMonitor.isOnline())?.getBoolean("useMobileData") ?: false
+    } catch (e: Exception) {
+        Log.e("FirebasePathRepo", "isMobileDataAllowed failed; assuming Wi-Fi only", e)
+        false
     }
 
     /**
@@ -1322,11 +1583,47 @@ class FirebasePathRepository : PathRepository {
         var seedCheckedForUid: String? = null
 
         /**
+         * Serialises seeding across every repository instance.
+         *
+         * [seedCheckedForUid] alone is only a fast path: Home and Library attach at nearly the
+         * same moment, and both would read the flag before either had written it, then commit the
+         * same twenty-odd documents twice. Static for the same reason the flag is — each screen
+         * builds its own repository, so a per-instance lock would guard nothing.
+         */
+        val seedMutex = Mutex()
+
+        /**
+         * How long to wait for the server to acknowledge the seeding batch.
+         *
+         * Longer than the read timeouts elsewhere because this is a write of the whole starter
+         * library, and bounded at all because a captive portal reports itself as online and then
+         * never answers — with Library waiting on this before it lists anything.
+         */
+        const val SEED_COMMIT_TIMEOUT_MS = 15_000L
+
+        /**
+         * How long a server read of the user document may hold a screen up.
+         *
+         * Same bound as the roadmap reads, and for the same reason: past this, the cached copy is
+         * a better answer than a longer wait.
+         */
+        const val USER_DOC_TIMEOUT_MS = 1500L
+
+        /**
          * The most recently loaded roadmap, cached to avoid redundant database reads when
          * opening its individual lessons.
          */
         @Volatile
         var activePathCache: LearningPath? = null
+
+        /**
+         * The account's finished-lesson count once something has counted it.
+         *
+         * Null means "not counted yet", which is the only state that pays for a library read.
+         * See [totalLessonsMastered].
+         */
+        @Volatile
+        var masteredTotal: Int? = null
 
         /** How many lessons to write at once when generating a whole roadmap or branch. */
         const val MAX_PARALLEL_GENERATIONS = 4
