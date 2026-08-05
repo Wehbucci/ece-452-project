@@ -53,7 +53,33 @@ class FirebasePathRepository : PathRepository {
 
     private val db = Firebase.firestore
     private val auth = Firebase.auth
-    private val uid: String? get() = auth.currentUser?.uid
+
+    /**
+     * The signed-in account, and the single choke point that keeps this class's process-wide
+     * caches honest about whose data they hold.
+     *
+     * [activePathCache], [masteredTotal] and [seedCheckedForUid] all live in the companion object,
+     * so they outlive every screen AND every sign-in. None of them is keyed by account, which is
+     * survivable right up until a second account appears in the same process — and then it is not:
+     *
+     *  · [masteredTotal] has no uid in it at all, so a new account inherits the previous account's
+     *    XP total wholesale;
+     *  · [activePathCache] is keyed by PATH id, and the starter roadmaps deliberately use the same
+     *    ids for everybody (`space-exploration` and friends). One account's progress on a starter
+     *    is therefore served to the next account that opens the same-named roadmap.
+     *
+     * Signing up goes through here too: `LoginPresenter.onSignUp` signs out after creating the
+     * account, so the transition happens inside one process even on a fresh install.
+     */
+    private val uid: String?
+        get() = auth.currentUser?.uid.also { current ->
+            if (current != cachesHeldForUid) {
+                activePathCache = null
+                masteredTotal = null
+                seedCheckedForUid = null
+                cachesHeldForUid = current
+            }
+        }
 
     // Background scope for "Fire and Forget" cloud saves
     private val backgroundScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -283,8 +309,11 @@ class FirebasePathRepository : PathRepository {
      * of opening anything, felt hardest offline.
      */
     override suspend fun totalLessonsMastered(): Int {
-        masteredTotal?.let { return it }
+        // uid BEFORE the cache, not after: reading it is what discards another account's caches
+        // (see the [uid] getter), and checking [masteredTotal] first would return the previous
+        // account's total before that ever happened.
         val uid = uid ?: return 0
+        masteredTotal?.let { return it }
         return withContext(Dispatchers.IO) {
             try {
                 val doc = readUserDoc(uid, networkMonitor.isOnline())
@@ -1721,6 +1750,15 @@ class FirebasePathRepository : PathRepository {
          */
         @Volatile
         var masteredTotal: Int? = null
+
+        /**
+         * Which account the caches above currently belong to.
+         *
+         * Not a cache itself — the thing that stops the others being served to the wrong person.
+         * See the [uid] getter, which is where it is compared and reset.
+         */
+        @Volatile
+        var cachesHeldForUid: String? = null
 
         /** How many lessons to write at once when generating a whole roadmap or branch. */
         const val MAX_PARALLEL_GENERATIONS = 4
