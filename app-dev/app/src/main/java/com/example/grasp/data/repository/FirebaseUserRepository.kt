@@ -8,11 +8,16 @@ import com.example.grasp.data.model.Pace
 import com.example.grasp.data.model.Style
 import com.example.grasp.data.model.Tone
 import com.example.grasp.data.model.UserPreferences
+import com.example.grasp.GraspApp
+import com.example.grasp.core.util.NetworkMonitor
 import com.google.firebase.Firebase
 import com.google.firebase.auth.auth
+import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.SetOptions
+import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.firestore
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
 
 class FirebaseUserRepository : UserRepository {
 
@@ -20,12 +25,42 @@ class FirebaseUserRepository : UserRepository {
     private val auth = Firebase.auth
     private val uid get() = auth.currentUser?.uid
 
-    override suspend fun getPreferences(): UserPreferences {
-        val uid = uid ?: return UserPreferences()
+    private val networkMonitor = NetworkMonitor(GraspApp.context)
+
+    /**
+     * The signed-in user's document, read the way the rest of the app reads Firestore.
+     *
+     * Every accessor here used to call a bare `get()`: no [Source], no timeout, and no regard for
+     * whether there was a network at all. On a connection that is up but not answering — a captive
+     * portal, a blocked backend — that is an unbounded wait, and these are called while a screen
+     * is being drawn. Cache-only when offline, briefly bounded when online, and the cached copy on
+     * the way out: for a streak or a set of preferences, what the user last saw is the right answer
+     * when the server has nothing to add.
+     */
+    private suspend fun userDoc(): DocumentSnapshot? {
+        val uid = uid ?: return null
+        val ref = db.collection("users").document(uid)
         return try {
-            val doc = db.collection("users").document(uid).get().await()
+            if (networkMonitor.isOnline()) {
+                withTimeout(USER_DOC_TIMEOUT_MS) { ref.get(Source.DEFAULT).await() }
+            } else {
+                ref.get(Source.CACHE).await()
+            }
+        } catch (e: Exception) {
+            try {
+                ref.get(Source.CACHE).await()
+            } catch (cacheEx: Exception) {
+                Log.e("FirebaseUserRepo", "user document unreadable", cacheEx)
+                null
+            }
+        }
+    }
+
+    override suspend fun getPreferences(): UserPreferences {
+        return try {
+            val doc = userDoc() ?: return UserPreferences()
             val prefsMap = doc.get("preferences") as? Map<String, String> ?: return UserPreferences()
-            
+
             UserPreferences(
                 pace = Pace.entries.find { it.name == prefsMap["pace"] } ?: Pace.STANDARD,
                 style = Style.entries.find { it.name == prefsMap["style"] } ?: Style.BALANCED,
@@ -53,14 +88,11 @@ class FirebaseUserRepository : UserRepository {
         }
     }
 
-    override suspend fun getUsername(): String? {
-        val uid = uid ?: return null
-        return try {
-            db.collection("users").document(uid).get().await().getString("username")
-        } catch (e: Exception) {
-            Log.e("FirebaseUserRepo", "getUsername failed", e)
-            null
-        }
+    override suspend fun getUsername(): String? = try {
+        userDoc()?.getString("username")
+    } catch (e: Exception) {
+        Log.e("FirebaseUserRepo", "getUsername failed", e)
+        null
     }
 
     override suspend fun setUsername(username: String) {
@@ -75,9 +107,8 @@ class FirebaseUserRepository : UserRepository {
     }
 
     override suspend fun studyStreak(): StudyStreak {
-        val uid = uid ?: return StudyStreak.None
         return try {
-            val doc = db.collection("users").document(uid).get().await()
+            val doc = userDoc() ?: return StudyStreak.None
             val days = doc.getLong(FIELD_STREAK_DAYS)?.toInt() ?: return StudyStreak.None
             StudyStreak(days = days, lastStudyDay = doc.getLong(FIELD_LAST_STUDY_DAY) ?: 0L)
         } catch (e: Exception) {
@@ -120,5 +151,13 @@ class FirebaseUserRepository : UserRepository {
     private companion object {
         const val FIELD_STREAK_DAYS = "streakDays"
         const val FIELD_LAST_STUDY_DAY = "lastStudyDay"
+
+        /**
+         * How long a server read of the user document may hold a screen up.
+         *
+         * Matched to the roadmap reads in `FirebasePathRepository`, and for the same reason: past
+         * this the cached copy is a better answer than a longer wait.
+         */
+        const val USER_DOC_TIMEOUT_MS = 1500L
     }
 }
