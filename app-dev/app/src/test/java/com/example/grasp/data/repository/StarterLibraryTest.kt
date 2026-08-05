@@ -34,6 +34,17 @@ class StarterLibraryTest {
         assertEquals(listOf("example-french-press"), shipped.guides.map { it.id })
     }
 
+    /**
+     * The Library shows a starter as already available offline, and refuses to offer a "remove"
+     * for it, entirely off this flag. Unset, a starter would ask to be downloaded like anything
+     * else — and downloading it fetches nothing it did not already have.
+     */
+    @Test
+    fun `everything bundled is marked as bundled`() {
+        shipped.paths.forEach { assertTrue(it.path.id, it.path.isStarter) }
+        shipped.guides.forEach { assertTrue(it.id, it.isStarter) }
+    }
+
     @Test
     fun `every roadmap is a single-parent tree rooted at its own id`() {
         shipped.paths.forEach { starter ->
@@ -139,6 +150,42 @@ class StarterLibraryTest {
             assertEquals(guide.steps.map { "step-${it.order}" }, guide.steps.map { it.id })
             guide.steps.forEach { assertTrue(it.instruction.isNotBlank()) }
         }
+    }
+
+    // ── The offline fallback ────────────────────────────────────────────────────────────────
+
+    /**
+     * The repository serves a starter from the asset when Firestore's cache has nothing — a
+     * reinstall, a cleared cache, a second device. These lookups are what that depends on, and a
+     * miss there is not a blank screen but a regenerated lesson written over an authored one.
+     */
+    @Test
+    fun `every shipped id can be looked up again`() {
+        shipped.paths.forEach { starter ->
+            val found = shipped.pathById(starter.path.id)
+            assertNotNull("no lookup for ${starter.path.id}", found)
+            assertEquals(starter.path.nodes, found!!.path.nodes)
+
+            starter.path.nodes.forEach { node ->
+                assertEquals(
+                    "lesson lookup for ${node.id} must match the seeded one",
+                    starter.content[node.id],
+                    shipped.contentFor(starter.path.id, node.id),
+                )
+            }
+        }
+        shipped.guides.forEach { guide ->
+            assertEquals(guide, shipped.guideById(guide.id))
+        }
+    }
+
+    @Test
+    fun `a topic the user made is not mistaken for a starter`() {
+        assertNull(shipped.pathById("kalman-filters"))
+        assertNull(shipped.guideById("kalman-filters"))
+        assertNull(shipped.contentFor("kalman-filters", "intro"))
+        // A real starter id with a node id that isn't in it.
+        assertNull(shipped.contentFor("how-learning-works", "no-such-node"))
     }
 
     // ── Parser behaviour, on fixtures rather than the shipped file ──────────────────────────
