@@ -319,6 +319,7 @@ private fun SavedItemCard(
                 // Multi-state Download Controls
                 DownloadActionIcon(
                     state = item.downloadState,
+                    isStarter = item.isStarter,
                     onDownload = onDownload,
                     onCancel = onCancelDownload,
                     onRemove = onRemoveDownload
@@ -366,13 +367,34 @@ private fun SavedItemCard(
     }
 }
 
+/**
+ * The per-item download control.
+ *
+ * [isStarter] items get the finished tick and nothing else. Their lessons ship inside the APK, so
+ * there is no download to start and — more to the point — no download to remove: Firestore cannot
+ * evict single documents from its cache, and the app binary is not going anywhere either, so a
+ * "Remove" here would free nothing and change nothing while looking like it had done both.
+ */
 @Composable
 private fun DownloadActionIcon(
     state: DownloadState,
+    isStarter: Boolean,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onRemove: () -> Unit
 ) {
+    if (isStarter) {
+        Box(modifier = Modifier.padding(8.dp)) {
+            Icon(
+                Icons.Filled.CheckCircle,
+                contentDescription = "Included with the app — available offline",
+                tint = PathNodeDone,
+                modifier = Modifier.size(22.dp),
+            )
+        }
+        return
+    }
+
     when (state) {
         DownloadState.NONE -> {
             Box(
