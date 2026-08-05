@@ -88,7 +88,7 @@ fun OfflineManagementScreen(
         containerColor = PathScreenBg,
         topBar = {
             TopAppBar(
-                title = { Text("Offline Management", fontFamily = NunitoFamily, fontWeight = FontWeight.ExtraBold) },
+                title = { Text("Offline Content", fontFamily = NunitoFamily, fontWeight = FontWeight.ExtraBold) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
