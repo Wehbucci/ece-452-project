@@ -170,12 +170,32 @@ class PathPresenter(
         nodes = path.nodes.filterNot { it.isBranchOut }
         completed.clear()
         completed += path.nodes.filter { it.completed && !it.isBranchOut }.map { it.id }
+
+        // The board goes up HERE, on the roadmap alone. Everything below is about the HUD — the
+        // account's XP level and its streak — and neither is a reason to hold back the thing the
+        // user actually tapped. The XP figure in particular costs a read of the WHOLE library,
+        // because an account-wide level cannot be computed from one roadmap; waiting for that
+        // before drawing this one is how a roadmap that is entirely on the device still took a
+        // visible pause to open.
+        emit()
+        loadAccountTotals()
+    }
+
+    /**
+     * Fills in the HUD's account-wide figures and re-renders.
+     *
+     * Separate from [load] so it can arrive in a second frame. Both reads are wrapped: a HUD that
+     * could not be read is a HUD that keeps its last values, which beats an exception unwinding
+     * the load and leaving a board that never appears.
+     */
+    private suspend fun loadAccountTotals() {
         // The account total, minus what this path contributes to it — the rest is added back from
-        // the live set above. A failed read leaves this at zero rather than going negative, which
-        // would show the user LESS XP than they have earned on this roadmap alone.
-        lessonsMasteredElsewhere =
+        // the live [completed] set. A failed read leaves this at zero rather than going negative,
+        // which would show the user LESS XP than they have earned on this roadmap alone.
+        lessonsMasteredElsewhere = runCatching {
             (repo.totalLessonsMastered() - completed.size).coerceAtLeast(0)
-        streak = userRepo.studyStreak()
+        }.getOrDefault(lessonsMasteredElsewhere)
+        streak = runCatching { userRepo.studyStreak() }.getOrDefault(streak)
         emit()
     }
 
@@ -352,11 +372,13 @@ class PathPresenter(
         // pure rule to the stored record, so the two cannot disagree.
         streak = streak.recordingStudy(todayEpochDay())
 
-        // Persist change to cloud
-        scope.launch {
-            repo.updateNodeCompletion(pathId, nodeId, true)
-            userRepo.recordStudyToday()
-        }
+        // Persist to the cloud. Two launches rather than one, because a Firestore write only
+        // RESOLVES when the server acknowledges it — offline it is applied locally and then waits,
+        // indefinitely, for a connection. Sequenced, that left the streak unrecorded for every
+        // lesson finished offline: it was queued behind a write that had already taken effect and
+        // was never going to return.
+        scope.launch { repo.updateNodeCompletion(pathId, nodeId, true) }
+        scope.launch { userRepo.recordStudyToday() }
 
         val newXp = xp()
         val newCurrent = currentId()

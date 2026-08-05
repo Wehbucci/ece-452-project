@@ -69,13 +69,13 @@ class SubtopicPresenter(
         completed = !completed
         view?.showCompleted(completed)
 
-        // Persist change to cloud
-        scope.launch {
-            repo.updateNodeCompletion(pathId, nodeId, completed)
-            // Only finishing something counts as studying. Un-ticking a lesson is a correction,
-            // and taking a day off the streak for it would punish fixing a mistake.
-            if (completed) userRepo.recordStudyToday()
-        }
+        // Persist change to cloud. Independently of each other: a Firestore write resolves only
+        // when the SERVER acknowledges it, so offline the first of these takes effect locally and
+        // then waits indefinitely — and anything sequenced behind it never runs at all.
+        scope.launch { repo.updateNodeCompletion(pathId, nodeId, completed) }
+        // Only finishing something counts as studying. Un-ticking a lesson is a correction, and
+        // taking a day off the streak for it would punish fixing a mistake.
+        if (completed) scope.launch { userRepo.recordStudyToday() }
     }
 
     override fun onAskAi() {

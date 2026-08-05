@@ -57,12 +57,13 @@ class TinkerPresenter(
         guide = updated
         view?.showGuide(updated)
 
-        scope.launch {
-            repo.updateTinkerStepCompletion(guideId, step.id, newDone)
-            // A finished step is worth what a finished lesson is (see `core.progress.Xp`), so it
-            // keeps a streak alive too. Un-ticking one does not.
-            if (newDone) userRepo.recordStudyToday()
-        }
+        // Independently of each other: a Firestore write resolves only when the SERVER
+        // acknowledges it, so offline the first takes effect locally and then waits indefinitely,
+        // and anything sequenced behind it never runs at all.
+        scope.launch { repo.updateTinkerStepCompletion(guideId, step.id, newDone) }
+        // A finished step is worth what a finished lesson is (see `core.progress.Xp`), so it keeps
+        // a streak alive too. Un-ticking one does not.
+        if (newDone) scope.launch { userRepo.recordStudyToday() }
     }
 
     override fun onAskAi() {
