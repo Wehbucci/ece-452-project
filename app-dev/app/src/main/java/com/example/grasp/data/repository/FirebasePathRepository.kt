@@ -267,27 +267,87 @@ class FirebasePathRepository : PathRepository {
     }
 
     /**
-     * The account's finished-lesson count, remembered between calls.
+     * The account's all-time finished-lesson count.
      *
-     * The interface's default recomputes this by reading the WHOLE library, and every roadmap open
-     * asks for it — the HUD shows an account-wide level, which one roadmap cannot produce on its
-     * own. Paying a full library scan to draw a board that is already in hand was the single
-     * biggest cost of opening anything, and it fell hardest offline.
+     * A DURABLE total, not the interface's default (a live sum over [savedItems]). That default
+     * is why deleting a roadmap used to cost the user the XP they had earned on it: the lessons no
+     * longer existed anywhere, so the recomputed sum came back smaller, even though finishing them
+     * was real work that already happened. [Xp] says as much — XP belongs to the ACCOUNT — but nothing
+     * actually stored it independently of the library until this field existed. Now the count only
+     * moves at the two places a lesson's completion genuinely changes ([nudgeMasteredTotal]), and
+     * everything else — deleting a topic, editing a roadmap's structure, losing network — leaves it
+     * exactly where it was.
      *
-     * Kept exact rather than merely fresh: the two places that change a completion adjust this by
-     * the same step they just wrote, and the places that can remove a completed item outright drop
-     * it. Static, like the other caches here, because each screen builds its own repository.
+     * [masteredTotal] is the in-memory copy read here first; every roadmap open asks for this, and
+     * a Firestore round trip to redraw a board that is already in hand was the single biggest cost
+     * of opening anything, felt hardest offline.
      */
     override suspend fun totalLessonsMastered(): Int {
         masteredTotal?.let { return it }
+        val uid = uid ?: return 0
         return withContext(Dispatchers.IO) {
-            savedItems().sumOf { it.lessonsMastered }.also { masteredTotal = it }
+            try {
+                val doc = readUserDoc(uid, networkMonitor.isOnline())
+                val total = doc?.getLong(LESSONS_MASTERED_TOTAL)?.toInt() ?: migrateMasteredTotal(uid)
+                masteredTotal = total
+                total
+            } catch (e: Exception) {
+                // [readUserDoc] rethrows when an online read fails, so a connected-but-unresponsive
+                // network reaches here — and both callers of this treat it as ordinary suspend
+                // work, not something that can fail. Nothing is cached: a real number is worth
+                // fetching properly next time, not freezing at whatever this guess was.
+                Log.e("FirebasePathRepo", "totalLessonsMastered failed", e)
+                0
+            }
         }
     }
 
-    /** Moves the memoised total by one, if we are holding one. */
-    private fun nudgeMasteredTotal(completed: Boolean) {
+    /**
+     * Backfills [LESSONS_MASTERED_TOTAL] for an account that predates it, from the best evidence
+     * still available: what is completed across whatever the account currently holds.
+     *
+     * That snapshot cannot see lessons whose roadmap was deleted before this shipped — there is no
+     * record of those left to read — so it is a floor, not a perfect history. It is only ever taken
+     * once: the write below is what makes the field exist, so every later call finds it and returns
+     * straight from Firestore instead of retracing this.
+     *
+     * The write is fired, not awaited — offline it would otherwise block the very read this backs,
+     * and the in-memory total the caller gets back is correct either way.
+     */
+    private suspend fun migrateMasteredTotal(uid: String): Int {
+        val legacy = savedItems().sumOf { it.lessonsMastered }
+        backgroundScope.launch {
+            try {
+                userDocRef(uid).set(mapOf(LESSONS_MASTERED_TOTAL to legacy), SetOptions.merge()).await()
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "failed to persist migrated lessonsMasteredTotal", e)
+            }
+        }
+        return legacy
+    }
+
+    /**
+     * Moves the account's durable lesson count by one, for a genuine change of completion state.
+     *
+     * Adjusts the in-memory copy immediately, so the caller's very next read is right, and fires
+     * the durable change on [backgroundScope] rather than awaiting it. [FieldValue.increment] is
+     * safe to issue offline: the SDK applies it to the local cache the moment it is called and
+     * reconciles with the server once reconnected, so this never needs the write to succeed before
+     * it can return — which matters here specifically, since XP now has to survive exactly the
+     * kind of disruption (a deletion, a lost connection) that used to erase it.
+     */
+    private fun nudgeMasteredTotal(uid: String, completed: Boolean) {
         masteredTotal = masteredTotal?.plus(if (completed) 1 else -1)?.coerceAtLeast(0)
+        backgroundScope.launch {
+            try {
+                userDocRef(uid).set(
+                    mapOf(LESSONS_MASTERED_TOTAL to FieldValue.increment(if (completed) 1L else -1L)),
+                    SetOptions.merge(),
+                ).await()
+            } catch (e: Exception) {
+                Log.e("FirebasePathRepo", "failed to sync lessonsMasteredTotal", e)
+            }
+        }
     }
 
     /**
@@ -1229,9 +1289,9 @@ class FirebasePathRepository : PathRepository {
             }
             // `after` IS the roadmap now, so it becomes what the next read returns.
             activePathCache = after
-            // A structural edit can delete a section the user had finished, so the account total
-            // has to be counted again rather than nudged.
-            if (after.nodes.size != before.nodes.size) masteredTotal = null
+            // The account's XP total is untouched even if this edit removed a finished section —
+            // same reasoning as deleteTopic: a structural change is not the user un-finishing a
+            // lesson, so it must not read as one. See [totalLessonsMastered].
             after
         }
 
@@ -1282,12 +1342,12 @@ class FirebasePathRepository : PathRepository {
             // Only move the account total if this is a real change of state — the presenter guards
             // against re-completing a node, but nothing here should depend on that.
             if (cached.nodes.firstOrNull { it.id == nodeId }?.completed != completed) {
-                nudgeMasteredTotal(completed)
+                nudgeMasteredTotal(uid, completed)
             }
             activePathCache = cached.copy(
                 nodes = cached.nodes.map { if (it.id == nodeId) it.copy(completed = completed) else it },
             )
-        } ?: nudgeMasteredTotal(completed)
+        } ?: nudgeMasteredTotal(uid, completed)
 
         try {
             // Use .set() with SetOptions.merge() instead of .update().
@@ -1312,7 +1372,7 @@ class FirebasePathRepository : PathRepository {
 
     override suspend fun updateTinkerStepCompletion(guideId: String, stepId: String, completed: Boolean) {
         val uid = uid ?: return
-        nudgeMasteredTotal(completed) // A finished step is XP too — see [totalLessonsMastered].
+        nudgeMasteredTotal(uid, completed) // A finished step is XP too — see [totalLessonsMastered].
         try {
             val docRef = topicsRef(uid).document(guideId)
 
@@ -1344,19 +1404,45 @@ class FirebasePathRepository : PathRepository {
         }
     }
 
+    /**
+     * Deletes a topic and every node under it.
+     *
+     * Issues the deletes and returns; does not wait for the server to confirm them.
+     *
+     * Calling `.delete()` applies the change to Firestore's LOCAL cache immediately — that part is
+     * synchronous and is what makes the item vanish from the next [savedItems] read. The `Task` it
+     * returns is a separate thing: it only completes once the server acknowledges the write, and
+     * offline that never happens. This used to `.await()` each one in turn, so offline the function
+     * simply never returned — and since [LibraryPresenter][com.example.grasp.ui.feature.library
+     * .LibraryPresenter] awaits it before re-reading the list, the item stayed on screen looking
+     * undeleted even though it was already gone from the cache underneath it. The deletes are
+     * finished off on [backgroundScope] instead, so a dead connection can delay the SERVER seeing
+     * it without delaying the USER seeing it.
+     */
     override suspend fun deleteTopic(pathId: String) {
         val uid = uid ?: return
         invalidatePathCache(pathId) // Nothing may hand this roadmap back once it is gone.
-        // Its finished lessons went with it, and how many that was is no longer knowable here.
-        masteredTotal = null
+        // The account's XP total is untouched: it is a durable ledger of lessons finished, not a
+        // sum over what still exists, and deleting the roadmap is not the same event as
+        // un-finishing the lessons on it. See [totalLessonsMastered].
         try {
-            val nodeCollection = nodesRef(uid, pathId)
-            val nodesSnapshot = nodeCollection.get().await()
-            for (document in nodesSnapshot.documents) {
-                document.reference.delete().await()
+            val source = if (networkMonitor.isOnline()) Source.DEFAULT else Source.CACHE
+            val nodesSnapshot = if (source == Source.DEFAULT) {
+                withTimeout(1500L) { nodesRef(uid, pathId).get(Source.DEFAULT).await() }
+            } else {
+                nodesRef(uid, pathId).get(Source.CACHE).await()
             }
-            topicsRef(uid).document(pathId).delete().await()
-            Log.d("FirebasePathRepo", "Deleted topic: $pathId")
+
+            val pending = nodesSnapshot.documents.map { it.reference.delete() } +
+                topicsRef(uid).document(pathId).delete()
+            backgroundScope.launch {
+                try {
+                    pending.forEach { it.await() }
+                    Log.d("FirebasePathRepo", "Deleted topic: $pathId")
+                } catch (e: Exception) {
+                    Log.e("FirebasePathRepo", "deleteTopic failed to sync for $pathId", e)
+                }
+            }
         } catch (e: Exception) {
             Log.e("FirebasePathRepo", "deleteTopic failed for $pathId", e)
         }
@@ -1574,6 +1660,16 @@ class FirebasePathRepository : PathRepository {
         const val STARTERS_SEEDED = "startersSeeded"
 
         /**
+         * User-document field: the account's all-time finished-lesson count.
+         *
+         * A durable ledger, not a snapshot — see [totalLessonsMastered] for why the distinction
+         * matters. Absent on any account that signed up before this field existed; [migrateMasteredTotal]
+         * is what backfills it exactly once, so a pre-existing account's real earned XP doesn't
+         * silently reset to zero the day this ships.
+         */
+        const val LESSONS_MASTERED_TOTAL = "lessonsMasteredTotal"
+
+        /**
          * The uid whose seeding has already been settled this run.
          *
          * Static because every screen builds its own repository instance, and without it the
@@ -1617,10 +1713,11 @@ class FirebasePathRepository : PathRepository {
         var activePathCache: LearningPath? = null
 
         /**
-         * The account's finished-lesson count once something has counted it.
+         * The account's all-time finished-lesson count, once something has read or moved it.
          *
-         * Null means "not counted yet", which is the only state that pays for a library read.
-         * See [totalLessonsMastered].
+         * An in-memory copy of [LESSONS_MASTERED_TOTAL], not a recomputation of it — the durable
+         * value lives in Firestore; this just saves a round-trip on every roadmap open. Null means
+         * "not fetched yet", the only state that pays for the read. See [totalLessonsMastered].
          */
         @Volatile
         var masteredTotal: Int? = null
