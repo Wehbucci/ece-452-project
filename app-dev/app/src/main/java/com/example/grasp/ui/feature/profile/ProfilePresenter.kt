@@ -18,9 +18,15 @@ import kotlinx.coroutines.withContext
 /**
  * Logic for the Profile tab: who is signed in, how far they have got, and signing out.
  *
- * The stats are computed HERE (not in the View) from the same saved paths the Library lists, so
- * the player card can never drift from the roadmap: one completed lesson is worth [Xp.PER_LESSON]
- * and [Xp.PER_LEVEL] makes a level — literally the same object the journey HUD reads.
+ * The stats are computed HERE (not in the View), and lessons-mastered specifically comes from
+ * [PathRepository.totalLessonsMastered] rather than being re-summed from [SavedItem.lessonsMastered]
+ * over the current library — the same durable account total the roadmap HUD reads, not a fresh
+ * count over whatever still exists. This card used to do its own sum, which is exactly how it and
+ * the HUD could each survive a deleted roadmap differently: one clawed the XP back, the other
+ * (once fixed) didn't, and the two screens told the user a different level for the same account.
+ * `pathsStarted`/`pathsFinished` are the opposite case — those SHOULD reflect the current library,
+ * since deleting a path is supposed to remove it from that count — so they still come from the
+ * live list.
  */
 class ProfilePresenter(
     private val repo: PathRepository = FirebasePathRepository(),
@@ -45,7 +51,9 @@ class ProfilePresenter(
             )
 
             // Repository reads still block (see PathRepository's NOTE) — keep them off Main.
-            val stats = withContext(Dispatchers.IO) { statsFor(repo.savedItems()) }
+            val stats = withContext(Dispatchers.IO) {
+                statsFor(repo.savedItems(), repo.totalLessonsMastered())
+            }
             view?.showStats(stats)
             view?.showStatsLoading(false)
         }
@@ -70,14 +78,14 @@ class ProfilePresenter(
     }
 
     /**
-     * Rolls every saved path/guide up into one player card.
+     * Rolls the account's standing into one player card.
      *
-     * Both what counts as a finished lesson ([SavedItem.lessonsMastered]) and what it is worth
-     * ([Xp]) come from shared definitions rather than being re-stated here, which is what keeps
-     * this card and the roadmap HUD showing the same level for the same account.
+     * [lessonsMastered] is the durable account total (see the class doc); [items] supplies only
+     * the two figures that are legitimately about the CURRENT library, not the account's history.
+     * What it is worth ([Xp]) comes from the shared definition rather than being re-stated here,
+     * which is what keeps this card and the roadmap HUD agreeing on a level for the same account.
      */
-    private fun statsFor(items: List<SavedItem>): ProfileStats {
-        val lessonsMastered = items.sumOf { it.lessonsMastered }
+    private fun statsFor(items: List<SavedItem>, lessonsMastered: Int): ProfileStats {
         val xp = Xp.forLessons(lessonsMastered)
         return ProfileStats(
             pathsStarted = items.size,
